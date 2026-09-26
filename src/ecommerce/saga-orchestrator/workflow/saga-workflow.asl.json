@@ -1,0 +1,174 @@
+{
+  "Comment": "Saga workflow for order processing",
+  "StartAt": "CreateOrder",
+  "States": {
+    "CreateOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:OrdersFunction",
+        "Payload": {
+          "action": "createOrder",
+          "input.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "CompensateReleaseStock"
+        }
+      ],
+      "Next": "ProcessPayment"
+    },
+    "ProcessPayment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:PaymentFunction",
+        "Payload": {
+          "action": "processPayment",
+          "input.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "CompensateReleaseStock"
+        }
+      ],
+      "Next": "ReserveStock"
+    },
+    "ReserveStock": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:StockFunction",
+        "Payload": {
+          "action": "reserveStock",
+          "input.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "CompensateReleaseStock"
+        }
+      ],
+      "Next": "ConfirmOrder"
+    },
+    "ConfirmOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:OrdersFunction",
+        "Payload": {
+          "action": "confirmOrder",
+          "input.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "CompensateReleaseStock"
+        }
+      ],
+      "End": true
+    },
+    "CompensateReleaseStock": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:StockFunction",
+        "Payload": {
+          "action": "releaseStock",
+          "input.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5
+        }
+      ],
+      "Next": "CompensateCreateOrder"
+    },
+    "CompensateCreateOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:OrdersFunction",
+        "Payload": {
+          "action": "cancelOrder",
+          "input.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5
+        }
+      ],
+      "Next": "CompensateRefundPayment"
+    },
+    "CompensateRefundPayment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:PaymentFunction",
+        "Payload": {
+          "action": "refundPayment",
+          "input.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5
+        }
+      ],
+      "End": true
+    }
+  }
+}

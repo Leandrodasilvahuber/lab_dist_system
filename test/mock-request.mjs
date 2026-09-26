@@ -1,4 +1,4 @@
-import { log } from '../src/shared/logger.mjs';
+import { log } from '../src/common/logger.mjs';
 
 console.log('\n🛒 DISTRIBUTED SYSTEMS PLAYGROUND - E-COMMERCE MODULE\n');
 console.log('=====================================================\n');

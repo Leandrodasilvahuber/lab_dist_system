@@ -1,0 +1,14 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "distributed-ecommerce-system"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+disable_rollback = false
+image_repositories = []
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket"
+s3_prefix = "distributed-ecommerce-system/"
+parameter_overrides = "Environment=dev"
+fail_on_empty_changeset = true

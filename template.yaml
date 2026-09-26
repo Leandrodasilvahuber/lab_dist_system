@@ -1,0 +1,452 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Distributed E-Commerce System with Saga Pattern
+  - Each service has its own database instance
+  - API Gateway routes to individual Lambda functions
+  - Saga pattern for distributed transactions
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    Description: Environment name
+
+Resources:
+  # API Gateway EXTERNA (para front-end/clientes)
+  ApiGatewayExternal:
+    Type: AWS::ServerlessApi
+    Properties:
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+      Description: "API Gateway para endpoints públicos externos"
+
+  # Lambda functions - each service has its own Lambda (sem eventos de API Gateway, acessados só via Step Functions)
+  HealthFunction:
+    Type: AWS::ServerlessFunction
+    Properties:
+      CodeUri: src/common/
+      Handler: health.handler
+      Runtime: nodejs18.x
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+
+  ProductFunction:
+    Type: AWS::ServerlessFunction
+    Properties:
+      CodeUri: src/ecommerce/products/
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SERVICE_TYPE: product
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProductsTable
+
+  OrderFunction:
+    Type: AWS::ServerlessFunction
+    Properties:
+      CodeUri: src/ecommerce/orders/
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SERVICE_TYPE: order
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+
+  PaymentFunction:
+    Type: AWS::ServerlessFunction
+    Properties:
+      CodeUri: src/ecommerce/payments/
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SERVICE_TYPE: payment
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentsTable
+
+  StockFunction:
+    Type: AWS::ServerlessFunction
+    Properties:
+      CodeUri: src/ecommerce/stock/
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SERVICE_TYPE: stock
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref StockTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref StockReservationsTable
+
+  # Product Service
+  ProductFunction:
+    Type: AWS::ServerlessFunction
+    Properties:
+      CodeUri: src/ecommerce/products/
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SERVICE_TYPE: product
+      Events:
+        GetProducts:
+          Type: Api
+          Properties:
+            Path: /products
+            Method: GET
+            RestApiId: !Ref ApiGateway
+        GetProduct:
+          Type: Api
+          Properties:
+            Path: /products/{id}
+            Method: GET
+            RestApiId: !Ref ApiGateway
+        CreateProduct:
+          Type: Api
+          Properties:
+            Path: /products
+            Method: POST
+            RestApiId: !Ref ApiGateway
+
+  # Order Service
+  OrderFunction:
+    Type: AWS::ServerlessFunction
+    Properties:
+      CodeUri: src/ecommerce/orders/
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SERVICE_TYPE: order
+      Events:
+        GetOrders:
+          Type: Api
+          Properties:
+            Path: /orders
+            Method: GET
+            RestApiId: !Ref ApiGateway
+        GetOrder:
+          Type: Api
+          Properties:
+            Path: /orders/{id}
+            Method: GET
+            RestApiId: !Ref ApiGateway
+        CreateOrder:
+          Type: Api
+          Properties:
+            Path: /orders
+            Method: POST
+            RestApiId: !Ref ApiGateway
+        ConfirmOrder:
+          Type: Api
+          Properties:
+            Path: /orders/confirm
+            Method: POST
+            RestApiId: !Ref ApiGateway
+        CancelOrder:
+          Type: Api
+          Properties:
+            Path: /orders/cancel
+            Method: POST
+            RestApiId: !Ref ApiGateway
+
+  # Payment Service
+  PaymentFunction:
+    Type: AWS::ServerlessFunction
+    Properties:
+      CodeUri: src/ecommerce/payments/
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SERVICE_TYPE: payment
+      Events:
+        ProcessPayment:
+          Type: Api
+          Properties:
+            Path: /payments
+            Method: POST
+            RestApiId: !Ref ApiGateway
+        RefundPayment:
+          Type: Api
+          Properties:
+            Path: /payments/refund
+            Method: POST
+            RestApiId: !Ref ApiGateway
+
+  # Stock Service
+  StockFunction:
+    Type: AWS::ServerlessFunction
+    Properties:
+      CodeUri: src/ecommerce/stock/
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SERVICE_TYPE: stock
+      Events:
+        GetStock:
+          Type: Api
+          Properties:
+            Path: /stock
+            Method: GET
+            RestApiId: !Ref ApiGateway
+        GetStockItem:
+          Type: Api
+          Properties:
+            Path: /stock/{productId}
+            Method: GET
+            RestApiId: !Ref ApiGateway
+        ReserveStock:
+          Type: Api
+          Properties:
+            Path: /stock/{productId}/reserve
+            Method: POST
+            RestApiId: !Ref ApiGateway
+        ReleaseStock:
+          Type: Api
+          Properties:
+            Path: /stock/{productId}/release
+            Method: POST
+            RestApiId: !Ref ApiGateway
+        AdjustStock:
+          Type: Api
+          Properties:
+            Path: /stock/{productId}/adjust
+            Method: POST
+            RestApiId: !Ref ApiGateway
+
+  # EventBridge Rules for internal communication
+  OrderCreatedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: OrderCreatedRule
+      EventPattern:
+        source:
+          - "orders"
+        detail-type:
+          - "OrderCreated"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt PaymentFunction.Arn
+          Id: PaymentTarget
+
+  PaymentProcessedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: PaymentProcessedRule
+      EventPattern:
+        source:
+          - "payments"
+        detail-type:
+          - "PaymentProcessed"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt StockFunction.Arn
+          Id: StockTarget
+
+  StockReservedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: StockReservedRule
+      EventPattern:
+        source:
+          - "stock"
+        detail-type:
+          - "StockReserved"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt OrderFunction.Arn
+          Id: OrderTarget
+
+  OrderConfirmedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: OrderConfirmedRule
+      EventPattern:
+        source:
+          - "orders"
+        detail-type:
+          - "OrderConfirmed"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ProductFunction.Arn
+          Id: ProductTarget
+
+  # SQS Dead-letter Queue
+  OrderEventsDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${Environment}-OrderEventsDlq'
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600
+
+  OrderEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${Environment}-OrderEventsQueue'
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OrderEventsDlq.Arn
+        maxReceiveCount: 5
+
+  OrderEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      QueueUrl: !GetAtt OrderEventsQueue.Arn
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: "sqs:SendMessage"
+            Resource: !GetAtt OrderEventsQueue.Arn
+
+  # DynamoDB Tables
+  ProductsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-Products'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-Orders'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  PaymentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-Payments'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  StockTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-Stock'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  StockReservationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-StockReservations'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  # Saga Orchestrator Table - Stores saga state and execution tracking
+  SagasTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-Sagas'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: OrderIdIndex
+          KeySchema:
+            - AttributeName: orderId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enable: true
+
+Outputs:
+  ApiGatewayUrl:
+    Description: "API Gateway URL (público)"
+    Value: !Sub "https://${ApiGatewayExternal}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+
+  ProductsTable:
+    Description: "Products DynamoDB Table Name"
+    Value: !Ref ProductsTable
+
+  OrdersTable:
+    Description: "Orders DynamoDB Table Name"
+    Value: !Ref OrdersTable
+
+  PaymentsTable:
+    Description: "Payments DynamoDB Table Name"
+    Value: !Ref PaymentsTable
+
+  StockTable:
+    Description: "Stock DynamoDB Table Name"
+    Value: !Ref StockTable
+
+  StockReservationsTable:
+    Description: "Stock Reservations DynamoDB Table Name"
+    Value: !Ref StockReservationsTable
+
+  SagaOrchestratorFunction:
+    Description: "Saga Orchestrator Lambda Function"
+    Value: !Ref SagaOrchestratorFunction
+
+  SagasTable:
+    Description: "Sagas DynamoDB Table Name"
+    Value: !Ref SagasTable
