@@ -1,13 +1,14 @@
-import { jest } from 'jest';
+import { describe, it, beforeEach, expect } from 'node:test';
+import assert from 'node:assert';
 
 // Mocks
-jest.mock('../../../src/common/database.mjs');
-jest.mock('../../../src/common/logger.mjs');
+import { mockDatabase } from '../../../src/common/database.mjs';
+import { mockLogger } from '../../../src/common/logger.mjs';
 
 const { Database } = require('../../../src/common/database.mjs');
 const { log, createLogContext } = require('../../../src/common/logger.mjs');
 
-describe('Saga Orchestrator', () => {
+describe('Saga Orchestrator');
   let mockDb;
   const mockLog = jest.fn();
   const mockCreateLogContext = jest.fn();

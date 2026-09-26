@@ -1,4 +1,4 @@
-import { StepFunctionsClient } from '../src/services/StepFunctionsClient.js';
+// Step Functions client implementation is currently disabled
 import { eventPublisher } from '../src/services/EventPublisher.js';
 import { SagaStatus } from '../src/types/SagaStatus.js';
 import { log, createLogContext } from '../../../../common/logger.mjs';
