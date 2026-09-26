@@ -1,0 +1,32 @@
+{
+  "products": [
+    {
+      "id": "apple",
+      "name": "Apple",
+      "price": 5.99,
+      "stock": 10,
+      "ordersInProgress": 0
+    },
+    {
+      "id": "banana",
+      "name": "Banana",
+      "price": 3.49,
+      "stock": 15,
+      "ordersInProgress": 0
+    },
+    {
+      "id": "orange",
+      "name": "Orange",
+      "price": 4.99,
+      "stock": 20,
+      "ordersInProgress": 0
+    },
+    {
+      "id": "grape",
+      "name": "Grape",
+      "price": 8.99,
+      "stock": 30,
+      "ordersInProgress": 0
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "distributed-systems-playground-ecommerce",
+  "version": "1.0.0",
+  "description": "E-commerce module with Saga pattern for distributed systems playground",
+  "type": "module",
+  "scripts": {
+    "test": "node test/mock-request.mjs",
+    "test:unit": "node --test test/unit/**/*.test.mjs",
+    "test:watch": "node --test --watch test/unit/**/*.test.mjs",
+    "test:coverage": "c8 node --test test/unit/**/*.test.mjs",
+    "lint": "eslint src/ test/",
+    "lint:fix": "eslint src/ test/ --fix"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.578.0",
+    "@aws-sdk/lib-dynamodb": "^3.578.0",
+    "uuid": "^9.0.1",
+    "aws-sdk": "^2.1500.0"
+  },
+  "devDependencies": {
+    "c8": "^8.0.1",
+    "eslint": "^8.57.0",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-n": "^16.6.2",
+    "eslint-plugin-promise": "^6.1.1"
+  },
+  "eslintConfig": {
+    "extends": ["standard"],
+    "env": {
+      "node": true,
+      "esm": true
+    },
+    "parserOptions": {
+      "ecmaVersion": 2022
+    }
+  }
+}
