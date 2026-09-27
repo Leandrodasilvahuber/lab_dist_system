@@ -1,10 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Distributed E-Commerce System with Saga Pattern
-  - Each service has its own database instance
-  - API Gateway routes to individual Lambda functions
-  - Saga pattern for distributed transactions
+  E-Commerce System com Saga Pattern - API Gateway Centralizado
+  - SDKs por serviço com desacoplamento total
+  - EventBridge como camada de comunicação
+  - API Gateway centralizada para todos os endpoints
 
 Parameters:
   Environment:
@@ -13,75 +13,86 @@ Parameters:
     Description: Environment name
 
 Resources:
-  # API Gateway EXTERNA (para front-end/clientes)
-  ApiGatewayExternal:
-    Type: AWS::ServerlessApi
+  # API Gateway Centralizado (HttpApi)
+  ApiGateway:
+    Type: AWS::Serverless::HttpApi
     Properties:
       StageName: !Ref Environment
-      Cors:
+      CorsConfiguration:
+        AllowOrigins: "'*'"
         AllowMethods: "'*'"
         AllowHeaders: "'*'"
-        AllowOrigin: "'*'"
-      Description: "API Gateway para endpoints públicos externos"
+      Auth:
+        DefaultAuthorizer: NONE
+        Authorizers:
+          JWT:
+            Type: JWT
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: https://cognito-idp.<REGION>.amazonaws.com/<POOL_ID>
+              audience:
+                - <CLIENT_ID>
+      Description: "API Gateway centralizado para todos os endpoints"
 
-  # Lambda functions - each service has its own Lambda (sem eventos de API Gateway, acessados só via Step Functions)
-  HealthFunction:
+  # Gateway Function - Roteamento centralizado
+  GatewayFunction:
     Type: AWS::ServerlessFunction
     Properties:
-      CodeUri: src/common/
-      Handler: health.handler
+      CodeUri: src/layers/api-gateway-layer/
+      Handler: src/routes/apiRoutes.handler
       Runtime: nodejs18.x
       Architectures: [arm64]
       Environment:
         Variables:
           ENVIRONMENT: !Ref Environment
-
-  SagaOrchestratorFunction:
-    Type: AWS::ServerlessFunction
-    Properties:
-      CodeUri: src/ecommerce/saga-orchestrator/
-      Handler: src/routes/sagaRoutes.handler
-      Runtime: nodejs18.x
-      Architectures: [arm64]
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          SERVICE_TYPE: saga-orchestrator
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+            ApiId: !Ref ApiGateway
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProductsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref StockReservationsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref SagasTable
 
-  # Product Service
-  ProductFunction:
-    Type: AWS::ServerlessFunction
-    Properties:
-      CodeUri: src/ecommerce/products/
-      Handler: index.handler
-      Runtime: nodejs18.x
-      Architectures: [arm64]
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          SERVICE_TYPE: product
-      Events:
-        GetProducts:
-          Type: Api
-          Properties:
-            Path: /products
-            Method: GET
-            RestApiId: !Ref ApiGateway
-        GetProduct:
-          Type: Api
-          Properties:
-            Path: /products/{id}
-            Method: GET
-            RestApiId: !Ref ApiGateway
-        CreateProduct:
-          Type: Api
-          Properties:
-            Path: /products
-            Method: POST
-            RestApiId: !Ref ApiGateway
+Outputs:
+  ApiGatewayUrl:
+    Description: "API Gateway URL (público)"
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+
+  ApiGatewayId:
+    Description: "API Gateway ID"
+    Value: !Ref ApiGateway
+
+  # DynamoDB Tables (referenciadas pela API Gateway)
+  ProductsTable:
+    Description: "Products DynamoDB Table"
+    Value: !Ref ProductsTable
+
+  OrdersTable:
+    Description: "Orders DynamoDB Table"
+    Value: !Ref OrdersTable
+
+  PaymentsTable:
+    Description: "Payments DynamoDB Table"
+    Value: !Ref PaymentsTable
+
+  StockReservationsTable:
+    Description: "Stock Reservations DynamoDB Table"
+    Value: !Ref StockReservationsTable
+
+  SagasTable:
+    Description: "Sagas DynamoDB Table"
+    Value: !Ref SagasTable
 
   # Order Service
   OrderFunction:

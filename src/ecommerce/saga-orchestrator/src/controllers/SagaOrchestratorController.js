@@ -1,25 +1,42 @@
-// Step Functions client implementation is currently disabled
 import { log, createLogContext } from '../../../../common/logger.mjs';
 import { successResponse, errorResponse } from '../../../../common/response.mjs';
+import { ProductSDK } from '../../../common/sdks/index.mjs';
+import { OrderSDK } from '../../../common/sdks/index.mjs';
+import { PaymentSDK } from '../../../common/sdks/index.mjs';
+import { StockSDK } from '../../../common/sdks/index.mjs';
+
+// EventBridge cliente - em produção usar AWS SDK
+const eventBridgeClient = {
+  publish: async (event) => {
+    console.log('Event published:', event);
+    return Promise.resolve();
+  }
+};
+
+// Inicializar SDKs com EventBridge
+const productSDK = new ProductSDK(eventBridgeClient);
+const orderSDK = new OrderSDK(eventBridgeClient);
+const paymentSDK = new PaymentSDK(eventBridgeClient);
+const stockSDK = new StockSDK(eventBridgeClient);
 
 export class SagaOrchestratorController {
   static async executeSaga(event) {
     try {
       const { correlationId, idempotencyKey } = event.headers || {};
       const body = event.body ? JSON.parse(event.body) : {};
-      const { orderId, productId, quantity } = body;
+      const { productId, quantity } = body;
 
       log({
         event: 'SAGA_EXECUTE_REQUEST',
         correlationId,
         status: 'info',
         message: `Execute saga request received`,
-        data: { orderId, productId, quantity }
+        data: { productId, quantity }
       });
 
       // Validate required fields
-      if (!orderId || !productId || quantity === undefined) {
-        return errorResponse('Missing required fields: orderId, productId, quantity', 400);
+      if (!productId || quantity === undefined) {
+        return errorResponse('Missing required fields: productId, quantity', 400);
       }
 
       // Validate quantity
@@ -28,19 +45,11 @@ export class SagaOrchestratorController {
       }
 
       // Validar se produto existe
-      const ProductFunction = (await import('../products/src/controllers/ProductController.js')).default;
-      const productResult = await ProductFunction.getProducts(event, { id: productId });
-
-      if (productResult.statusCode === 404 || (productResult.body && JSON.parse(productResult.body).items?.length === 0)) {
-        return errorResponse(`Product not found: ${productId}`, 404);
-      }
-
-      const product = JSON.parse(productResult.body).items?.[0];
+      const product = await productSDK.getProduct(productId);
       const total = product.price * quantity;
 
       log({
         event: 'SAGA_VALIDATION_SUCCESS',
-        orderId,
         productId,
         quantity,
         total,
@@ -48,14 +57,23 @@ export class SagaOrchestratorController {
         status: 'info'
       });
 
-      // Saga não implementada ainda
-      // Step Functions não está ativo nesta arquitetura
+      // Executar saga usando SDKs
+      const saga = await this.executeSagaWithSDKs({
+        productId,
+        quantity,
+        total,
+        correlationId,
+        idempotencyKey
+      });
+
       return successResponse({
-        message: 'Saga pattern não implementado nesta versão',
-        status: 'NOT_IMPLEMENTED',
-        orderId,
+        sagaId: saga.sagaId,
+        orderId: saga.orderId,
+        paymentId: saga.paymentId,
+        stockReservationId: saga.stockReservationId,
+        status: saga.status,
         correlationId
-      }, 501);
+      });
 
     } catch (error) {
       log({
@@ -68,6 +86,39 @@ export class SagaOrchestratorController {
 
       return errorResponse(`Saga execution error: ${error.message}`, 500, error);
     }
+  }
+
+  static async executeSagaWithSDKs({ productId, quantity, total, correlationId, idempotencyKey }) {
+    const sagaId = `saga_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Criar pedido
+    const order = await orderSDK.createOrder({
+      productId,
+      quantity,
+      correlationId: sagaId
+    });
+
+    // Processar pagamento
+    const payment = await paymentSDK.processPayment({
+      orderId: order.id,
+      amount: total,
+      correlationId: sagaId
+    });
+
+    // Reservar estoque
+    const stock = await stockSDK.reserveStock({
+      productId,
+      quantity,
+      correlationId: sagaId
+    });
+
+    return {
+      sagaId,
+      orderId: order.id,
+      paymentId: payment.id,
+      stockReservationId: stock.id,
+      status: 'completed'
+    };
   }
 
   static async getSaga(event) {
