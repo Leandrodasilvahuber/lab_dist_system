@@ -36,6 +36,21 @@ Resources:
         Variables:
           ENVIRONMENT: !Ref Environment
 
+  SagaOrchestratorFunction:
+    Type: AWS::ServerlessFunction
+    Properties:
+      CodeUri: src/ecommerce/saga-orchestrator/
+      Handler: src/routes/sagaRoutes.handler
+      Runtime: nodejs18.x
+      Architectures: [arm64]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SERVICE_TYPE: saga-orchestrator
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SagasTable
+
   # Product Service
   ProductFunction:
     Type: AWS::ServerlessFunction
