@@ -1,4 +1,4 @@
-import { Database } from '../../database.mjs';
+import { DynamoDBClientClass } from '../../common/database.js';
 
 /**
  * SDK Público - Interface uniforme para operações de pedido
@@ -15,7 +15,7 @@ export class OrderSDK {
     const correlationId = orderData.correlationId || generateCorrelationId();
 
     // Calcular total
-    const product = await Database.get('Products', orderData.productId);
+    const product = await Database.getItem('Products', { id: orderData.productId });
     if (!product) {
       throw new Error('Product not found');
     }
@@ -32,7 +32,7 @@ export class OrderSDK {
       createdAt: new Date().toISOString()
     };
 
-    await Database.put('Orders', order.id, order);
+    await Database.putItem('Orders', order);
     return order;
   }
 
@@ -40,7 +40,7 @@ export class OrderSDK {
    * Buscar pedido por ID
    */
   async getOrder(orderId) {
-    const order = await Database.get('Orders', orderId);
+    const order = await Database.getItem('Orders', { id: orderId });
     if (!order) {
       throw new Error('Order not found');
     }
@@ -59,7 +59,7 @@ export class OrderSDK {
 
     order.status = 'cancelled';
     order.updatedAt = new Date().toISOString();
-    await Database.put('Orders', orderId, order);
+    await Database.putItem('Orders', order);
 
     // Em produção, publicar evento
     if (this.eventBridgeClient) {
@@ -80,7 +80,7 @@ export class OrderSDK {
    * Listar pedidos
    */
   async listOrders(filters = {}) {
-    const allOrders = await Database.scan('Orders');
+    const allOrders = await DynamoDBClientClass.queryItems('Orders');
     return allOrders.filter(order => {
       if (filters.status && order.status !== filters.status) {
         return false;
@@ -109,3 +109,5 @@ function generateId() {
 function generateCorrelationId() {
   return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
+
+export default OrderSDK;

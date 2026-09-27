@@ -7,7 +7,7 @@
 
 import { spawn } from 'child_process';
 
-const TEST_CORRELATION_ID = 'test-external-endpoints-' + Date.now();
+const TEST_CORRELATION_ID = 'test-endpoints-' + Date.now();
 const BASE_URL = 'http://localhost:3001';
 
 const testEndpoints = async () => {
@@ -69,7 +69,7 @@ const testEndpoints = async () => {
     // Test 3: Get Products
     try {
       const products = await new Promise((resolve, reject) => {
-        const child = spawn('curl', ['-s', 'http://localhost:3000/api/ecommerce/products'], {
+        const child = spawn('curl', ['-s', 'http://localhost:3001/api/ecommerce/products'], {
           stdio: ['ignore', 'pipe', 'pipe']
         });
 
@@ -101,7 +101,7 @@ const testEndpoints = async () => {
           '-s', '-X', 'POST',
           '-H', 'Content-Type: application/json',
           '-d', orderData,
-          'http://localhost:3000/api/ecommerce/orders'
+          'http://localhost:3001/api/ecommerce/orders'
         ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
         let stdout = '';
@@ -129,7 +129,7 @@ const testEndpoints = async () => {
             '-s', '-X', 'POST',
             '-H', 'Content-Type: application/json',
             '-d', paymentData,
-            'http://localhost:3000/api/ecommerce/payments'
+            'http://localhost:3001/api/ecommerce/payments'
           ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
           let stdout = '';
@@ -154,7 +154,7 @@ const testEndpoints = async () => {
             '-s', '-X', 'POST',
             '-H', 'Content-Type: application/json',
             '-d', JSON.stringify({ quantity: 2 }),
-            'http://localhost:3000/api/ecommerce/stock/' + productId + '/reserve'
+            'http://localhost:3001/api/ecommerce/stock/' + productId + '/reserve'
           ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
           let stdout = '';
@@ -175,7 +175,7 @@ const testEndpoints = async () => {
       // Test 7: Get Stock
       try {
         const stockResponse = await new Promise((resolve, reject) => {
-          const child = spawn('curl', ['-s', 'http://localhost:3000/api/ecommerce/stock'], {
+          const child = spawn('curl', ['-s', 'http://localhost:3001/api/ecommerce/stock'], {
             stdio: ['ignore', 'pipe', 'pipe']
           });
 
@@ -208,7 +208,7 @@ const testEndpoints = async () => {
             '-s', '-X', 'POST',
             '-H', 'Content-Type: application/json',
             '-d', sagaData,
-            'http://localhost:3000/api/ecommerce/saga/orders'
+            'http://localhost:3001/api/ecommerce/saga/orders'
           ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
           let stdout = '';

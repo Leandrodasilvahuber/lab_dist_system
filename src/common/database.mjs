@@ -15,9 +15,7 @@ async function getTable(tableType) {
   return tables[tableType] || tableType;
 }
 
-export { getTable };
-
-export async function putItem(tableType, item) {
+async function putItem(tableType, item) {
   const table = await getTable(tableType);
   const command = new PutCommand({
     TableName: table,
@@ -28,7 +26,7 @@ export async function putItem(tableType, item) {
   return Attributes;
 }
 
-export async function getItem(tableType, key) {
+async function getItem(tableType, key) {
   const table = await getTable(tableType);
   const command = new GetCommand({
     TableName: table,
@@ -39,7 +37,7 @@ export async function getItem(tableType, key) {
   return Item;
 }
 
-export async function queryItems(tableType, queryParams) {
+async function queryItems(tableType, queryParams) {
   const table = await getTable(tableType);
   const command = new QueryCommand({
     TableName: table,
@@ -50,7 +48,7 @@ export async function queryItems(tableType, queryParams) {
   return Items;
 }
 
-export async function updateItem(tableType, key, updateExpression, expressionAttributeValues) {
+async function updateItem(tableType, key, updateExpression, expressionAttributeValues) {
   const table = await getTable(tableType);
   const command = new UpdateCommand({
     TableName: table,
@@ -64,7 +62,7 @@ export async function updateItem(tableType, key, updateExpression, expressionAtt
   return Attributes;
 }
 
-export async function scanItems(tableType) {
+async function scanItems(tableType) {
   const table = await getTable(tableType);
   const command = new ScanCommand({
     TableName: table
@@ -73,8 +71,6 @@ export async function scanItems(tableType) {
   const { Items } = await docClient.send(command);
   return Items;
 }
-
-export { docClient, tables };
 
 // Database class wrapper for testing
 export class Database {
@@ -102,3 +98,8 @@ export class Database {
     return scanItems(tableType);
   }
 }
+
+export { docClient, tables };
+export default Database;
+export { putItem, getItem, queryItems, updateItem, scanItems };
+export { getTable };

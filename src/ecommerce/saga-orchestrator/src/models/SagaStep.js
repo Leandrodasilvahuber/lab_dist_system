@@ -1,5 +1,7 @@
 import { SagaStepStatus, isValidStepTransition, isTerminalStepStatus } from '../types/SagaStepStatus.js';
 
+export { SagaStepStatus, SagaStep };
+
 export class SagaStep {
   constructor(data) {
     this.id = data.id;

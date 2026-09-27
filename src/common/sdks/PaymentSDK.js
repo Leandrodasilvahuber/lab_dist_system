@@ -1,4 +1,4 @@
-import { Database } from '../../database.mjs';
+import { DynamoDBClientClass } from '../../common/database.js';
 
 /**
  * SDK Público - Interface uniforme para operações de pagamento
@@ -24,7 +24,7 @@ export class PaymentSDK {
       createdAt: new Date().toISOString()
     };
 
-    await Database.put('Payments', payment.id, payment);
+    await Database.putItem('Payments', payment);
     return payment;
   }
 
@@ -32,7 +32,7 @@ export class PaymentSDK {
    * Buscar pagamento por ID
    */
   async getPayment(paymentId) {
-    const payment = await Database.get('Payments', paymentId);
+    const payment = await Database.getItem('Payments', { id: paymentId });
     if (!payment) {
       throw new Error('Payment not found');
     }
@@ -52,7 +52,7 @@ export class PaymentSDK {
     payment.status = 'refunded';
     payment.refundedAt = new Date().toISOString();
     payment.refundAmount = amount;
-    await Database.put('Payments', payment.id, payment);
+    await Database.putItem('Payments', payment);
 
     // Em produção, publicar evento
     if (this.eventBridgeClient) {
@@ -75,7 +75,7 @@ export class PaymentSDK {
    * Buscar pagamento por transaction ID
    */
   async getPaymentByTransactionId(transactionId) {
-    const allPayments = await Database.scan('Payments');
+    const allPayments = await DynamoDBClientClass.queryItems('Payments');
     return allPayments.find(p => p.transactionId === transactionId);
   }
 }
@@ -93,3 +93,5 @@ function generateTransactionId() {
 function generateCorrelationId() {
   return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
+
+export default PaymentSDK;

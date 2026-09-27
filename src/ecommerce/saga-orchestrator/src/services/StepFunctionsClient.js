@@ -1,4 +1,4 @@
-import { StepFunctions } from '@aws-sdk/client-stepfunctions';
+import { StepFunctions } from '@aws-sdk/client-sfn';
 import { log, createLogContext } from '../../../../common/logger.mjs';
 import { DynamoDB } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocument } from '@aws-sdk/lib-dynamodb';
@@ -345,7 +345,7 @@ export class StepFunctionsClient {
 
 // Importação dinâmica dos comandos
 const { StartExecutionCommand, DescribeExecutionCommand, StopExecutionCommand } =
-  await import('@aws-sdk/client-stepfunctions');
+  await import('@aws-sdk/client-sfn');
 
 // Expor instância singleton
 export const stepFunctionsClient = new StepFunctionsClient();

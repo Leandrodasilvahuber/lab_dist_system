@@ -1,4 +1,4 @@
-import { Database } from '../../database.mjs';
+import { DynamoDBClientClass } from '../../common/database.js';
 
 /**
  * SDK Público - Interface uniforme para operações de produto
@@ -35,7 +35,7 @@ export class ProductSDK {
       createdAt: new Date().toISOString()
     };
 
-    await Database.put('Products', product.id, product);
+    await Database.putItem('Products', product);
     return product;
   }
 
@@ -43,7 +43,7 @@ export class ProductSDK {
    * Buscar produto por ID
    */
   async getProduct(productId) {
-    const product = await Database.get('Products', productId);
+    const product = await Database.getItem('Products', { id: productId });
     if (!product) {
       throw new Error('Product not found');
     }
@@ -54,7 +54,7 @@ export class ProductSDK {
    * Listar produtos
    */
   async listProducts(filters = {}) {
-    const allProducts = await Database.scan('Products');
+    const allProducts = await DynamoDBClientClass.queryItems('Products');
     return allProducts.filter(product => {
       if (filters.name && !product.name.toLowerCase().includes(filters.name.toLowerCase())) {
         return false;
@@ -79,7 +79,7 @@ export class ProductSDK {
       ...updates,
       updatedAt: new Date().toISOString()
     };
-    await Database.put('Products', productId, updatedProduct);
+    await Database.putItem('Products', updatedProduct);
     return updatedProduct;
   }
 
@@ -106,3 +106,5 @@ function generateId() {
 function generateCorrelationId() {
   return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
+
+export default ProductSDK;

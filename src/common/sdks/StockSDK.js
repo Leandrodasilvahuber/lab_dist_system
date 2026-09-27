@@ -1,4 +1,4 @@
-import { Database } from '../../database.mjs';
+import { DynamoDBClientClass } from '../../common/database.js';
 
 /**
  * SDK Público - Interface uniforme para operações de estoque
@@ -21,7 +21,7 @@ export class StockSDK {
     }
 
     // Verificar se já existe reserva ativa
-    const allReservations = await Database.scan('StockReservations');
+    const allReservations = await DynamoDBClientClass.queryItems('StockReservations');
     const activeReservation = allReservations.find(r =>
       r.productId === stockData.productId &&
       r.status === 'active' &&
@@ -42,7 +42,7 @@ export class StockSDK {
       expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString() // 30 minutos
     };
 
-    await Database.put('StockReservations', reservation.id, reservation);
+    await Database.putItem('StockReservations', reservation);
 
     // Em produção, publicar evento
     if (this.eventBridgeClient) {
@@ -67,7 +67,7 @@ export class StockSDK {
   async releaseStock(stockData) {
     const correlationId = stockData.correlationId || generateCorrelationId();
 
-    const allReservations = await Database.scan('StockReservations');
+    const allReservations = await DynamoDBClientClass.queryItems('StockReservations');
     const reservation = allReservations.find(r =>
       r.productId === stockData.productId &&
       r.status === 'active'
@@ -79,7 +79,7 @@ export class StockSDK {
 
     reservation.status = 'released';
     reservation.releasedAt = new Date().toISOString();
-    await Database.put('StockReservations', reservation.id, reservation);
+    await Database.putItem('StockReservations', reservation);
 
     return reservation;
   }
@@ -89,13 +89,13 @@ export class StockSDK {
    */
   async getStock(productId) {
     // Obter do product (em produção, stock separado)
-    const product = await Database.get('Products', productId);
+    const product = await Database.getItem('Products', { id: productId });
     if (!product) {
       throw new Error('Product not found');
     }
 
     // Contar reservas ativas
-    const allReservations = await Database.scan('StockReservations');
+    const allReservations = await DynamoDBClientClass.queryItems('StockReservations');
     const activeReservations = allReservations.filter(r =>
       r.productId === productId &&
       r.status === 'active' &&
@@ -116,8 +116,8 @@ export class StockSDK {
    * Listar estoque
    */
   async listStock(filters = {}) {
-    const allProducts = await Database.scan('Products');
-    const allReservations = await Database.scan('StockReservations');
+    const allProducts = await DynamoDBClientClass.queryItems('Products');
+    const allReservations = await DynamoDBClientClass.queryItems('StockReservations');
 
     return allProducts.filter(product => {
       if (filters.productId && product.id !== filters.productId) {
@@ -162,3 +162,5 @@ function generateId() {
 function generateCorrelationId() {
   return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
+
+export default StockSDK;
