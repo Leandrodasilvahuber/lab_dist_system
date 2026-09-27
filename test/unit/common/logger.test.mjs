@@ -1,13 +1,14 @@
 import { log, createLogContext, Logger } from '../../../src/common/logger.mjs';
-import jest from 'jest';
+import { spyOn } from '../../../test/test-utils.mjs';
 
 // Mock console functions
-jest.spyOn(console, 'log').mockImplementation(() => {});
-jest.spyOn(console, 'error').mockImplementation(() => {});
+const consoleLog = spyOn(console, 'log').mockImplementation(() => {});
+const consoleError = spyOn(console, 'error').mockImplementation(() => {});
 
 describe('Logger Module', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    consoleLog.mockClear();
+    consoleError.mockClear();
   });
 
   describe('log function', () => {
@@ -157,7 +158,7 @@ describe('Logger Module', () => {
 
       logger.trace('corr-123', 'test_action', callback);
 
-      expect(callback).toHaveBeenCalled();
+      assert.strictEqual(callback.mock.calls.length, 1);
       expect(console.log).toHaveBeenCalledWith(JSON.stringify(
         expect.objectContaining({
           event: expect.objectContaining({

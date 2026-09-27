@@ -32,8 +32,8 @@ describe('Response Module', () => {
       const body = { message: 'Created' };
       const response = successResponse(body, 201);
 
-      expect(response.statusCode).toBe(201);
-      expect(response.body).toBe(JSON.stringify(body));
+      assert.strictEqual(response.statusCode, 201);
+      assert.strictEqual(response.body, JSON.stringify(body));
     });
   });
 
@@ -61,7 +61,7 @@ describe('Response Module', () => {
       const error = new Error('Resource not found');
       const response = errorResponse(message, 404, error);
 
-      expect(response.statusCode).toBe(404);
+      assert.strictEqual(response.statusCode, 404);
       expect(response.body).toBe(JSON.stringify({
         error: message,
         details: 'Resource not found'
@@ -85,8 +85,8 @@ describe('Response Module', () => {
       const body = { data: 'test' };
       const response = createSuccessResponse(event, body);
 
-      expect(response.statusCode).toBe(200);
-      expect(response.body).toBe(JSON.stringify(body));
+      assert.strictEqual(response.statusCode, 200);
+      assert.strictEqual(response.body, JSON.stringify(body));
     });
   });
 
@@ -96,7 +96,7 @@ describe('Response Module', () => {
       const error = new Error('Test error');
       const response = createErrorResponse(event, error, 400);
 
-      expect(response.statusCode).toBe(400);
+      assert.strictEqual(response.statusCode, 400);
       expect(response.body).toBe(JSON.stringify({
         error: 'Test error',
         details: 'Test error'
@@ -129,8 +129,8 @@ describe('Response Module', () => {
       const event = { headers: {} };
       const response = createOkResponse(event);
 
-      expect(response.statusCode).toBe(200);
-      expect(response.body).toBe('{}');
+      assert.strictEqual(response.statusCode, 200);
+      assert.strictEqual(response.body, '{}');
     });
 
     test('should create ok response with custom body', () => {
@@ -138,7 +138,7 @@ describe('Response Module', () => {
       const body = { status: 'ok' };
       const response = createOkResponse(event, body);
 
-      expect(response.body).toBe(JSON.stringify(body));
+      assert.strictEqual(response.body, JSON.stringify(body));
     });
   });
 
@@ -147,7 +147,7 @@ describe('Response Module', () => {
       const event = { headers: {} };
       const response = createNotFoundResponse(event);
 
-      expect(response.statusCode).toBe(404);
+      assert.strictEqual(response.statusCode, 404);
       expect(response.body).toBe(JSON.stringify({
         error: 'Resource not found'
       }));
@@ -169,7 +169,7 @@ describe('Response Module', () => {
       const event = { headers: {} };
       const response = createConflictResponse(event);
 
-      expect(response.statusCode).toBe(409);
+      assert.strictEqual(response.statusCode, 409);
       expect(response.body).toBe(JSON.stringify({
         error: 'Resource already exists'
       }));

@@ -1,15 +1,12 @@
 import { handler } from '../../../src/ecommerce/stock/index.mjs';
-import { jest } from 'jest';
 
-// Mocks
-jest.mock('../../../src/ecommerce/stock/src/routes/stockRoutes.js');
+// Mock setup manually for Node.js test runner
+import { createMock } from '../../../test/test-utils.mjs';
+import { describe, test } from 'node:test';
+import assert from 'node:assert';
 
 describe('Stock Service Handler', () => {
-  const mockSetupRoutes = require('../../../src/ecommerce/stock/src/routes/stockRoutes.js').setupRoutes;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+  const mockSetupRoutes = createMock();
 
   describe('POST /stock/reserve', () => {
     test('should reserve stock for order', async () => {
@@ -36,9 +33,9 @@ describe('Stock Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toContain('success: true');
+      assert.strictEqual(mockSetupRoutes.mock.calls.length, 1); assert(mockSetupRoutes.mock.calls[0] assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event)assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
+      assert(result.body.includes('success: true'));
     });
 
     test('should return 400 for insufficient stock', async () => {
@@ -66,8 +63,8 @@ describe('Stock Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(400);
+      assert.strictEqual(mockSetupRoutes.mock.calls.length, 1); assert(mockSetupRoutes.mock.calls[0] assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event)assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 400);
     });
 
     test('should return 404 for non-existent product', async () => {
@@ -93,8 +90,8 @@ describe('Stock Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(404);
+      assert.strictEqual(mockSetupRoutes.mock.calls.length, 1); assert(mockSetupRoutes.mock.calls[0] assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event)assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 404);
     });
   });
 
@@ -123,9 +120,9 @@ describe('Stock Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toContain('success: true');
+      assert.strictEqual(mockSetupRoutes.mock.calls.length, 1); assert(mockSetupRoutes.mock.calls[0] assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event)assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
+      assert(result.body.includes('success: true'));
     });
   });
 
@@ -148,8 +145,8 @@ describe('Stock Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(result.statusCode).toBe(500);
-      expect(result.body).toContain('Internal server error');
+      assert.strictEqual(result.statusCode, 500);
+      assert(result.body.includes('Internal server error'));
     });
 
     test('should handle invalid quantity', async () => {
@@ -170,7 +167,7 @@ describe('Stock Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(result.statusCode).toBe(500);
+      assert.strictEqual(result.statusCode, 500);
     });
   });
 
@@ -200,8 +197,8 @@ describe('Stock Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(result.headers).toBeDefined();
-      expect(result.headers['Access-Control-Allow-Origin']).toBe('*');
+      assert(result.headers !== undefined);
+      assert.strictEqual(result.headers['Access-Control-Allow-Origin'], '*');
     });
   });
 });

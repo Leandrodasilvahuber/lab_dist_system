@@ -36,68 +36,6 @@ Resources:
         Variables:
           ENVIRONMENT: !Ref Environment
 
-  ProductFunction:
-    Type: AWS::ServerlessFunction
-    Properties:
-      CodeUri: src/ecommerce/products/
-      Handler: index.handler
-      Runtime: nodejs18.x
-      Architectures: [arm64]
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          SERVICE_TYPE: product
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref ProductsTable
-
-  OrderFunction:
-    Type: AWS::ServerlessFunction
-    Properties:
-      CodeUri: src/ecommerce/orders/
-      Handler: index.handler
-      Runtime: nodejs18.x
-      Architectures: [arm64]
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          SERVICE_TYPE: order
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref OrdersTable
-
-  PaymentFunction:
-    Type: AWS::ServerlessFunction
-    Properties:
-      CodeUri: src/ecommerce/payments/
-      Handler: index.handler
-      Runtime: nodejs18.x
-      Architectures: [arm64]
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          SERVICE_TYPE: payment
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref PaymentsTable
-
-  StockFunction:
-    Type: AWS::ServerlessFunction
-    Properties:
-      CodeUri: src/ecommerce/stock/
-      Handler: index.handler
-      Runtime: nodejs18.x
-      Architectures: [arm64]
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          SERVICE_TYPE: stock
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref StockTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref StockReservationsTable
-
   # Product Service
   ProductFunction:
     Type: AWS::ServerlessFunction
@@ -298,8 +236,8 @@ Resources:
           - "OrderConfirmed"
       State: ENABLED
       Targets:
-        - Arn: !GetAtt ProductFunction.Arn
-          Id: ProductTarget
+        - Arn: !GetAtt SagaOrchestratorFunction.Arn
+          Id: SagaTarget
 
   # SQS Dead-letter Queue
   OrderEventsDlq:

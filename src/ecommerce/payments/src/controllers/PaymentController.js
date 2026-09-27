@@ -1,4 +1,4 @@
-import { Order } from '../../../orders/models/Order.js';
+import { Order } from '../../../ecommerce/orders/src/models/Order.js';
 import { Payment } from '../models/Payment.js';
 import { Database } from '../../../../common/database.mjs';
 import { successResponse, errorResponse } from '../../../../common/response.mjs';
@@ -148,7 +148,7 @@ export class PaymentController {
       await db.putItem('payments', refund.toDynamo());
 
       // Update order status to indicate refund
-      const Order = (await import('../../../orders/models/Order.js')).default;
+      const Order = await import('../../../orders/models/Order.js');
       const orderData = await db.getItem('orders', { id: orderId });
       const orderInstance = Order.fromDynamo(orderData);
 

@@ -15,6 +15,8 @@ async function getTable(tableType) {
   return tables[tableType] || tableType;
 }
 
+export { getTable };
+
 export async function putItem(tableType, item) {
   const table = await getTable(tableType);
   const command = new PutCommand({

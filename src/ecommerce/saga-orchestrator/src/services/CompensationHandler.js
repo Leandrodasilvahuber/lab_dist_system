@@ -1,7 +1,7 @@
 import { log, createLogContext } from '../../../../common/logger.mjs';
 import { EventPublisher } from './EventPublisher.js';
-import { SagaStep, SagaStepStatus } from '../src/models/SagaStep.js';
-import { CompensationConfig } from '../src/constants/SagaDefinitions.js';
+import { SagaStep, SagaStepStatus } from '../models/SagaStep.js';
+import { CompensationConfig } from '../constants/SagaDefinitions.js';
 
 export class CompensationHandler {
   constructor(saga, eventPublisher) {

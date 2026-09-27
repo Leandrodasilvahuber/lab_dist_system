@@ -1,4 +1,4 @@
-import { SagaStatus, isValidTransition, canExecuteCompensation, canTerminate } from '../src/types/SagaStatus.js';
+import { SagaStatus, isValidTransition, canExecuteCompensation, canTerminate } from '../types/SagaStatus.js';
 import { SagaStep } from './SagaStep.js';
 
 export class Saga {

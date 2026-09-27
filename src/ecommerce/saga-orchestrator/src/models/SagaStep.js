@@ -1,4 +1,4 @@
-import { SagaStepStatus, isValidStepTransition, isTerminalStepStatus } from '../src/types/SagaStepStatus.js';
+import { SagaStepStatus, isValidStepTransition, isTerminalStepStatus } from '../types/SagaStepStatus.js';
 
 export class SagaStep {
   constructor(data) {

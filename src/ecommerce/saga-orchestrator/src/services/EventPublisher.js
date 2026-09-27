@@ -1,5 +1,5 @@
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
-import { validateEvent } from '../src/types/Events.js';
+import { validateEvent } from '../types/Events.js';
 import { successResponse, errorResponse } from '../../../../common/response.mjs';
 import { log, createLogContext } from '../../../../common/logger.mjs';
 

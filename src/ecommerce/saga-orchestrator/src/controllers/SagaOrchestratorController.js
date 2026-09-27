@@ -1,6 +1,4 @@
 // Step Functions client implementation is currently disabled
-import { eventPublisher } from '../src/services/EventPublisher.js';
-import { SagaStatus } from '../src/types/SagaStatus.js';
 import { log, createLogContext } from '../../../../common/logger.mjs';
 import { successResponse, errorResponse } from '../../../../common/response.mjs';
 
@@ -30,7 +28,7 @@ export class SagaOrchestratorController {
       }
 
       // Validar se produto existe
-      const ProductFunction = (await import('../src/controllers/ProductController.js')).default;
+      const ProductFunction = (await import('../products/src/controllers/ProductController.js')).default;
       const productResult = await ProductFunction.getProducts(event, { id: productId });
 
       if (productResult.statusCode === 404 || (productResult.body && JSON.parse(productResult.body).items?.length === 0)) {
@@ -50,31 +48,14 @@ export class SagaOrchestratorController {
         status: 'info'
       });
 
-      // Iniciar saga via Step Functions
-      const result = await stepFunctionsClient.startExecution({
-        orderId,
-        productId,
-        quantity: parseInt(quantity),
-        total
-      });
-
-      log({
-        event: 'SAGA_EXECUTE_SUCCESS',
-        sagaId: result.sagaId,
-        orderId,
-        correlationId,
-        status: 'info',
-        message: `Saga started successfully via Step Functions`,
-        executionArn: result.executionArn
-      });
-
+      // Saga não implementada ainda
+      // Step Functions não está ativo nesta arquitetura
       return successResponse({
-        sagaId: result.sagaId,
-        executionArn: result.executionArn,
-        status: 'RUNNING',
+        message: 'Saga pattern não implementado nesta versão',
+        status: 'NOT_IMPLEMENTED',
         orderId,
         correlationId
-      }, 202);
+      }, 501);
 
     } catch (error) {
       log({
@@ -106,23 +87,12 @@ export class SagaOrchestratorController {
         return errorResponse('Missing required field: sagaId', 400);
       }
 
-      // Buscar no DynamoDB
-      const sagaData = await stepFunctionsClient.getSagaById(sagaId);
-
-      if (!sagaData) {
-        return errorResponse('Saga not found', 404);
-      }
-
-      log({
-        event: 'SAGA_GET_SUCCESS',
+      // Saga não implementada
+      return successResponse({
+        message: 'Saga pattern não implementado nesta versão',
         sagaId,
-        correlationId,
-        status: 'info',
-        message: `Saga retrieved successfully`,
-        data: { sagaId, status: sagaData.status }
+        status: 'NOT_IMPLEMENTED'
       });
-
-      return successResponse(sagaData);
 
     } catch (error) {
       log({
@@ -171,7 +141,7 @@ export class SagaOrchestratorController {
       }
 
       // Trigger compensation
-      const CompensationHandler = (await import('../src/services/CompensationHandler.js')).default;
+      const CompensationHandler = (await import('../services/CompensationHandler.js')).default;
       const CompensationHandlerInstance = new CompensationHandler(saga, null);
       await CompensationHandlerInstance.executeCompensation();
 
@@ -242,7 +212,7 @@ export class SagaOrchestratorController {
       }
 
       // Trigger compensation
-      const CompensationHandler = (await import('../src/services/CompensationHandler.js')).default;
+      const CompensationHandler = (await import('../services/CompensationHandler.js')).default;
       const CompensationHandlerInstance = new CompensationHandler(saga, null);
       await CompensationHandlerInstance.executeCompensation();
 

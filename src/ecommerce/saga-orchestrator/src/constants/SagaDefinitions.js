@@ -1,4 +1,4 @@
-import { EventActions } from '../src/types/Events.js';
+import { EventActions } from '../types/Events.js';
 
 export const SagaDefinitions = {
   ORDER_SAGA: {

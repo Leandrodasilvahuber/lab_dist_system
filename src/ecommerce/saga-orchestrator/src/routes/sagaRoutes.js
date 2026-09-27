@@ -1,4 +1,4 @@
-import { SagaOrchestratorController } from '../src/controllers/SagaOrchestratorController.js';
+import { SagaOrchestratorController } from '../controllers/SagaOrchestratorController.js';
 
 export function setupRoutes(event) {
   const method = event.httpMethod;

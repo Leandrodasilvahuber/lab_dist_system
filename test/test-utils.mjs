@@ -1,118 +1,65 @@
 // Test utilities for the distributed systems playground
 
 // Mock utilities for Node.js test runner
-export function spyOn(object, method) {
-  const originalMethod = object[method].bind(object)
 
+// Simple mock implementation for Node.js test runner
+export function createMock() {
   const mockFn = (...args) => {
-    return originalMethod(...args)
-  }
+    mockFn.mockCalls.push(args);
+    return mockFn.mockImplementation
+      ? mockFn.mockImplementation(...args)
+      : Promise.resolve(undefined);
+  };
 
-  // Track call count and calls
-  mockFn.mockCallCount = 0
-  mockFn.mockCalls = []
-  mockFn.mockResolvedValues = []
-  mockFn.mockRejectedValues = []
-
-  // Mock implementations
-  mockFn.mockImplementation = (implementation) => {
-    object[method] = implementation.bind(object)
-  }
+  mockFn.mockCalls = [];
+  mockFn.mockImplementation = (fn) => {
+    mockFn.fn = fn;
+    return mockFn;
+  };
 
   mockFn.mockResolvedValue = (value) => {
-    object[method] = async (...args) => {
-      mockFn.mockCallCount++
-      mockFn.mockCalls.push([...args])
-      return value
-    }
-  }
-
-  mockFn.mockResolvedValueOnce = (value) => {
-    let calledOnce = false
-    object[method] = async (...args) => {
-      if (!calledOnce) {
-        calledOnce = true
-        mockFn.mockCallCount++
-        mockFn.mockCalls.push([...args])
-        return value
-      }
-      return originalMethod(...args)
-    }
-  }
+    mockFn.fn = () => Promise.resolve(value);
+    return mockFn;
+  };
 
   mockFn.mockRejectedValue = (value) => {
-    object[method] = async (...args) => {
-      mockFn.mockCallCount++
-      mockFn.mockCalls.push([...args])
-      throw value
-    }
-  }
-
-  mockFn.mockRejectedValueOnce = (value) => {
-    let calledOnce = false
-    object[method] = async (...args) => {
-      if (!calledOnce) {
-        calledOnce = true
-        mockFn.mockCallCount++
-        mockFn.mockCalls.push([...args])
-        throw value
-      }
-      return originalMethod(...args)
-    }
-  }
+    mockFn.fn = () => Promise.reject(value);
+    return mockFn;
+  };
 
   mockFn.mockReturnValue = (value) => {
-    object[method] = (...args) => {
-      mockFn.mockCallCount++
-      mockFn.mockCalls.push([...args])
-      return value
-    }
-  }
+    mockFn.fn = () => value;
+    return mockFn;
+  };
 
-  mockFn.mockReturnValueOnce = (value) => {
-    let calledOnce = false
-    object[method] = (...args) => {
-      if (!calledOnce) {
-        calledOnce = true
-        mockFn.mockCallCount++
-        mockFn.mockCalls.push([...args])
-        return value
-      }
-      return originalMethod(...args)
-    }
-  }
-
-  // Utility methods
   mockFn.mockClear = () => {
-    mockFn.mockCallCount = 0
-    mockFn.mockCalls = []
-    mockFn.mockResolvedValues = []
-    mockFn.mockRejectedValues = []
-  }
+    mockFn.mockCalls = [];
+    return mockFn;
+  };
 
   mockFn.mockReset = () => {
-    mockFn.mockClear()
-  }
+    mockFn.mockCalls = [];
+    delete mockFn.fn;
+    return mockFn;
+  };
 
+  return mockFn;
+}
+
+// Global mock function
+export function spyOn(object, methodName) {
+  const originalMethod = object[methodName];
+  const mockFn = createMock();
+
+  object[methodName] = mockFn;
+
+  // Restore function
   mockFn.mockRestore = () => {
-    object[method] = originalMethod
-    mockFn.mockClear()
-  }
+    object[methodName] = originalMethod;
+    mockFn.mockReset();
+  };
 
-  mockFn.mockImplementationOnce = (implementation) => {
-    const mockImpl = async (...args) => {
-      mockFn.mockCallCount++
-      mockFn.mockCalls.push([...args])
-      return implementation(...args)
-    }
-    object[method] = mockImpl
-  }
-
-  // Initialize
-  mockFn.mockCallCount = 0
-  mockFn.mockCalls = []
-
-  return mockFn
+  return mockFn;
 }
 
 // Mock event generators
@@ -130,11 +77,11 @@ export const generateMockEvent = (method, path, body = null, pathParams = {}) =>
 // Database mock helpers
 export const setupDatabase = (items = {}) => {
   const mockDatabase = {
-    getItem: jest.fn(),
-    putItem: jest.fn(),
-    updateItem: jest.fn(),
-    queryItems: jest.fn(),
-    scanItems: jest.fn()
+    getItem: createMock(),
+    putItem: createMock(),
+    updateItem: createMock(),
+    queryItems: createMock(),
+    scanItems: createMock()
   }
 
   // Setup default mock responses

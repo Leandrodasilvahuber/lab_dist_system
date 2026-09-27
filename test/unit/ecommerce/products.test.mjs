@@ -1,15 +1,12 @@
 import { handler } from '../../../src/ecommerce/products/index.mjs';
-import { jest } from 'jest';
 
-// Mocks
-jest.mock('../../../src/ecommerce/products/src/routes/productRoutes.js');
+// Mock setup manually for Node.js test runner
+import { createMock } from '../../../test/test-utils.mjs';
+import { describe, test } from 'node:test';
+import assert from 'node:assert';
 
 describe('Products Service Handler', () => {
-  const mockSetupRoutes = require('../../../src/ecommerce/products/src/routes/productRoutes.js').setupRoutes;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+  const mockSetupRoutes = createMock();
 
   describe('GET /products', () => {
     test('should return list of products', async () => {
@@ -33,9 +30,9 @@ describe('Products Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toContain('products');
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
+      assert(result.body.includes('products'));
     });
 
     test('should filter products by category', async () => {
@@ -58,8 +55,8 @@ describe('Products Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
     });
   });
 
@@ -85,9 +82,9 @@ describe('Products Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toContain('Product 1');
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
+      assert(result.body.includes('Product 1'));
     });
 
     test('should return 404 for non-existent product', async () => {
@@ -108,8 +105,8 @@ describe('Products Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(404);
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 404);
     });
   });
 
@@ -143,9 +140,9 @@ describe('Products Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(201);
-      expect(result.body).toContain('product-123');
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 201);
+      assert(result.body.includes('product-123'));
     });
 
     test('should return 400 for invalid product data', async () => {
@@ -173,8 +170,8 @@ describe('Products Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(400);
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 400);
     });
   });
 
@@ -207,8 +204,8 @@ describe('Products Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
     });
   });
 
@@ -229,8 +226,8 @@ describe('Products Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(204);
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 204);
     });
   });
 
@@ -248,8 +245,8 @@ describe('Products Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(result.statusCode).toBe(500);
-      expect(result.body).toContain('Internal server error');
+      assert.strictEqual(result.statusCode, 500);
+      assert(result.body.includes('Internal server error'));
     });
 
     test('should handle timeout errors', async () => {
@@ -265,7 +262,7 @@ describe('Products Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(result.statusCode).toBe(500);
+      assert.strictEqual(result.statusCode, 500);
     });
   });
 
@@ -291,8 +288,8 @@ describe('Products Service Handler', () => {
       const result = await handler(event);
 
       expect(result.headers).toBeDefined();
-      expect(result.headers['Access-Control-Allow-Origin']).toBe('*');
-      expect(result.headers['Content-Type']).toBe('application/json');
+      assert.strictEqual(result.headers['Access-Control-Allow-Origin'], '*');
+      assert.strictEqual(result.headers['Content-Type'], 'application/json');
     });
   });
 });

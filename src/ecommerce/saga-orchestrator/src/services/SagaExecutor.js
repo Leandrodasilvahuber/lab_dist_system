@@ -1,12 +1,12 @@
 import { log, createLogContext } from '../../../../common/logger.mjs';
-import { Saga, SagaStep } from '../src/models/Saga.js';
-import { SagaStatus, SagaStepStatus } from '../src/types/SagaStatus.js';
-import { SagaDefinitions } from '../src/constants/SagaDefinitions.js';
+import { Saga, SagaStep } from '../models/Saga.js';
+import { SagaStatus, SagaStepStatus } from '../types/SagaStatus.js';
+import { SagaDefinitions } from '../constants/SagaDefinitions.js';
 import { EventPublisher } from './EventPublisher.js';
 import { CompensationHandler } from './CompensationHandler.js';
 import { Database } from '../../../../common/database.mjs';
-import { EventActions } from '../src/types/Events.js';
-import { RetryConfig } from '../src/constants/SagaDefinitions.js';
+import { EventActions } from '../types/Events.js';
+import { RetryConfig } from '../constants/SagaDefinitions.js';
 
 export class SagaExecutor {
   constructor(sagaId, orderId, correlationId) {

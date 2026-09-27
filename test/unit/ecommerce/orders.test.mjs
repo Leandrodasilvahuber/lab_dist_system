@@ -1,15 +1,13 @@
 import { handler } from '../../../src/ecommerce/orders/index.mjs';
-import { jest } from 'jest';
 
-// Mocks
-jest.mock('../../../src/ecommerce/orders/src/routes/orderRoutes.js');
+// Mock setup manually for Node.js test runner
+import { createMock, spyOn } from '../../../test/test-utils.mjs';
+
+import { describe, test } from 'node:test';
+import assert from 'node:assert';
 
 describe('Orders Service Handler', () => {
-  const mockSetupRoutes = require('../../../src/ecommerce/orders/src/routes/orderRoutes.js').setupRoutes;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+  const mockSetupRoutes = createMock();
 
   describe('GET /orders', () => {
     test('should return list of orders', async () => {
@@ -32,9 +30,9 @@ describe('Orders Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toContain('orders');
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
+      assert(result.body.includes('orders'));
     });
   });
 
@@ -61,9 +59,9 @@ describe('Orders Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(201);
-      expect(result.body).toContain('order-123');
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 201);
+      assert(result.body.includes('order-123'));
     });
   });
 
@@ -88,9 +86,9 @@ describe('Orders Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toContain('order-123');
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
+      assert(result.body.includes('order-123'));
     });
   });
 
@@ -114,9 +112,9 @@ describe('Orders Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toContain('paymentId: 'pay-123'');
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
+      assert(result.body.includes('paymentId: pay-123'));
     });
   });
 
@@ -140,9 +138,9 @@ describe('Orders Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toContain('cancelled');
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
+      assert(result.body.includes('cancelled'));
     });
   });
 
@@ -160,12 +158,12 @@ describe('Orders Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(result.statusCode).toBe(500);
-      expect(result.body).toContain('Internal server error');
+      assert.strictEqual(result.statusCode, 500);
+      assert(result.body.includes('Internal server error'));
     });
 
     test('should log errors with correlationId', async () => {
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 
       mockSetupRoutes.mockImplementation(() => {
         throw new Error('Test error');
@@ -210,8 +208,8 @@ describe('Orders Service Handler', () => {
       const result = await handler(event);
 
       expect(result.headers).toBeDefined();
-      expect(result.headers['Access-Control-Allow-Origin']).toBe('*');
-      expect(result.headers['Access-Control-Allow-Credentials']).toBe('true');
+      assert.strictEqual(result.headers['Access-Control-Allow-Origin'], '*');
+      assert.strictEqual(result.headers['Access-Control-Allow-Credentials'], 'true');
     });
   });
 });

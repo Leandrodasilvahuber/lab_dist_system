@@ -8,11 +8,10 @@ import {
   tables,
   Database
 } from '../../../src/common/database.mjs';
-import { jest } from 'jest';
 
 // Mock AWS DynamoDB SDK
-jest.mock('@aws-sdk/client-dynamodb');
-jest.mock('@aws-sdk/lib-dynamodb');
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, UpdateCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 
 const { DynamoDBClient, PutCommand, GetCommand, QueryCommand, UpdateCommand, ScanCommand } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient } = require('@aws-sdk/lib-dynamodb');
@@ -31,12 +30,12 @@ describe('Database Module', () => {
   describe('getTable function', () => {
     test('should return table name from mapping', () => {
       const tableName = getTable('products');
-      expect(tableName).toBe('Products');
+      assert.strictEqual(tableName, 'Products');
     });
 
     test('should return table type as table name if not mapped', () => {
       const tableName = getTable('unknown_table');
-      expect(tableName).toBe('unknown_table');
+      assert.strictEqual(tableName, 'unknown_table');
     });
   });
 
@@ -50,9 +49,9 @@ describe('Database Module', () => {
 
       expect(mockSend).toHaveBeenCalledWith(expect.any(PutCommand));
       const command = mockSend.mock.calls[0][0];
-      expect(command.input.TableName).toBe('Products');
-      expect(command.input.Item).toEqual(item);
-      expect(result).toEqual({ id: '1' });
+      assert.strictEqual(command.input.TableName, 'Products');
+      assert.deepStrictEqual(command.input.Item, item);
+      assert.deepStrictEqual(result, { id: '1' });
     });
   });
 
@@ -66,9 +65,9 @@ describe('Database Module', () => {
 
       expect(mockSend).toHaveBeenCalledWith(expect.any(GetCommand));
       const command = mockSend.mock.calls[0][0];
-      expect(command.input.TableName).toBe('Products');
-      expect(command.input.Key).toEqual(key);
-      expect(result).toEqual({ id: '1', name: 'Product' });
+      assert.strictEqual(command.input.TableName, 'Products');
+      assert.deepStrictEqual(command.input.Key, key);
+      assert.deepStrictEqual(result, { id: '1', name: 'Product' });
     });
   });
 
@@ -82,9 +81,9 @@ describe('Database Module', () => {
 
       expect(mockSend).toHaveBeenCalledWith(expect.any(QueryCommand));
       const command = mockSend.mock.calls[0][0];
-      expect(command.input.TableName).toBe('Orders');
-      expect(command.input.KeyConditionExpression).toBe('id = :id');
-      expect(result).toEqual([{ id: '1' }, { id: '2' }]);
+      assert.strictEqual(command.input.TableName, 'Orders');
+      assert.strictEqual(command.input.KeyConditionExpression, 'id = :id');
+      assert.deepStrictEqual(result, [{ id: '1' }, { id: '2' }]);
     });
   });
 
@@ -100,12 +99,12 @@ describe('Database Module', () => {
 
       expect(mockSend).toHaveBeenCalledWith(expect.any(UpdateCommand));
       const command = mockSend.mock.calls[0][0];
-      expect(command.input.TableName).toBe('Orders');
-      expect(command.input.Key).toEqual(key);
-      expect(command.input.UpdateExpression).toBe('set #attr = :val');
-      expect(command.input.ExpressionAttributeValues).toEqual(expressionAttributeValues);
-      expect(command.input.ReturnValues).toBe('UPDATED_NEW');
-      expect(result).toEqual({ id: '1', updated: true });
+      assert.strictEqual(command.input.TableName, 'Orders');
+      assert.deepStrictEqual(command.input.Key, key);
+      assert.strictEqual(command.input.UpdateExpression, 'set #attr = :val');
+      assert.deepStrictEqual(command.input.ExpressionAttributeValues, expressionAttributeValues);
+      assert.strictEqual(command.input.ReturnValues, 'UPDATED_NEW');
+      assert.deepStrictEqual(result, { id: '1', updated: true });
     });
   });
 
@@ -118,8 +117,8 @@ describe('Database Module', () => {
 
       expect(mockSend).toHaveBeenCalledWith(expect.any(ScanCommand));
       const command = mockSend.mock.calls[0][0];
-      expect(command.input.TableName).toBe('Products');
-      expect(result).toEqual([{ id: '1' }, { id: '2' }]);
+      assert.strictEqual(command.input.TableName, 'Products');
+      assert.deepStrictEqual(result, [{ id: '1' }, { id: '2' }]);
     });
   });
 
@@ -132,7 +131,7 @@ describe('Database Module', () => {
 
     test('should create Database instance', () => {
       expect(database).toBeInstanceOf(Database);
-      expect(database.docClient).toBeDefined();
+      assert(database.docClient !== undefined);
     });
 
     test('should put item using Database class', async () => {
@@ -142,8 +141,8 @@ describe('Database Module', () => {
       const item = { id: '1', name: 'Product' };
       const result = await database.putItem('products', item);
 
-      expect(mockSend).toHaveBeenCalled();
-      expect(result).toEqual({ id: '1' });
+      assert.strictEqual(mockSend.mock.calls.length, 1);
+      assert.deepStrictEqual(result, { id: '1' });
     });
 
     test('should get item using Database class', async () => {
@@ -153,8 +152,8 @@ describe('Database Module', () => {
       const key = { id: '1' };
       const result = await database.getItem('products', key);
 
-      expect(mockSend).toHaveBeenCalled();
-      expect(result).toEqual({ id: '1', name: 'Product' });
+      assert.strictEqual(mockSend.mock.calls.length, 1);
+      assert.deepStrictEqual(result, { id: '1', name: 'Product' });
     });
 
     test('should query items using Database class', async () => {
@@ -164,8 +163,8 @@ describe('Database Module', () => {
       const queryParams = { KeyConditionExpression: 'id = :id' };
       const result = await database.queryItems('orders', queryParams);
 
-      expect(mockSend).toHaveBeenCalled();
-      expect(result).toEqual([{ id: '1' }]);
+      assert.strictEqual(mockSend.mock.calls.length, 1);
+      assert.deepStrictEqual(result, [{ id: '1' }]);
     });
 
     test('should update item using Database class', async () => {
@@ -177,8 +176,8 @@ describe('Database Module', () => {
       const expressionAttributeValues = { ':val': 'updated' };
       const result = await database.updateItem('orders', key, updateExpression, expressionAttributeValues);
 
-      expect(mockSend).toHaveBeenCalled();
-      expect(result).toEqual({ id: '1', updated: true });
+      assert.strictEqual(mockSend.mock.calls.length, 1);
+      assert.deepStrictEqual(result, { id: '1', updated: true });
     });
 
     test('should scan items using Database class', async () => {
@@ -187,8 +186,8 @@ describe('Database Module', () => {
 
       const result = await database.scanItems('products');
 
-      expect(mockSend).toHaveBeenCalled();
-      expect(result).toEqual([{ id: '1' }]);
+      assert.strictEqual(mockSend.mock.calls.length, 1);
+      assert.deepStrictEqual(result, [{ id: '1' }]);
     });
   });
 

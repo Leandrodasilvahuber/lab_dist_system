@@ -1,15 +1,12 @@
 import { handler } from '../../../src/ecommerce/payments/index.mjs';
-import { jest } from 'jest';
 
-// Mocks
-jest.mock('../../../src/ecommerce/payments/src/routes/paymentRoutes.js');
+// Mock setup manually for Node.js test runner
+import { createMock } from '../../../test/test-utils.mjs';
+import { describe, test } from 'node:test';
+import assert from 'node:assert';
 
 describe('Payments Service Handler', () => {
-  const mockSetupRoutes = require('../../../src/ecommerce/payments/src/routes/paymentRoutes.js').setupRoutes;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+  const mockSetupRoutes = createMock();
 
   describe('POST /payments/{id}/cancel', () => {
     test('should cancel payment', async () => {
@@ -31,9 +28,9 @@ describe('Payments Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(200);
-      expect(result.body).toContain('cancelled');
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 200);
+      assert(result.body.includes('cancelled'));
     });
 
     test('should return 404 for non-existent payment', async () => {
@@ -54,8 +51,8 @@ describe('Payments Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(mockSetupRoutes).toHaveBeenCalledWith(event);
-      expect(result.statusCode).toBe(404);
+      assert(mockSetupRoutes.mock.calls.length === 1 expect(mockSetupRoutes).toHaveBeenCalledWith(event)expect(mockSetupRoutes).toHaveBeenCalledWith(event) mockSetupRoutes.mock.calls[0][0] === event);
+      assert.strictEqual(result.statusCode, 404);
     });
   });
 
@@ -73,8 +70,8 @@ describe('Payments Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(result.statusCode).toBe(500);
-      expect(result.body).toContain('Internal server error');
+      assert.strictEqual(result.statusCode, 500);
+      assert(result.body.includes('Internal server error'));
     });
 
     test('should handle validation error', async () => {
@@ -90,7 +87,7 @@ describe('Payments Service Handler', () => {
 
       const result = await handler(event);
 
-      expect(result.statusCode).toBe(500);
+      assert.strictEqual(result.statusCode, 500);
     });
   });
 
@@ -116,7 +113,7 @@ describe('Payments Service Handler', () => {
       const result = await handler(event);
 
       expect(result.headers).toBeDefined();
-      expect(result.headers['Access-Control-Allow-Origin']).toBe('*');
+      assert.strictEqual(result.headers['Access-Control-Allow-Origin'], '*');
     });
   });
 });
