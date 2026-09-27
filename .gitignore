@@ -1,0 +1,36 @@
+# Dependências
+node_modules/
+
+# Arquivos de lock do npm (node_modules)
+node_modules/.package-lock.json
+
+# Variáveis de ambiente
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testes
+coverage/
+.nyc_output/
+
+# Build
+dist/
+build/
