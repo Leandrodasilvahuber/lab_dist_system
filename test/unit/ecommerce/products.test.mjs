@@ -63,3 +63,19 @@ describe('ProductSDK', () => {
     assert.strictEqual(typeof sdk.deleteProduct, 'function');
   });
 });
+describe('preço do produto', () => {
+  it('POST /products recusa preço zero ou negativo (não seria comprável)', async () => {
+    const { ProductController } = await import('../../../src/ecommerce/products/src/controllers/ProductController.js');
+    for (const price of [0, '0', -1, '0.00']) {
+      const response = await ProductController.createProduct({ body: JSON.stringify({ name: 'Grátis', price, stock: 1 }) });
+      assert.strictEqual(response.statusCode, 400, `price ${JSON.stringify(price)}`);
+      assert.match(JSON.parse(response.body).error, /price must be a positive number/);
+    }
+  });
+
+  it('updateProduct recusa preço zero', async () => {
+    const ProductSDK = await loadProductSDK();
+    const sdk = new ProductSDK(null, { updateItem: async () => assert.fail('não deveria gravar') });
+    await assert.rejects(sdk.updateProduct('p1', { price: 0 }), /price must be a positive number/);
+  });
+});

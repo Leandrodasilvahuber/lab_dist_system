@@ -35,8 +35,9 @@ export class ProductController {
         return errorResponse('name is required', 400);
       }
       const priceValue = toNumber(price);
-      if (!Number.isFinite(priceValue) || priceValue < 0) {
-        return errorResponse('price must be a non-negative number', 400);
+      // Preço zero não é comprável: o pagamento exige valor maior que zero
+      if (!Number.isFinite(priceValue) || priceValue <= 0) {
+        return errorResponse('price must be a positive number', 400);
       }
       if (typeof description !== 'string') {
         return errorResponse('description must be a string', 400);

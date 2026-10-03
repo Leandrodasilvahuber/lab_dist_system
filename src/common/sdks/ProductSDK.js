@@ -105,8 +105,8 @@ export class ProductSDK {
     if ('stock' in updates) {
       throw new ValidationError('stock is managed by the stock service');
     }
-    if ('price' in updates && (typeof updates.price !== 'number' || !Number.isFinite(updates.price) || updates.price < 0)) {
-      throw new ValidationError('price must be a non-negative number');
+    if ('price' in updates && (typeof updates.price !== 'number' || !Number.isFinite(updates.price) || updates.price <= 0)) {
+      throw new ValidationError('price must be a positive number');
     }
 
     const fields = Object.entries(updates)

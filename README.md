@@ -112,7 +112,7 @@ Os erros de cada execução ficam no log group da state machine (output
 |---|---|---|
 | GET | `/health` | Health check |
 | GET | `/products` | Lista produtos, paginado (`?name=&priceMin=&priceMax=&limit=&nextToken=`) |
-| POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`stock` vira o estoque inicial no serviço de Stock) |
+| POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`price > 0`; `stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
 | GET | `/orders` 🔑 | Lista pedidos (`?status=&productId=`) |
 | GET | `/orders/{id}` | Busca pedido |
