@@ -746,7 +746,10 @@
         function buyFromList(productId) {
             showTab('buy');
             document.getElementById('buyProduct').value = productId;
-            document.getElementById('buyQuantity').focus();
+            const quantity = document.getElementById('buyQuantity');
+            quantity.value = 1;
+            quantity.focus();
+            quantity.select();
         }
 
         async function createProduct(event) {
@@ -784,6 +787,7 @@
                     body: JSON.stringify({ productId, quantity })
                 });
                 showToast('Compra iniciada! Acompanhe o andamento ao lado.', 'info');
+                document.getElementById('buyQuantity').value = 1;
                 await fetchSagas();
                 highlight(result.sagaId);
             } catch (error) {
