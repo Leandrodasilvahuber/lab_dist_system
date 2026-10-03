@@ -76,13 +76,13 @@ export class StockController {
   static async adjustStock(event) {
     try {
       const { productId } = event.pathParameters || {};
-      const { delta } = parseBody(event);
+      const { delta, name } = parseBody(event);
 
       if (!Number.isInteger(Number(delta)) || Number(delta) === 0) {
         return errorResponse('delta must be a non-zero integer', 400);
       }
 
-      const result = await stockSDK.adjustStock(productId, Number(delta));
+      const result = await stockSDK.adjustStock(productId, Number(delta), { name });
       return successResponse(result);
     } catch (error) {
       return sdkErrorResponse(error, 'Failed to adjust stock');

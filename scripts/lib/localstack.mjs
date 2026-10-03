@@ -1,5 +1,5 @@
 /**
- * Publica a saga no LocalStack: tabelas, Lambdas dos passos (do `sam build`)
+ * Publica a saga no LocalStack: tabelas, Lambdas dos passos e de produtos (do `sam build`)
  * e a state machine real (workflow/saga-workflow.asl.json).
  * Usado por scripts/localstack-deploy.mjs e scripts/e2e-localstack.mjs.
  */
@@ -14,7 +14,8 @@ import * as sfn from '@aws-sdk/client-sfn';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BUILD = path.join(ROOT, '.aws-sam', 'build');
-const STEP_FUNCTIONS = ['OrderFunction', 'PaymentFunction', 'StockFunction'];
+// Lambdas dos passos da saga + ProductFunction (consultada pelo orquestrador ao iniciar)
+const STEP_FUNCTIONS = ['OrderFunction', 'PaymentFunction', 'StockFunction', 'ProductFunction'];
 const ACCOUNT = '000000000000';
 
 // Mesmo runtime do deploy na AWS (Globals.Function.Runtime do template.yaml)

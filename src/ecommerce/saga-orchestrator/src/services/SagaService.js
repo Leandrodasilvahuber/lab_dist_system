@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { Database } from '../../../../common/database.mjs';
-import { ProductSDK } from '../../../../common/sdks/index.mjs';
 import { NotFoundError, ValidationError } from '../../../../common/errors.mjs';
 import { log } from '../../../../common/logger.mjs';
 import { StepFunctionsClient } from './StepFunctionsClient.js';
+import { ProductClient } from './ProductClient.js';
 
 export const SagaStatus = {
   RUNNING: 'RUNNING',
@@ -23,10 +23,10 @@ export const SAGA_STEPS = ['createOrder', 'processPayment', 'reserveStock', 'con
  * (workflow/saga-workflow.asl.json), que também atualiza o registro da saga.
  */
 export class SagaService {
-  constructor({ db = new Database(), stepFunctions = new StepFunctionsClient(), productSDK } = {}) {
+  constructor({ db = new Database(), stepFunctions = new StepFunctionsClient(), productClient = new ProductClient() } = {}) {
     this.db = db;
     this.stepFunctions = stepFunctions;
-    this.productSDK = productSDK || new ProductSDK(null, db);
+    this.productClient = productClient;
   }
 
   /**
@@ -45,8 +45,10 @@ export class SagaService {
       return { saga: existing, created: false };
     }
 
-    // Falha rápida para produto inexistente (evita iniciar uma execução inútil)
-    await this.productSDK.getProduct(productId);
+    // Consulta síncrona ao serviço de Products: produto inexistente falha aqui
+    // (404 imediato) e o preço fica congelado no momento da compra
+    const product = await this.productClient.getProduct(productId);
+    const unitPrice = Number(product.price);
 
     const now = new Date().toISOString();
     const ids = {
@@ -59,6 +61,7 @@ export class SagaService {
       status: SagaStatus.RUNNING,
       productId,
       quantity,
+      unitPrice,
       correlationId: correlationId || sagaId,
       ...ids,
       steps: {},
@@ -77,6 +80,7 @@ export class SagaService {
         sagaId,
         productId,
         quantity,
+        unitPrice,
         correlationId: saga.correlationId,
         ids
       });

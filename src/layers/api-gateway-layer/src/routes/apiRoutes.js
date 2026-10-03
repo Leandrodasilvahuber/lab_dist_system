@@ -15,7 +15,6 @@ const AVAILABLE_ENDPOINTS = [
   'POST /products',
   'GET  /products/{id}',
   'GET  /orders',
-  'POST /orders',
   'GET  /orders/{id}',
   'POST /orders/confirm',
   'POST /orders/cancel',

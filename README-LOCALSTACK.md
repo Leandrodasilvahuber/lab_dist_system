@@ -27,7 +27,7 @@ npm install
 # 1. Sobe o LocalStack
 npm run localstack:start
 
-# 2. Cria as tabelas (products, orders, payments, stock-reservations, sagas) e popula os produtos
+# 2. Cria as tabelas (products, orders, payments, stock-reservations, inventory, sagas) e popula catálogo e estoque
 npm run seed:local
 
 # 3. Publica as Lambdas e a saga no LocalStack e abre o dashboard
@@ -64,9 +64,10 @@ seguintes são rápidas.
 |---|---|---|
 | `DYNAMODB_ENDPOINT` / `AWS_ENDPOINT` | Endpoint local do DynamoDB (sem ela, usa a AWS) | — |
 | `STEPFUNCTIONS_ENDPOINT`, `EVENTBRIDGE_ENDPOINT` | Endpoints locais (caem em `AWS_ENDPOINT`) | — |
-| `PRODUCTS_TABLE`, `ORDERS_TABLE`, `PAYMENTS_TABLE`, `STOCK_RESERVATIONS_TABLE`, `SAGAS_TABLE` | Nomes das tabelas | `products`, `orders`, `payments`, `stock-reservations`, `sagas` |
+| `PRODUCTS_TABLE`, `ORDERS_TABLE`, `PAYMENTS_TABLE`, `STOCK_RESERVATIONS_TABLE`, `INVENTORY_TABLE`, `SAGAS_TABLE` | Nomes das tabelas | `products`, `orders`, `payments`, `stock-reservations`, `inventory`, `sagas` |
+| `PRODUCT_FUNCTION_NAME` | Lambda de produtos consultada pela saga ao iniciar | `local-ProductFunction` (local-server) |
 | `SAGA_STATE_MACHINE_ARN` | State machine da saga | — |
-| `EVENT_BUS_NAME` | Barramento de eventos (sem ele, os eventos só vão para o log) | — |
+| `EVENT_BUS_NAME` | Barramento de eventos (sem ele, os eventos vão para o log e para assinantes locais, ex.: `ProductCreated` → Stock) | — |
 | `PAYMENT_MAX_AMOUNT` | Valor máximo aprovado pelo pagamento simulado | `10000` |
 | `LOG_LEVEL` | `info`, `error` ou `silent` | `info` |
 | `LOCALSTACK_ENDPOINT` | Endpoint usado pelo `test:e2e` | `http://localhost:4566` |

@@ -40,8 +40,7 @@ export class ProductController {
         name,
         price: Number(price),
         description,
-        stock: parseInt(stock, 10) || 0,
-        ordersInProgress: 0
+        initialStock: Math.max(0, parseInt(stock, 10) || 0)
       });
 
       return successResponse(product, 201);

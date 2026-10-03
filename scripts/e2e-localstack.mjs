@@ -23,6 +23,7 @@ const T = {
   ORDERS_TABLE: `${PREFIX}-Orders`,
   PAYMENTS_TABLE: `${PREFIX}-Payments`,
   STOCK_RESERVATIONS_TABLE: `${PREFIX}-StockReservations`,
+  INVENTORY_TABLE: `${PREFIX}-Inventory`,
   SAGAS_TABLE: `${PREFIX}-Sagas`
 };
 const aws = clients(endpoint);
@@ -45,6 +46,7 @@ try {
 // O orquestrador e as rotas HTTP rodam neste processo, apontando para o LocalStack
 Object.assign(process.env, T, {
   SAGA_STATE_MACHINE_ARN: stateMachineArn,
+  PRODUCT_FUNCTION_NAME: `${PREFIX}-ProductFunction`,
   AWS_ENDPOINT: endpoint,
   AWS_REGION: 'us-east-1',
   AWS_ACCESS_KEY_ID: 'test',
@@ -55,6 +57,9 @@ const saga = (await import(`${ROOT}/src/ecommerce/saga-orchestrator/index.mjs`))
 const products = (await import(`${ROOT}/src/ecommerce/products/index.mjs`)).handler;
 const stock = (await import(`${ROOT}/src/ecommerce/stock/index.mjs`)).handler;
 const orders = (await import(`${ROOT}/src/ecommerce/orders/index.mjs`)).handler;
+// Sem EventBridge aqui: ProductCreated é entregue ao Stock em processo (como a regra faria na AWS)
+const { eventBus } = await import(`${ROOT}/src/common/event-bus.mjs`);
+eventBus.subscribe('products', 'ProductCreated', stock);
 const ev = (method, path, body, headers = {}) => ({ version: '2.0', rawPath: `/dev${path}`, headers,
   requestContext: { stage: 'dev', http: { method } }, body: body && JSON.stringify(body) });
 const call = async (fn, ...a) => { const r = await fn(ev(...a)); return { status: r.statusCode, body: JSON.parse(r.body) }; };
@@ -70,13 +75,17 @@ async function waitSaga(id) {
 }
 const steps = s => ['createOrder', 'processPayment', 'reserveStock', 'confirmOrder', 'releaseStock', 'refundPayment', 'cancelOrder']
   .filter(k => s.steps?.[k]).map(k => `${k}:${s.steps[k].status}`).join(' ');
-const productStock = async id => (await call(products, 'GET', `/products/${id}`)).body.stock;
+const productStock = async id => (await call(stock, 'GET', `/stock/${id}`)).body.available;
 const orderStatus = async id => (await call(orders, 'GET', `/orders/${id}`)).body.status;
 let failures = 0;
 const check = (label, cond) => { console.log(`  ${cond ? '✔' : '✘'} ${label}`); if (!cond) failures++; };
 
 const p = (await call(products, 'POST', '/products', { name: 'Teclado', price: 150, stock: 10 })).body;
 const caro = (await call(products, 'POST', '/products', { name: 'Servidor', price: 20000, stock: 3 })).body;
+
+console.log('\n0) Produto criado -> inventário criado pelo Stock (evento ProductCreated)');
+check('catálogo não guarda estoque', p.stock === undefined);
+check('inventário inicial 10', await productStock(p.id) === 10);
 
 console.log('\n1) Compra com sucesso (2 unidades)');
 let r = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 2 });
@@ -87,6 +96,8 @@ console.log(`  final: ${s.status} | ${steps(s)}`);
 check('saga COMPLETED', s.status === 'COMPLETED');
 check('estoque 10 -> 8', await productStock(p.id) === 8);
 check('pedido confirmado', await orderStatus(s.orderId) === 'confirmed');
+const order = (await call(orders, 'GET', `/orders/${s.orderId}`)).body;
+check('preço vindo da saga (2 x 150 = 300)', order.unitPrice === 150 && order.total === 300);
 
 console.log('\n2) Pagamento recusado (valor acima do limite)');
 r = await call(saga, 'POST', '/saga/execute', { productId: caro.id, quantity: 1 });

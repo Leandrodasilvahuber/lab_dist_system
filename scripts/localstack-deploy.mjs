@@ -15,6 +15,7 @@ export const LOCAL_TABLES = {
   ORDERS_TABLE: 'orders',
   PAYMENTS_TABLE: 'payments',
   STOCK_RESERVATIONS_TABLE: 'stock-reservations',
+  INVENTORY_TABLE: 'inventory',
   SAGAS_TABLE: 'sagas'
 };
 

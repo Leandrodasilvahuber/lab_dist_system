@@ -1,13 +1,18 @@
 import { setupRoutes } from './src/routes/stockRoutes.js';
 import { log } from '../../common/logger.mjs';
 import { normalizeHttpEvent } from '../../common/http-event.mjs';
-import { isActionInvocation, runAction } from '../../common/actions.mjs';
-import { actions } from './src/actions.js';
+import { isActionInvocation, runAction, isDomainEvent, runEventHandler } from '../../common/actions.mjs';
+import { actions, eventHandlers } from './src/actions.js';
 
 export async function handler(rawEvent) {
   // Invocação direta pela saga (Step Functions): { action, input }
   if (isActionInvocation(rawEvent)) {
     return runAction(actions, rawEvent);
+  }
+
+  // Evento de domínio (EventBridge), ex.: ProductCreated
+  if (isDomainEvent(rawEvent)) {
+    return runEventHandler(eventHandlers, rawEvent);
   }
 
   const event = normalizeHttpEvent(rawEvent);

@@ -39,6 +39,14 @@ compensação automática.
   andamento. Os passos e a compensação estão em
   [`workflow/saga-workflow.asl.json`](src/ecommerce/saga-orchestrator/workflow/saga-workflow.asl.json).
   Detalhes em [src/ecommerce/saga-orchestrator/README.md](src/ecommerce/saga-orchestrator/README.md).
+- **Dados por serviço**: cada serviço lê e escreve só as próprias tabelas
+  (Products → `Products`; Orders → `Orders`; Payments → `Payments`;
+  Stock → `Inventory` e `StockReservations`; Saga → `Sagas`). Quando precisa de
+  dado de outro serviço, pergunta a ele ou recebe um evento:
+  - a saga consulta o produto na Lambda de Products ao iniciar (404 imediato se
+    não existir) e envia o preço congelado (`unitPrice`) ao `CreateOrder`;
+  - o Stock cria o inventário ao receber `ProductCreated` (regra do EventBridge;
+    localmente, entrega em processo). Pedidos só são criados pela saga.
 
 ## A saga de compra
 
@@ -80,10 +88,9 @@ requisição com a mesma chave devolve a saga existente (200) em vez de criar ou
 |---|---|---|
 | GET | `/health` | Health check |
 | GET | `/products` | Lista produtos (`?name=&priceMin=&priceMax=`) |
-| POST | `/products` | Cria produto `{ name, price, description?, stock? }` |
+| POST | `/products` | Cria produto `{ name, price, description?, stock? }` (`stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
 | GET | `/orders` | Lista pedidos (`?status=&productId=`) |
-| POST | `/orders` | Cria pedido `{ productId, quantity }` |
 | GET | `/orders/{id}` | Busca pedido |
 | POST | `/orders/confirm` | Confirma pedido `{ orderId }` |
 | POST | `/orders/cancel` | Cancela pedido `{ orderId }` |
@@ -93,7 +100,7 @@ requisição com a mesma chave devolve a saga existente (200) em vez de criar ou
 | GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado) |
 | POST | `/stock/{productId}/reserve` | Reserva `{ quantity }` |
 | POST | `/stock/{productId}/release` | Libera uma reserva `{ reservationId }` |
-| POST | `/stock/{productId}/adjust` | Ajusta o estoque `{ delta }` |
+| POST | `/stock/{productId}/adjust` | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir) |
 | **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` → 202 |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
 | GET | `/sagas` | Lista as compras (`?status=`) |
@@ -101,7 +108,8 @@ requisição com a mesma chave devolve a saga existente (200) em vez de criar ou
 Erros de negócio: `400` validação, `402` pagamento recusado, `404` não
 encontrado, `409` estado inválido ou estoque insuficiente.
 
-**Estoque:** o campo `stock` do produto é a quantidade disponível. Cada reserva
+**Estoque:** a quantidade disponível fica na tabela `Inventory`, do serviço de
+Stock (o catálogo de Products não guarda estoque). Cada reserva
 debita o estoque na mesma transação do DynamoDB em que é registrada, então várias
 reservas do mesmo produto podem coexistir sem risco de vender além do disponível,
 mesmo com compras simultâneas.

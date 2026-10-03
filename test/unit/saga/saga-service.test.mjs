@@ -5,7 +5,7 @@ import { NotFoundError, ValidationError } from '../../../src/common/errors.mjs';
 
 // Banco em memória com o subconjunto usado pelo SagaService
 class FakeDb {
-  constructor() { this.tables = { sagas: new Map(), products: new Map() }; }
+  constructor() { this.tables = { sagas: new Map() }; }
   async getItem(table, { id }) { return this.tables[table].get(id); }
   async putItemIfNotExists(table, item) {
     if (this.tables[table].has(item.id)) return false;
@@ -20,6 +20,17 @@ class FakeDb {
   async scanItems(table) { return [...this.tables[table].values()]; }
 }
 
+// Serviço de Products (na AWS, Lambda invoke via ProductClient)
+class FakeProductClient {
+  constructor(products) { this.products = products; this.calls = 0; }
+  async getProduct(productId) {
+    this.calls++;
+    const product = this.products[productId];
+    if (!product) throw new NotFoundError('Product not found');
+    return product;
+  }
+}
+
 class FakeStepFunctions {
   constructor({ fail = false } = {}) { this.fail = fail; this.started = []; }
   async startExecution(name, input) {
@@ -30,13 +41,13 @@ class FakeStepFunctions {
 }
 
 describe('SagaService', () => {
-  let db, sfn, service;
+  let db, sfn, productClient, service;
 
   beforeEach(() => {
     db = new FakeDb();
-    db.tables.products.set('apple', { id: 'apple', price: 5, stock: 10 });
     sfn = new FakeStepFunctions();
-    service = new SagaService({ db, stepFunctions: sfn });
+    productClient = new FakeProductClient({ apple: { id: 'apple', price: 5 } });
+    service = new SagaService({ db, stepFunctions: sfn, productClient });
   });
 
   it('cria o registro RUNNING e inicia a execução com ids determinísticos', async () => {
@@ -52,6 +63,13 @@ describe('SagaService', () => {
       reservationId: `res_${saga.id}`
     });
     assert.ok(db.tables.sagas.get(saga.id).executionArn);
+  });
+
+  it('consulta o serviço de Products e envia o preço congelado à execução', async () => {
+    const { saga } = await service.startSaga({ productId: 'apple', quantity: 2 });
+    assert.strictEqual(productClient.calls, 1);
+    assert.strictEqual(sfn.started[0].input.unitPrice, 5);
+    assert.strictEqual(saga.unitPrice, 5);
   });
 
   it('mesma idempotencyKey devolve a saga existente sem nova execução', async () => {
@@ -75,7 +93,7 @@ describe('SagaService', () => {
   });
 
   it('marca FAILED se o Step Functions não iniciar', async () => {
-    service = new SagaService({ db, stepFunctions: new FakeStepFunctions({ fail: true }) });
+    service = new SagaService({ db, stepFunctions: new FakeStepFunctions({ fail: true }), productClient });
     await assert.rejects(service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: 'k' }));
     assert.strictEqual(db.tables.sagas.get('saga_k').status, 'FAILED');
   });

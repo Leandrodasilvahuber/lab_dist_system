@@ -5,8 +5,8 @@ const orderSDK = new OrderSDK(eventBus);
 
 // Ações invocadas pela saga (Step Functions)
 export const actions = {
-  createOrder: ({ orderId, productId, quantity, correlationId }) =>
-    orderSDK.createOrder({ id: orderId, productId, quantity, correlationId }),
+  createOrder: ({ orderId, productId, quantity, unitPrice, correlationId }) =>
+    orderSDK.createOrder({ id: orderId, productId, quantity, unitPrice, correlationId }),
 
   confirmOrder: ({ orderId, correlationId }) =>
     orderSDK.confirmOrder(orderId, correlationId),

@@ -11,3 +11,9 @@ export const actions = {
   releaseStock: ({ reservationId, correlationId }) =>
     stockSDK.releaseStock({ reservationId, correlationId })
 };
+
+// Eventos de domínio recebidos do EventBridge (chave: <source>/<detail-type>)
+export const eventHandlers = {
+  'products/ProductCreated': ({ productId, name, initialStock }) =>
+    stockSDK.initializeStock({ productId, name, initialStock })
+};

@@ -30,6 +30,7 @@ const tables = {
   orders: process.env.ORDERS_TABLE || 'orders',
   payments: process.env.PAYMENTS_TABLE || 'payments',
   stockreservations: process.env.STOCK_RESERVATIONS_TABLE || 'stock-reservations',
+  inventory: process.env.INVENTORY_TABLE || 'inventory',
   sagas: process.env.SAGAS_TABLE || 'sagas'
 };
 

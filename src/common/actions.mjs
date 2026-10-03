@@ -32,3 +32,24 @@ export async function runAction(actions, { action, input = {} }) {
     throw error;
   }
 }
+
+/**
+ * Evento de domínio entregue pelo EventBridge: { source, 'detail-type', detail }.
+ */
+export function isDomainEvent(event) {
+  return Boolean(event && typeof event.source === 'string' && typeof event['detail-type'] === 'string' && !event.requestContext);
+}
+
+/**
+ * Executa o handler registrado para `<source>/<detail-type>`.
+ * Eventos sem handler são ignorados; erros são relançados para o EventBridge repetir.
+ */
+export async function runEventHandler(handlers, event) {
+  const key = `${event.source}/${event['detail-type']}`;
+  const fn = handlers[key];
+  if (!fn) {
+    log({ event: 'DOMAIN_EVENT_IGNORED', status: 'info', message: `No handler for ${key}` });
+    return { ignored: true };
+  }
+  return runAction({ [key]: fn }, { action: key, input: event.detail || {} });
+}

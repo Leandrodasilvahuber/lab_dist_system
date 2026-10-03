@@ -15,15 +15,14 @@ export class OrderSDK {
   /**
    * Criar pedido
    * `id` opcional torna a operação idempotente (a saga usa um id derivado do sagaId).
+   * `unitPrice` vem da saga, que consultou o serviço de Products ao iniciar.
    */
-  async createOrder({ productId, quantity, correlationId, id }) {
+  async createOrder({ productId, quantity, unitPrice, correlationId, id }) {
     if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
       throw new ValidationError('productId and a positive integer quantity are required');
     }
-
-    const product = await this.db.getItem('products', { id: productId });
-    if (!product) {
-      throw new NotFoundError('Product not found');
+    if (typeof unitPrice !== 'number' || !Number.isFinite(unitPrice) || unitPrice < 0) {
+      throw new ValidationError('unitPrice must be a non-negative number');
     }
 
     const now = new Date().toISOString();
@@ -31,8 +30,8 @@ export class OrderSDK {
       id: id || generateId(),
       productId,
       quantity,
-      unitPrice: product.price,
-      total: product.price * quantity,
+      unitPrice,
+      total: unitPrice * quantity,
       status: 'pending',
       correlationId: correlationId || generateCorrelationId(),
       createdAt: now,

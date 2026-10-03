@@ -39,6 +39,8 @@ async function findStateMachineArn() {
 }
 
 process.env.SAGA_STATE_MACHINE_ARN ||= await findStateMachineArn() || '';
+// A saga consulta o produto invocando a Lambda publicada por `npm run localstack:deploy`
+process.env.PRODUCT_FUNCTION_NAME ||= 'local-ProductFunction';
 
 const handlers = {
   products: (await import('./src/ecommerce/products/index.mjs')).handler,
@@ -48,6 +50,10 @@ const handlers = {
   saga: (await import('./src/ecommerce/saga-orchestrator/index.mjs')).handler,
   gateway: (await import('./src/layers/api-gateway-layer/src/routes/apiRoutes.js')).handler
 };
+
+// Sem EventBridge local: ProductCreated é entregue ao Stock em processo (como a regra faria na AWS)
+const { eventBus } = await import('./src/common/event-bus.mjs');
+eventBus.subscribe('products', 'ProductCreated', handlers.stock);
 
 // Mesmo roteamento do template.yaml
 function routeFor(pathname) {

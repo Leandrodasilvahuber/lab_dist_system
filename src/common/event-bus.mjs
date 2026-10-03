@@ -9,11 +9,14 @@ import { log } from './logger.mjs';
  * Step Functions, então uma falha ao publicar é registrada mas não interrompe
  * a operação de negócio.
  *
- * Sem EVENT_BUS_NAME (execução local) os eventos são apenas registrados no log.
+ * Sem EVENT_BUS_NAME (execução local) os eventos são registrados no log e
+ * entregues aos assinantes locais (subscribe), no mesmo formato do EventBridge.
+ * É assim que o local-server e o e2e fazem o Stock receber ProductCreated.
  */
 export class EventBus {
   constructor({ eventBusName = process.env.EVENT_BUS_NAME, client } = {}) {
     this.eventBusName = eventBusName;
+    this.subscribers = [];
     if (this.eventBusName) {
       const endpoint = process.env.EVENTBRIDGE_ENDPOINT || process.env.AWS_ENDPOINT;
       this.client = client || new EventBridgeClient({
@@ -21,6 +24,14 @@ export class EventBus {
         ...(endpoint && { endpoint })
       });
     }
+  }
+
+  /**
+   * Assinante in-process, usado só sem EVENT_BUS_NAME (na AWS quem entrega é
+   * uma regra do EventBridge). `fn` recebe o evento no formato do EventBridge.
+   */
+  subscribe(source, detailType, fn) {
+    this.subscribers.push({ source, detailType, fn });
   }
 
   async publish({ Source, DetailType, Detail }) {
@@ -31,9 +42,10 @@ export class EventBus {
         event: 'DOMAIN_EVENT',
         correlationId: detail?.correlationId,
         status: 'info',
-        message: `${Source}/${DetailType} (EVENT_BUS_NAME não definido, evento não enviado)`,
+        message: `${Source}/${DetailType} (EVENT_BUS_NAME não definido, entregue só a assinantes locais)`,
         data: detail
       });
+      await this.deliverLocally(Source, DetailType, detail);
       return;
     }
 
@@ -57,6 +69,24 @@ export class EventBus {
         message: `Failed to publish ${Source}/${DetailType}`,
         error
       });
+    }
+  }
+
+  async deliverLocally(source, detailType, detail) {
+    const event = { source, 'detail-type': detailType, detail };
+    for (const sub of this.subscribers) {
+      if (sub.source !== source || sub.detailType !== detailType) continue;
+      try {
+        await sub.fn(event);
+      } catch (error) {
+        log({
+          event: 'DOMAIN_EVENT_LOCAL_DELIVERY_FAILED',
+          correlationId: detail?.correlationId,
+          status: 'error',
+          message: `Local subscriber failed for ${source}/${detailType}`,
+          error
+        });
+      }
     }
   }
 }

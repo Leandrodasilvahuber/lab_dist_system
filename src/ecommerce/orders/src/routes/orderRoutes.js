@@ -11,11 +11,6 @@ export async function setupRoutes(event) {
     return OrderController.getOrders(event, queryStringParameters);
   }
 
-  // POST /orders
-  if (method === 'POST' && path === '/orders') {
-    return OrderController.createOrder(event);
-  }
-
   // POST /orders/confirm
   if (method === 'POST' && path === '/orders/confirm') {
     return OrderController.confirmOrder(event);

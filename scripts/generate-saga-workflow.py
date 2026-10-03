@@ -29,7 +29,8 @@ TABLE = '${SagasTableName}'
 FORWARD = [
     # (estado, serviço, ação, input, ResultSelector, ResultPath, compensação ao falhar o PRÓXIMO)
     ('CreateOrder', 'orders', 'createOrder',
-     {'orderId.$': '$.ids.orderId', 'productId.$': '$.productId', 'quantity.$': '$.quantity', 'correlationId.$': '$.correlationId'},
+     {'orderId.$': '$.ids.orderId', 'productId.$': '$.productId', 'quantity.$': '$.quantity',
+      'unitPrice.$': '$.unitPrice', 'correlationId.$': '$.correlationId'},
      {'id.$': '$.Payload.id', 'total.$': '$.Payload.total'}, '$.order'),
     ('ProcessPayment', 'payments', 'processPayment',
      {'paymentId.$': '$.ids.paymentId', 'orderId.$': '$.ids.orderId', 'amount.$': '$.order.total', 'correlationId.$': '$.correlationId'},

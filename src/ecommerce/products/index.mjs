@@ -1,8 +1,15 @@
 import { setupRoutes } from './src/routes/productRoutes.js';
 import { log } from '../../common/logger.mjs';
 import { normalizeHttpEvent } from '../../common/http-event.mjs';
+import { isActionInvocation, runAction } from '../../common/actions.mjs';
+import { actions } from './src/actions.js';
 
 export async function handler(rawEvent) {
+  // Invocação direta por outro serviço (Lambda invoke): { action, input }
+  if (isActionInvocation(rawEvent)) {
+    return runAction(actions, rawEvent);
+  }
+
   const event = normalizeHttpEvent(rawEvent);
 
   try {

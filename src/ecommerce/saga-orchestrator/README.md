@@ -15,7 +15,8 @@ Coordena a compra como uma **saga orquestrada pelo AWS Step Functions**.
 
 | Arquivo | Papel |
 |---|---|
-| `src/services/SagaService.js` | Valida a compra, cria o registro da saga (status `RUNNING`) e inicia a execução |
+| `src/services/SagaService.js` | Valida a compra, consulta o produto, cria o registro da saga (status `RUNNING`) e inicia a execução |
+| `src/services/ProductClient.js` | Consulta o produto invocando a Lambda de Products (`getProduct`); a saga não lê a tabela de produtos |
 | `src/services/StepFunctionsClient.js` | `StartExecution` no Step Functions |
 | `src/controllers/SagaOrchestratorController.js` | Rotas HTTP `/saga/execute`, `/saga/{id}`, `/sagas` |
 | `workflow/saga-workflow.asl.json` | Máquina de estados (gerada, não edite à mão) |
@@ -24,6 +25,10 @@ Coordena a compra como uma **saga orquestrada pelo AWS Step Functions**.
 Os passos são executados pelas Lambdas dos serviços (`orders`, `payments`,
 `stock`) por invocação direta: `{ "action": "reserveStock", "input": {...} }`.
 Veja `src/ecommerce/*/src/actions.js`.
+
+Antes de iniciar a execução, a saga consulta o produto (síncrono): produto
+inexistente responde `404` na hora, e o preço (`unitPrice`) vai no input da
+execução para o `createOrder`, congelado no momento da compra.
 
 ## Fluxo
 
@@ -57,8 +62,8 @@ Se uma compensação falhar mesmo após as tentativas, a saga termina em
   negócio (`InsufficientStock`, `PaymentDeclined`, `NotFound`, `InvalidState`)
   vão direto para a compensação: o `name` do erro lançado pelo SDK vira o
   `errorType` da Lambda, que é o que o Step Functions compara.
-- **Estoque consistente:** a reserva debita o estoque numa transação do DynamoDB
-  com a condição `stock >= quantidade`, então compras simultâneas nunca deixam o
+- **Estoque consistente:** a reserva debita o inventário (tabela do serviço de
+  Stock) numa transação do DynamoDB com a condição `stock >= quantidade`, então compras simultâneas nunca deixam o
   estoque negativo.
 - **Idempotency-Key:** o cliente pode mandar o header `Idempotency-Key`; a mesma
   chave sempre corresponde à mesma saga (`saga_<chave>`).

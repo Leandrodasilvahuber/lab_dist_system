@@ -713,7 +713,13 @@
         // ---------- Produtos ----------
         async function fetchProducts() {
             try {
-                ({ products } = await api('/products'));
+                // Catálogo (Products) e estoque (Stock) vêm de serviços diferentes
+                const [catalog, inventory] = await Promise.all([
+                    api('/products'),
+                    api('/stock').catch(() => ({ stock: [] }))
+                ]);
+                const available = new Map(inventory.stock.map(item => [item.productId, item.available]));
+                products = catalog.products.map(p => ({ ...p, stock: available.get(p.id) }));
                 products.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
             } catch {
                 products = [];
@@ -910,10 +916,10 @@
         async function fetchSummary() {
             const content = document.getElementById('summaryContent');
             try {
-                const [{ products: all }, { orders }, { sagas }] = await Promise.all([
-                    api('/products'), api('/orders'), api('/sagas')
+                const [{ products: all }, { stock }, { orders }, { sagas }] = await Promise.all([
+                    api('/products'), api('/stock'), api('/orders'), api('/sagas')
                 ]);
-                const totalStock = all.reduce((sum, p) => sum + (p.stock || 0), 0);
+                const totalStock = stock.reduce((sum, item) => sum + (item.available || 0), 0);
                 const confirmed = orders.filter(o => o.status === 'confirmed');
                 const revenue = confirmed.reduce((sum, o) => sum + (o.total || 0), 0);
                 const undone = sagas.filter(s => ['COMPENSATED', 'FAILED'].includes(s.status)).length;

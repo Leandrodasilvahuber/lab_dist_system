@@ -4,15 +4,38 @@ import { NotFoundError, InsufficientStockError, InvalidStateError, ValidationErr
 /**
  * SDK Público - Interface uniforme para operações de estoque
  *
- * O campo `stock` do produto é a quantidade disponível. Cada reserva debita o
+ * A quantidade disponível fica na tabela `inventory` (uma linha por produto,
+ * id = productId), que pertence só a este serviço. Cada reserva debita o
  * estoque na mesma transação em que é registrada, então várias reservas do
  * mesmo produto podem coexistir sem risco de vender além do disponível, mesmo
  * com pedidos simultâneos.
+ *
+ * O inventário nasce do evento ProductCreated (initializeStock), publicado
+ * pelo serviço de Products.
  */
 export class StockSDK {
   constructor(eventBridgeClient, db = new Database()) {
     this.eventBridgeClient = eventBridgeClient;
     this.db = db;
+  }
+
+  /**
+   * Criar o inventário de um produto recém-criado.
+   * Idempotente: um evento ProductCreated repetido não altera o estoque.
+   */
+  async initializeStock({ productId, name, initialStock = 0 }) {
+    const quantity = Number(initialStock);
+    if (!productId) {
+      throw new ValidationError('productId is required');
+    }
+    if (!Number.isInteger(quantity) || quantity < 0) {
+      throw new ValidationError('initialStock must be a non-negative integer');
+    }
+
+    const now = new Date().toISOString();
+    const item = { id: productId, name, stock: quantity, createdAt: now, updatedAt: now };
+    const created = await this.db.putItemIfNotExists('inventory', item);
+    return created ? item : this.db.getItem('inventory', { id: productId });
   }
 
   /**
@@ -45,7 +68,7 @@ export class StockSDK {
         },
         {
           Update: {
-            table: 'products',
+            table: 'inventory',
             Key: { id: productId },
             UpdateExpression: 'SET stock = stock - :quantity, updatedAt = :now',
             ConditionExpression: 'attribute_exists(id) AND stock >= :quantity',
@@ -64,10 +87,10 @@ export class StockSDK {
         return this.getReservation(reservation.id);
       }
       if (productReason === 'ConditionalCheckFailed') {
-        const product = await this.db.getItem('products', { id: productId });
-        if (!product) throw new NotFoundError('Product not found');
+        const inventory = await this.db.getItem('inventory', { id: productId });
+        if (!inventory) throw new NotFoundError('Inventory not found for product');
         throw new InsufficientStockError(
-          `Insufficient stock: requested ${quantity}, available ${product.stock || 0}`
+          `Insufficient stock: requested ${quantity}, available ${inventory.stock || 0}`
         );
       }
       throw error;
@@ -109,7 +132,7 @@ export class StockSDK {
         },
         {
           Update: {
-            table: 'products',
+            table: 'inventory',
             Key: { id: reservation.productId },
             UpdateExpression: 'SET stock = stock + :quantity, updatedAt = :now',
             ConditionExpression: 'attribute_exists(id)',
@@ -140,27 +163,41 @@ export class StockSDK {
   }
 
   /**
-   * Ajustar estoque do produto (delta positivo ou negativo)
+   * Ajustar estoque do produto (delta positivo ou negativo).
+   * Um delta positivo cria o inventário se ele não existir (recupera um
+   * ProductCreated perdido); `name` só é gravado se ainda não houver um.
    */
-  async adjustStock(productId, delta) {
+  async adjustStock(productId, delta, { name } = {}) {
     if (!Number.isInteger(delta) || delta === 0) {
       throw new ValidationError('delta must be a non-zero integer');
     }
 
+    const now = new Date().toISOString();
+    const setName = name ? ', #name = if_not_exists(#name, :name)' : '';
+
     try {
       const attributes = await this.db.updateItem(
-        'products',
+        'inventory',
         { id: productId },
-        'SET stock = stock + :delta, updatedAt = :now',
-        { ':delta': delta, ':now': new Date().toISOString(), ':min': Math.max(0, -delta) },
-        { conditionExpression: 'attribute_exists(id) AND stock >= :min' }
+        `SET stock = if_not_exists(stock, :zero) + :delta, updatedAt = :now, createdAt = if_not_exists(createdAt, :now)${setName}`,
+        {
+          ':delta': delta,
+          ':now': now,
+          ':zero': 0,
+          ':min': Math.max(0, -delta),
+          ...(name && { ':name': name })
+        },
+        {
+          conditionExpression: '(attribute_not_exists(stock) AND :min = :zero) OR stock >= :min',
+          ...(name && { expressionAttributeNames: { '#name': 'name' } })
+        }
       );
       return { productId, previousStock: attributes.stock - delta, stock: attributes.stock };
     } catch (error) {
       if (error.name !== 'ConditionalCheckFailedException') throw error;
 
-      const product = await this.db.getItem('products', { id: productId });
-      if (!product) throw new NotFoundError('Product not found');
+      const inventory = await this.db.getItem('inventory', { id: productId });
+      if (!inventory) throw new NotFoundError('Inventory not found for product');
       throw new InsufficientStockError('Insufficient stock for adjustment');
     }
   }
@@ -177,17 +214,18 @@ export class StockSDK {
    * Buscar estoque por ID de produto
    */
   async getStock(productId) {
-    const product = await this.db.getItem('products', { id: productId });
-    if (!product) {
-      throw new NotFoundError('Product not found');
+    const inventory = await this.db.getItem('inventory', { id: productId });
+    if (!inventory) {
+      throw new NotFoundError('Inventory not found for product');
     }
 
     const activeReservations = (await this.db.scanItems('stockReservations'))
       .filter(r => r.productId === productId && r.status === 'active');
 
     return {
-      productId: product.id,
-      available: product.stock || 0,
+      productId: inventory.id,
+      name: inventory.name,
+      available: inventory.stock || 0,
       reserved: sumQuantities(activeReservations),
       activeReservations: activeReservations.length
     };
@@ -197,26 +235,26 @@ export class StockSDK {
    * Listar estoque
    */
   async listStock(filters = {}) {
-    const allProducts = await this.db.scanItems('products');
+    const allItems = await this.db.scanItems('inventory');
     const activeReservations = (await this.db.scanItems('stockReservations'))
       .filter(r => r.status === 'active');
 
-    return allProducts.filter(product => {
-      if (filters.productId && product.id !== filters.productId) {
+    return allItems.filter(item => {
+      if (filters.productId && item.id !== filters.productId) {
         return false;
       }
-      if (filters.stockMin && product.stock < Number(filters.stockMin)) {
+      if (filters.stockMin && item.stock < Number(filters.stockMin)) {
         return false;
       }
-      if (filters.stockMax && product.stock > Number(filters.stockMax)) {
+      if (filters.stockMax && item.stock > Number(filters.stockMax)) {
         return false;
       }
       return true;
-    }).map(product => ({
-      productId: product.id,
-      name: product.name,
-      available: product.stock || 0,
-      reserved: sumQuantities(activeReservations.filter(r => r.productId === product.id))
+    }).map(item => ({
+      productId: item.id,
+      name: item.name,
+      available: item.stock || 0,
+      reserved: sumQuantities(activeReservations.filter(r => r.productId === item.id))
     }));
   }
 

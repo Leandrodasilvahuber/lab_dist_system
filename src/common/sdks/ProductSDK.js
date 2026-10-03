@@ -1,9 +1,12 @@
 import { Database } from '../database.mjs';
-import { NotFoundError } from '../errors.mjs';
+import { NotFoundError, ValidationError } from '../errors.mjs';
 
 /**
  * SDK Público - Interface uniforme para operações de produto
- * Saga orchestrator usa isso, não importa diretamente do products
+ *
+ * A tabela `products` guarda só o catálogo (nome, preço, descrição). A
+ * quantidade em estoque pertence ao serviço de Stock: o estoque inicial segue
+ * no evento ProductCreated e o Stock cria o inventário a partir dele.
  */
 export class ProductSDK {
   constructor(eventBridgeClient, db = new Database()) {
@@ -14,11 +17,13 @@ export class ProductSDK {
   /**
    * Criar produto
    */
-  async createProduct(productData) {
+  async createProduct({ initialStock = 0, ...productData }) {
+    const now = new Date().toISOString();
     const product = {
       id: generateId(),
       ...productData,
-      createdAt: new Date().toISOString()
+      createdAt: now,
+      updatedAt: now
     };
 
     await this.db.putItem('products', product);
@@ -27,7 +32,7 @@ export class ProductSDK {
       await this.eventBridgeClient.publish({
         Source: 'products',
         DetailType: 'ProductCreated',
-        Detail: { productId: product.id, name: product.name, correlationId: generateCorrelationId() }
+        Detail: { productId: product.id, name: product.name, initialStock, correlationId: generateCorrelationId() }
       });
     }
 
@@ -66,16 +71,34 @@ export class ProductSDK {
 
   /**
    * Atualizar produto
+   * Altera só os campos enviados (UpdateItem), sem regravar o item inteiro.
    */
   async updateProduct(productId, updates) {
-    const product = await this.getProduct(productId);
-    const updatedProduct = {
-      ...product,
-      ...updates,
-      updatedAt: new Date().toISOString()
-    };
-    await this.db.putItem('products', updatedProduct);
-    return updatedProduct;
+    if ('stock' in updates) {
+      throw new ValidationError('stock is managed by the stock service');
+    }
+
+    const fields = Object.entries(updates)
+      .filter(([key, value]) => !['id', 'createdAt', 'updatedAt'].includes(key) && value !== undefined);
+    const names = {};
+    const values = { ':updatedAt': new Date().toISOString() };
+    const sets = ['updatedAt = :updatedAt'];
+    fields.forEach(([key, value], i) => {
+      names[`#f${i}`] = key;
+      values[`:f${i}`] = value;
+      sets.push(`#f${i} = :f${i}`);
+    });
+
+    try {
+      return await this.db.updateItem('products', { id: productId }, `SET ${sets.join(', ')}`, values, {
+        conditionExpression: 'attribute_exists(id)',
+        returnValues: 'ALL_NEW',
+        ...(fields.length && { expressionAttributeNames: names })
+      });
+    } catch (error) {
+      if (error.name === 'ConditionalCheckFailedException') throw new NotFoundError('Product not found');
+      throw error;
+    }
   }
 
   /**

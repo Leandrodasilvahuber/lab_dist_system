@@ -66,6 +66,10 @@ describe('saga-workflow.asl.json', () => {
     }
   });
 
+  it('CreateOrder recebe o preço congelado pela saga (Orders não lê produtos)', () => {
+    assert.strictEqual(states.CreateOrder.Parameters.Payload.input['unitPrice.$'], '$.unitPrice');
+  });
+
   it('falha na compensação leva a COMPENSATION_FAILED', () => {
     for (const action of ['releaseStock', 'refundPayment', 'cancelOrder']) {
       const state = Object.values(states).find(s => s.Parameters?.Payload?.action === action);

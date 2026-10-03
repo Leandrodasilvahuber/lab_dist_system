@@ -28,6 +28,7 @@ Globals:
         ORDERS_TABLE: !Ref OrdersTable
         PAYMENTS_TABLE: !Ref PaymentsTable
         STOCK_RESERVATIONS_TABLE: !Ref StockReservationsTable
+        INVENTORY_TABLE: !Ref InventoryTable
         SAGAS_TABLE: !Ref SagasTable
         EVENT_BUS_NAME: !Ref EventBus
 
@@ -136,12 +137,6 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /orders/{id}
             Method: GET
-        CreateOrder:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref ApiGateway
-            Path: /orders
-            Method: POST
         ConfirmOrder:
           Type: HttpApi
           Properties:
@@ -157,8 +152,6 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref OrdersTable
-        - DynamoDBReadPolicy:
-            TableName: !Ref ProductsTable
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref EventBus
     Metadata:
@@ -251,7 +244,7 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref StockReservationsTable
         - DynamoDBCrudPolicy:
-            TableName: !Ref ProductsTable
+            TableName: !Ref InventoryTable
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref EventBus
     Metadata:
@@ -274,6 +267,7 @@ Resources:
         Variables:
           SERVICE_TYPE: saga-orchestrator
           SAGA_STATE_MACHINE_ARN: !Ref SagaStateMachine
+          PRODUCT_FUNCTION_NAME: !Ref ProductFunction
       Events:
         ExecuteSaga:
           Type: HttpApi
@@ -296,8 +290,9 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SagasTable
-        - DynamoDBReadPolicy:
-            TableName: !Ref ProductsTable
+        # Dados do produto vêm do serviço de Products, não da tabela dele
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ProductFunction
         - StepFunctionsExecutionPolicy:
             StateMachineName: !GetAtt SagaStateMachine.Name
     Metadata:
@@ -381,6 +376,27 @@ Resources:
         - Arn: !GetAtt OrderEventsQueue.Arn
           Id: OrderEventsQueueTarget
 
+  # Produto criado -> serviço de Stock cria o inventário inicial
+  ProductCreatedToStockRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref EventBus
+      EventPattern:
+        source: ['products']
+        detail-type: ['ProductCreated']
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt StockFunction.Arn
+          Id: StockFunctionTarget
+
+  ProductCreatedToStockPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref StockFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ProductCreatedToStockRule.Arn
+
   # DynamoDB Tables
   ProductsTable:
     Type: AWS::DynamoDB::Table
@@ -422,6 +438,19 @@ Resources:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: !Sub '${Environment}-StockReservations'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  # Quantidade disponível por produto (dono: serviço de Stock, chave id = productId)
+  InventoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-Inventory'
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: id
@@ -483,6 +512,10 @@ Outputs:
   StockReservationsTable:
     Description: "Stock Reservations DynamoDB Table Name"
     Value: !Ref StockReservationsTable
+
+  InventoryTable:
+    Description: "Inventory DynamoDB Table Name"
+    Value: !Ref InventoryTable
 
   SagasTable:
     Description: "Sagas DynamoDB Table Name"

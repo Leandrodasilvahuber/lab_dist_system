@@ -23,32 +23,6 @@ export class OrderController {
   }
 
   /**
-   * POST /orders
-   */
-  static async createOrder(event) {
-    try {
-      const { productId, quantity, correlationId } = parseBody(event);
-
-      if (!productId || quantity === undefined) {
-        return errorResponse('Missing required fields: productId, quantity', 400);
-      }
-      if (!Number.isInteger(Number(quantity)) || Number(quantity) <= 0) {
-        return errorResponse('Quantity must be a positive integer', 400);
-      }
-
-      const order = await orderSDK.createOrder({
-        productId,
-        quantity: Number(quantity),
-        correlationId: correlationId || event.headers?.['x-correlation-id']
-      });
-
-      return successResponse(order, 201);
-    } catch (error) {
-      return sdkErrorResponse(error, 'Failed to create order');
-    }
-  }
-
-  /**
    * POST /orders/confirm
    */
   static async confirmOrder(event) {
