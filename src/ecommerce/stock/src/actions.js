@@ -8,6 +8,9 @@ export const actions = {
   reserveStock: ({ reservationId, productId, quantity, correlationId }) =>
     stockSDK.reserveStock({ id: reservationId, productId, quantity, correlationId }),
 
+  commitReservation: ({ reservationId, correlationId }) =>
+    stockSDK.commitReservation({ reservationId, correlationId }),
+
   releaseStock: ({ reservationId, correlationId }) =>
     stockSDK.releaseStock({ reservationId, correlationId })
 };
@@ -15,5 +18,8 @@ export const actions = {
 // Eventos de domínio recebidos do EventBridge (chave: <source>/<detail-type>)
 export const eventHandlers = {
   'products/ProductCreated': ({ productId, name, initialStock }) =>
-    stockSDK.initializeStock({ productId, name, initialStock })
+    stockSDK.initializeStock({ productId, name, initialStock }),
+
+  'products/ProductDeleted': ({ productId }) =>
+    stockSDK.removeInventory({ productId })
 };

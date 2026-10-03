@@ -2,9 +2,17 @@
 """
 Gera src/ecommerce/saga-orchestrator/workflow/saga-workflow.asl.json
 
-Fluxo:  CreateOrder -> ProcessPayment -> ReserveStock -> ConfirmOrder
-Falha:  compensa, em ordem reversa, apenas os passos já concluídos
-        (ReleaseStock -> RefundPayment -> CancelOrder)
+Fluxo:  CreateOrder -> ReserveStock -> ProcessPayment -> CommitReservation -> ConfirmOrder
+Falha:  compensa, em ordem reversa, os passos já concluídos E o próprio passo
+        que falhou (RefundPayment -> ReleaseStock -> CancelOrder)
+
+O estoque é reservado antes da cobrança: falta de estoque (a falha mais comum)
+não gera cobrança seguida de reembolso.
+
+A compensação começa no passo que falhou porque uma falha vista pelo Step
+Functions (timeout, erro de rede) não garante que o passo não gravou nada.
+As compensações são idempotentes e tratam "nunca foi gravado" como nada a
+desfazer (gravando um registro anulado para barrar uma escrita atrasada).
 
 Cada passo é registrado na tabela de sagas (steps.<nome>) via integração
 direta do Step Functions com o DynamoDB, sem Lambda extra.
@@ -20,24 +28,29 @@ TRANSIENT_ERRORS = [
     'Lambda.ServiceException', 'Lambda.AWSLambdaException', 'Lambda.SdkClientException',
     'Lambda.TooManyRequestsException', 'States.Timeout',
     'ThrottlingException', 'ProvisionedThroughputExceededException',
-    'TransactionConflictException', 'InternalServerError', 'ServiceUnavailable'
+    'TransactionConflictException', 'InternalServerError', 'ServiceUnavailable',
+    # Timeout/erro da própria Lambda: os passos são idempotentes, repetir é seguro
+    'Sandbox.Timedout', 'Lambda.Unknown'
 ]
 
 FUNCTIONS = {'orders': '${OrderFunctionArn}', 'payments': '${PaymentFunctionArn}', 'stock': '${StockFunctionArn}'}
 TABLE = '${SagasTableName}'
 
 FORWARD = [
-    # (estado, serviço, ação, input, ResultSelector, ResultPath, compensação ao falhar o PRÓXIMO)
+    # (estado, serviço, ação, input, ResultSelector, ResultPath)
     ('CreateOrder', 'orders', 'createOrder',
      {'orderId.$': '$.ids.orderId', 'productId.$': '$.productId', 'quantity.$': '$.quantity',
       'unitPrice.$': '$.unitPrice', 'correlationId.$': '$.correlationId'},
      {'id.$': '$.Payload.id', 'total.$': '$.Payload.total'}, '$.order'),
-    ('ProcessPayment', 'payments', 'processPayment',
-     {'paymentId.$': '$.ids.paymentId', 'orderId.$': '$.ids.orderId', 'amount.$': '$.order.total', 'correlationId.$': '$.correlationId'},
-     {'id.$': '$.Payload.id', 'status.$': '$.Payload.status'}, '$.payment'),
     ('ReserveStock', 'stock', 'reserveStock',
      {'reservationId.$': '$.ids.reservationId', 'productId.$': '$.productId', 'quantity.$': '$.quantity', 'correlationId.$': '$.correlationId'},
      {'id.$': '$.Payload.id'}, '$.reservation'),
+    ('ProcessPayment', 'payments', 'processPayment',
+     {'paymentId.$': '$.ids.paymentId', 'orderId.$': '$.ids.orderId', 'amount.$': '$.order.total', 'correlationId.$': '$.correlationId'},
+     {'id.$': '$.Payload.id', 'status.$': '$.Payload.status'}, '$.payment'),
+    ('CommitReservation', 'stock', 'commitReservation',
+     {'reservationId.$': '$.ids.reservationId', 'correlationId.$': '$.correlationId'},
+     None, None),
     ('ConfirmOrder', 'orders', 'confirmOrder',
      {'orderId.$': '$.ids.orderId', 'correlationId.$': '$.correlationId'},
      None, None),
@@ -45,17 +58,18 @@ FORWARD = [
 
 # Compensação de cada passo (na ordem reversa de execução)
 COMPENSATIONS = [
-    ('ReleaseStock', 'stock', 'releaseStock', {'reservationId.$': '$.ids.reservationId', 'correlationId.$': '$.correlationId'}),
     ('RefundPayment', 'payments', 'refundPayment', {'paymentId.$': '$.ids.paymentId', 'correlationId.$': '$.correlationId'}),
+    ('ReleaseStock', 'stock', 'releaseStock', {'reservationId.$': '$.ids.reservationId', 'correlationId.$': '$.correlationId'}),
     ('CancelOrder', 'orders', 'cancelOrder', {'orderId.$': '$.ids.orderId', 'correlationId.$': '$.correlationId'}),
 ]
 
-# Se o passo X falhar, a compensação começa em...
+# Se o passo X falhar, a compensação começa em... (o próprio passo X incluído)
 COMPENSATION_ENTRY = {
-    'CreateOrder': None,             # nada a desfazer
-    'ProcessPayment': 'CancelOrder',
-    'ReserveStock': 'RefundPayment',
-    'ConfirmOrder': 'ReleaseStock',
+    'CreateOrder': None,             # tratado à parte: limpa o pedido e termina em FAILED
+    'ReserveStock': 'ReleaseStock',
+    'ProcessPayment': 'RefundPayment',
+    'CommitReservation': 'RefundPayment',
+    'ConfirmOrder': 'RefundPayment',
 }
 
 
@@ -146,7 +160,7 @@ for i, (state, service, action, payload, selector, result_path) in enumerate(FOR
         states[on_fail] = record_step(camel(state), 'FAILED', f'MarkCompensating{state}', with_error=True)
         states[f'MarkCompensating{state}'] = set_status('COMPENSATING', entry, failed_step=camel(state))
     else:
-        states[on_fail] = record_step(camel(state), 'FAILED', 'MarkFailed', with_error=True)
+        states[on_fail] = record_step(camel(state), 'FAILED', 'CleanupOrder', with_error=True)
 
 states['MarkCompleted'] = set_status('COMPLETED', 'SagaCompleted')
 states['SagaCompleted'] = {'Type': 'Succeed'}
@@ -163,7 +177,12 @@ for i, (state, service, action, payload) in enumerate(COMPENSATIONS):
 states['MarkCompensated'] = set_status('COMPENSATED', 'SagaCompensated')
 states['SagaCompensated'] = {'Type': 'Fail', 'Error': 'SagaCompensated', 'Cause': 'A step failed and all completed steps were compensated'}
 
-# Falha no primeiro passo: nada a compensar
+# Falha no primeiro passo: o pedido pode ter sido gravado mesmo assim
+# (ex.: timeout depois da escrita). Cancela, se existir, e termina em FAILED.
+cleanup = lambda_task('orders', 'cancelOrder', COMPENSATIONS[-1][3], 'MarkFailed', 5, 'MarkCompensationFailed')
+cleanup['ResultPath'] = None
+states['CleanupOrder'] = cleanup
+
 failed_values = {
     ':status': {'S': 'FAILED'}, ':now': {'S.$': '$$.State.EnteredTime'}, ':failedStep': {'S': 'createOrder'},
     ':error': {'S.$': '$.error.Error'}, ':cause': {'S.$': 'States.JsonToString($.error)'}
@@ -171,7 +190,7 @@ failed_values = {
 states['MarkFailed'] = update_saga(
     'SET #status = :status, updatedAt = :now, failedStep = :failedStep, #error = :error, errorCause = :cause',
     {'#status': 'status', '#error': 'error'}, failed_values, 'SagaFailed')
-states['SagaFailed'] = {'Type': 'Fail', 'Error': 'SagaFailed', 'Cause': 'The first step failed; nothing to compensate'}
+states['SagaFailed'] = {'Type': 'Fail', 'Error': 'SagaFailed', 'Cause': 'The first step failed; the order was cleaned up'}
 
 # Compensação falhou mesmo após as tentativas: exige intervenção manual
 states['MarkCompensationFailed'] = update_saga(
@@ -183,7 +202,7 @@ states['MarkCompensationFailed'] = update_saga(
 states['CompensationFailed'] = {'Type': 'Fail', 'Error': 'CompensationFailed', 'Cause': 'Compensation failed; manual intervention required'}
 
 definition = {
-    'Comment': 'Saga de compra: pedido -> pagamento -> estoque -> confirmação, com compensação. '
+    'Comment': 'Saga de compra: pedido -> estoque -> pagamento -> baixa da reserva -> confirmação, com compensação. '
                'Gerado por scripts/generate-saga-workflow.py - não edite à mão.',
     'StartAt': FORWARD[0][0],
     'States': states

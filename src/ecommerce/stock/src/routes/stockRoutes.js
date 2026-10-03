@@ -1,4 +1,5 @@
 import { StockController } from '../controllers/StockController.js';
+import { notFoundResponse } from '../../../../common/response.mjs';
 
 export async function setupRoutes(event) {
   const method = event.httpMethod;
@@ -25,15 +26,5 @@ export async function setupRoutes(event) {
     return StockController.adjustStock(event);
   }
 
-  return {
-    statusCode: 404,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    },
-    body: JSON.stringify({
-      error: 'Not found',
-      path: path
-    })
-  };
+  return notFoundResponse(path);
 }

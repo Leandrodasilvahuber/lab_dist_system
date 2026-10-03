@@ -13,6 +13,17 @@ Parameters:
     Default: dev
     Description: Environment name
 
+  AdminApiKey:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: Chave exigida no header X-Api-Key pelas rotas administrativas
+
+  AllowedOrigin:
+    Type: String
+    Default: '*'
+    Description: 'Origem permitida pelo CORS (ex.: https://loja.exemplo.com)'
+
 # Todas as funções são empacotadas com esbuild a partir da raiz do projeto,
 # o que inclui automaticamente o código compartilhado de src/common.
 Globals:
@@ -35,15 +46,50 @@ Globals:
 Resources:
   # API Gateway Centralizado (HttpApi)
   # Rotas específicas vão para cada serviço; o resto cai na GatewayFunction ({proxy+}).
+  # Rotas administrativas usam o authorizer AdminApiKey (mesma lista de src/common/auth.mjs).
   ApiGateway:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: !Ref Environment
       Description: "API Gateway centralizado para todos os endpoints"
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 100
       CorsConfiguration:
-        AllowOrigins: ['*']
-        AllowMethods: ['*']
-        AllowHeaders: ['*']
+        AllowOrigins: [!Ref AllowedOrigin]
+        AllowMethods: [GET, POST, OPTIONS]
+        AllowHeaders: [content-type, x-api-key, idempotency-key, x-idempotency-key, x-correlation-id]
+      Auth:
+        Authorizers:
+          AdminApiKey:
+            FunctionArn: !GetAtt AdminAuthorizerFunction.Arn
+            FunctionPayloadType: REQUEST
+            AuthorizerPayloadFormatVersion: '2.0'
+            EnableSimpleResponses: true
+            EnableFunctionDefaultPermissions: true
+            Identity:
+              Headers: [x-api-key]
+              ReauthorizeEvery: 300
+
+  # Authorizer das rotas administrativas: compara X-Api-Key com AdminApiKey
+  AdminAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: adminAuthorizer.handler
+      MemorySize: 128
+      Timeout: 5
+      Environment:
+        Variables:
+          ADMIN_API_KEY: !Ref AdminApiKey
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: ['.js=.mjs']
+        Target: es2022
+        EntryPoints: [src/layers/api-gateway-layer/src/auth/adminAuthorizer.js]
+        External: ['@aws-sdk/*']
 
   # Gateway Function - health check e roteamento de fallback
   GatewayFunction:
@@ -101,6 +147,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /products
             Method: POST
+            Auth:
+              Authorizer: AdminApiKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ProductsTable
@@ -131,6 +179,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /orders
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         GetOrder:
           Type: HttpApi
           Properties:
@@ -204,6 +254,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /stock/{productId}/adjust
             Method: POST
+            Auth:
+              Authorizer: AdminApiKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref StockReservationsTable
@@ -251,6 +303,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /sagas
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SagasTable
@@ -340,26 +394,55 @@ Resources:
         - Arn: !GetAtt OrderEventsQueue.Arn
           Id: OrderEventsQueueTarget
 
-  # Produto criado -> serviço de Stock cria o inventário inicial
-  ProductCreatedToStockRule:
+  # Produto criado/excluído -> serviço de Stock cria/remove o inventário.
+  # Entregas que falharem após as tentativas vão para a DLQ (reprocessamento manual).
+  ProductEventsToStockRule:
     Type: AWS::Events::Rule
     Properties:
       EventBusName: !Ref EventBus
       EventPattern:
         source: ['products']
-        detail-type: ['ProductCreated']
+        detail-type: ['ProductCreated', 'ProductDeleted']
       State: ENABLED
       Targets:
         - Arn: !GetAtt StockFunction.Arn
           Id: StockFunctionTarget
+          RetryPolicy:
+            MaximumRetryAttempts: 20
+            MaximumEventAgeInSeconds: 86400
+          DeadLetterConfig:
+            Arn: !GetAtt ProductEventsDlq.Arn
 
-  ProductCreatedToStockPermission:
+  ProductEventsToStockPermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref StockFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
-      SourceArn: !GetAtt ProductCreatedToStockRule.Arn
+      SourceArn: !GetAtt ProductEventsToStockRule.Arn
+
+  ProductEventsDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${Environment}-ProductEventsDlq'
+      MessageRetentionPeriod: 1209600
+
+  ProductEventsDlqPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref ProductEventsDlq
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: "sqs:SendMessage"
+            Resource: !GetAtt ProductEventsDlq.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt ProductEventsToStockRule.Arn
 
   # DynamoDB Tables
   ProductsTable:
@@ -398,6 +481,7 @@ Resources:
         - AttributeName: id
           KeyType: HASH
 
+  # StatusIndex: reservas ativas (compras em andamento) por produto, sem scan
   StockReservationsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -406,9 +490,22 @@ Resources:
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: productId
+          AttributeType: S
       KeySchema:
         - AttributeName: id
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: StatusIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: productId
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
 
   # Quantidade disponível por produto (dono: serviço de Stock, chave id = productId)
   InventoryTable:
@@ -432,21 +529,9 @@ Resources:
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
-        - AttributeName: orderId
-          AttributeType: S
       KeySchema:
         - AttributeName: id
           KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: OrderIdIndex
-          KeySchema:
-            - AttributeName: orderId
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
-      TimeToLiveSpecification:
-        AttributeName: expiresAt
-        Enabled: true
 
 Outputs:
   ApiGatewayUrl:
@@ -460,6 +545,10 @@ Outputs:
   EventBusName:
     Description: "EventBridge bus name"
     Value: !Ref EventBus
+
+  ProductEventsDlqUrl:
+    Description: "DLQ dos eventos de produto não entregues ao Stock"
+    Value: !Ref ProductEventsDlq
 
   ProductsTable:
     Description: "Products DynamoDB Table Name"

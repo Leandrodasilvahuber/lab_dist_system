@@ -1,5 +1,5 @@
 {
-  "Comment": "Saga de compra: pedido -> pagamento -> estoque -> confirmação, com compensação. Gerado por scripts/generate-saga-workflow.py - não edite à mão.",
+  "Comment": "Saga de compra: pedido -> estoque -> pagamento -> baixa da reserva -> confirmação, com compensação. Gerado por scripts/generate-saga-workflow.py - não edite à mão.",
   "StartAt": "CreateOrder",
   "States": {
     "CreateOrder": {
@@ -30,7 +30,9 @@
             "ProvisionedThroughputExceededException",
             "TransactionConflictException",
             "InternalServerError",
-            "ServiceUnavailable"
+            "ServiceUnavailable",
+            "Sandbox.Timedout",
+            "Lambda.Unknown"
           ],
           "IntervalSeconds": 1,
           "MaxAttempts": 3,
@@ -100,10 +102,10 @@
             "States.ALL"
           ],
           "ResultPath": "$.recordError",
-          "Next": "ProcessPayment"
+          "Next": "ReserveStock"
         }
       ],
-      "Next": "ProcessPayment"
+      "Next": "ReserveStock"
     },
     "RecordCreateOrderFailed": {
       "Type": "Task",
@@ -158,225 +160,10 @@
             "States.ALL"
           ],
           "ResultPath": "$.recordError",
-          "Next": "MarkFailed"
+          "Next": "CleanupOrder"
         }
       ],
-      "Next": "MarkFailed"
-    },
-    "ProcessPayment": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::lambda:invoke",
-      "Parameters": {
-        "FunctionName": "${PaymentFunctionArn}",
-        "Payload": {
-          "action": "processPayment",
-          "input": {
-            "paymentId.$": "$.ids.paymentId",
-            "orderId.$": "$.ids.orderId",
-            "amount.$": "$.order.total",
-            "correlationId.$": "$.correlationId"
-          }
-        }
-      },
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "Lambda.ServiceException",
-            "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
-            "States.Timeout",
-            "ThrottlingException",
-            "ProvisionedThroughputExceededException",
-            "TransactionConflictException",
-            "InternalServerError",
-            "ServiceUnavailable"
-          ],
-          "IntervalSeconds": 1,
-          "MaxAttempts": 3,
-          "BackoffRate": 2
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "ResultPath": "$.error",
-          "Next": "RecordProcessPaymentFailed"
-        }
-      ],
-      "Next": "RecordProcessPayment",
-      "ResultSelector": {
-        "id.$": "$.Payload.id",
-        "status.$": "$.Payload.status"
-      },
-      "ResultPath": "$.payment"
-    },
-    "RecordProcessPayment": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::dynamodb:updateItem",
-      "Parameters": {
-        "TableName": "${SagasTableName}",
-        "Key": {
-          "id": {
-            "S.$": "$.sagaId"
-          }
-        },
-        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
-        "ExpressionAttributeNames": {
-          "#step": "processPayment"
-        },
-        "ExpressionAttributeValues": {
-          ":now": {
-            "S.$": "$$.State.EnteredTime"
-          },
-          ":step": {
-            "M": {
-              "status": {
-                "S": "COMPLETED"
-              },
-              "at": {
-                "S.$": "$$.State.EnteredTime"
-              }
-            }
-          }
-        }
-      },
-      "ResultPath": null,
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "IntervalSeconds": 1,
-          "MaxAttempts": 3,
-          "BackoffRate": 2
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "ResultPath": "$.recordError",
-          "Next": "ReserveStock"
-        }
-      ],
-      "Next": "ReserveStock"
-    },
-    "RecordProcessPaymentFailed": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::dynamodb:updateItem",
-      "Parameters": {
-        "TableName": "${SagasTableName}",
-        "Key": {
-          "id": {
-            "S.$": "$.sagaId"
-          }
-        },
-        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
-        "ExpressionAttributeNames": {
-          "#step": "processPayment"
-        },
-        "ExpressionAttributeValues": {
-          ":now": {
-            "S.$": "$$.State.EnteredTime"
-          },
-          ":step": {
-            "M": {
-              "status": {
-                "S": "FAILED"
-              },
-              "at": {
-                "S.$": "$$.State.EnteredTime"
-              },
-              "error": {
-                "S.$": "$.error.Error"
-              },
-              "cause": {
-                "S.$": "States.JsonToString($.error)"
-              }
-            }
-          }
-        }
-      },
-      "ResultPath": null,
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "IntervalSeconds": 1,
-          "MaxAttempts": 3,
-          "BackoffRate": 2
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "ResultPath": "$.recordError",
-          "Next": "MarkCompensatingProcessPayment"
-        }
-      ],
-      "Next": "MarkCompensatingProcessPayment"
-    },
-    "MarkCompensatingProcessPayment": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::dynamodb:updateItem",
-      "Parameters": {
-        "TableName": "${SagasTableName}",
-        "Key": {
-          "id": {
-            "S.$": "$.sagaId"
-          }
-        },
-        "UpdateExpression": "SET #status = :status, updatedAt = :now, failedStep = :failedStep, #error = :error, errorCause = :cause",
-        "ExpressionAttributeNames": {
-          "#status": "status",
-          "#error": "error"
-        },
-        "ExpressionAttributeValues": {
-          ":status": {
-            "S": "COMPENSATING"
-          },
-          ":now": {
-            "S.$": "$$.State.EnteredTime"
-          },
-          ":failedStep": {
-            "S": "processPayment"
-          },
-          ":error": {
-            "S.$": "$.error.Error"
-          },
-          ":cause": {
-            "S.$": "States.JsonToString($.error)"
-          }
-        }
-      },
-      "ResultPath": null,
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "IntervalSeconds": 1,
-          "MaxAttempts": 3,
-          "BackoffRate": 2
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "ResultPath": "$.recordError",
-          "Next": "CancelOrder"
-        }
-      ],
-      "Next": "CancelOrder"
+      "Next": "CleanupOrder"
     },
     "ReserveStock": {
       "Type": "Task",
@@ -405,7 +192,9 @@
             "ProvisionedThroughputExceededException",
             "TransactionConflictException",
             "InternalServerError",
-            "ServiceUnavailable"
+            "ServiceUnavailable",
+            "Sandbox.Timedout",
+            "Lambda.Unknown"
           ],
           "IntervalSeconds": 1,
           "MaxAttempts": 3,
@@ -474,10 +263,10 @@
             "States.ALL"
           ],
           "ResultPath": "$.recordError",
-          "Next": "ConfirmOrder"
+          "Next": "ProcessPayment"
         }
       ],
-      "Next": "ConfirmOrder"
+      "Next": "ProcessPayment"
     },
     "RecordReserveStockFailed": {
       "Type": "Task",
@@ -587,6 +376,434 @@
             "States.ALL"
           ],
           "ResultPath": "$.recordError",
+          "Next": "ReleaseStock"
+        }
+      ],
+      "Next": "ReleaseStock"
+    },
+    "ProcessPayment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${PaymentFunctionArn}",
+        "Payload": {
+          "action": "processPayment",
+          "input": {
+            "paymentId.$": "$.ids.paymentId",
+            "orderId.$": "$.ids.orderId",
+            "amount.$": "$.order.total",
+            "correlationId.$": "$.correlationId"
+          }
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "States.Timeout",
+            "ThrottlingException",
+            "ProvisionedThroughputExceededException",
+            "TransactionConflictException",
+            "InternalServerError",
+            "ServiceUnavailable",
+            "Sandbox.Timedout",
+            "Lambda.Unknown"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "RecordProcessPaymentFailed"
+        }
+      ],
+      "Next": "RecordProcessPayment",
+      "ResultSelector": {
+        "id.$": "$.Payload.id",
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.payment"
+    },
+    "RecordProcessPayment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "processPayment"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "COMPLETED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "CommitReservation"
+        }
+      ],
+      "Next": "CommitReservation"
+    },
+    "RecordProcessPaymentFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "processPayment"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "FAILED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              },
+              "error": {
+                "S.$": "$.error.Error"
+              },
+              "cause": {
+                "S.$": "States.JsonToString($.error)"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "MarkCompensatingProcessPayment"
+        }
+      ],
+      "Next": "MarkCompensatingProcessPayment"
+    },
+    "MarkCompensatingProcessPayment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET #status = :status, updatedAt = :now, failedStep = :failedStep, #error = :error, errorCause = :cause",
+        "ExpressionAttributeNames": {
+          "#status": "status",
+          "#error": "error"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "COMPENSATING"
+          },
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":failedStep": {
+            "S": "processPayment"
+          },
+          ":error": {
+            "S.$": "$.error.Error"
+          },
+          ":cause": {
+            "S.$": "States.JsonToString($.error)"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "RefundPayment"
+        }
+      ],
+      "Next": "RefundPayment"
+    },
+    "CommitReservation": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${StockFunctionArn}",
+        "Payload": {
+          "action": "commitReservation",
+          "input": {
+            "reservationId.$": "$.ids.reservationId",
+            "correlationId.$": "$.correlationId"
+          }
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "States.Timeout",
+            "ThrottlingException",
+            "ProvisionedThroughputExceededException",
+            "TransactionConflictException",
+            "InternalServerError",
+            "ServiceUnavailable",
+            "Sandbox.Timedout",
+            "Lambda.Unknown"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "RecordCommitReservationFailed"
+        }
+      ],
+      "Next": "RecordCommitReservation",
+      "ResultPath": null
+    },
+    "RecordCommitReservation": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "commitReservation"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "COMPLETED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "ConfirmOrder"
+        }
+      ],
+      "Next": "ConfirmOrder"
+    },
+    "RecordCommitReservationFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "commitReservation"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "FAILED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              },
+              "error": {
+                "S.$": "$.error.Error"
+              },
+              "cause": {
+                "S.$": "States.JsonToString($.error)"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "MarkCompensatingCommitReservation"
+        }
+      ],
+      "Next": "MarkCompensatingCommitReservation"
+    },
+    "MarkCompensatingCommitReservation": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET #status = :status, updatedAt = :now, failedStep = :failedStep, #error = :error, errorCause = :cause",
+        "ExpressionAttributeNames": {
+          "#status": "status",
+          "#error": "error"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "COMPENSATING"
+          },
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":failedStep": {
+            "S": "commitReservation"
+          },
+          ":error": {
+            "S.$": "$.error.Error"
+          },
+          ":cause": {
+            "S.$": "States.JsonToString($.error)"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
           "Next": "RefundPayment"
         }
       ],
@@ -617,7 +834,9 @@
             "ProvisionedThroughputExceededException",
             "TransactionConflictException",
             "InternalServerError",
-            "ServiceUnavailable"
+            "ServiceUnavailable",
+            "Sandbox.Timedout",
+            "Lambda.Unknown"
           ],
           "IntervalSeconds": 1,
           "MaxAttempts": 3,
@@ -796,10 +1015,10 @@
             "States.ALL"
           ],
           "ResultPath": "$.recordError",
-          "Next": "ReleaseStock"
+          "Next": "RefundPayment"
         }
       ],
-      "Next": "ReleaseStock"
+      "Next": "RefundPayment"
     },
     "MarkCompleted": {
       "Type": "Task",
@@ -849,102 +1068,6 @@
     "SagaCompleted": {
       "Type": "Succeed"
     },
-    "ReleaseStock": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::lambda:invoke",
-      "Parameters": {
-        "FunctionName": "${StockFunctionArn}",
-        "Payload": {
-          "action": "releaseStock",
-          "input": {
-            "reservationId.$": "$.ids.reservationId",
-            "correlationId.$": "$.correlationId"
-          }
-        }
-      },
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "Lambda.ServiceException",
-            "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
-            "States.Timeout",
-            "ThrottlingException",
-            "ProvisionedThroughputExceededException",
-            "TransactionConflictException",
-            "InternalServerError",
-            "ServiceUnavailable"
-          ],
-          "IntervalSeconds": 1,
-          "MaxAttempts": 5,
-          "BackoffRate": 2
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "ResultPath": "$.error",
-          "Next": "MarkCompensationFailed"
-        }
-      ],
-      "Next": "RecordReleaseStock",
-      "ResultPath": null
-    },
-    "RecordReleaseStock": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::dynamodb:updateItem",
-      "Parameters": {
-        "TableName": "${SagasTableName}",
-        "Key": {
-          "id": {
-            "S.$": "$.sagaId"
-          }
-        },
-        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
-        "ExpressionAttributeNames": {
-          "#step": "releaseStock"
-        },
-        "ExpressionAttributeValues": {
-          ":now": {
-            "S.$": "$$.State.EnteredTime"
-          },
-          ":step": {
-            "M": {
-              "status": {
-                "S": "COMPENSATED"
-              },
-              "at": {
-                "S.$": "$$.State.EnteredTime"
-              }
-            }
-          }
-        }
-      },
-      "ResultPath": null,
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "IntervalSeconds": 1,
-          "MaxAttempts": 3,
-          "BackoffRate": 2
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "ResultPath": "$.recordError",
-          "Next": "RefundPayment"
-        }
-      ],
-      "Next": "RefundPayment"
-    },
     "RefundPayment": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -970,7 +1093,9 @@
             "ProvisionedThroughputExceededException",
             "TransactionConflictException",
             "InternalServerError",
-            "ServiceUnavailable"
+            "ServiceUnavailable",
+            "Sandbox.Timedout",
+            "Lambda.Unknown"
           ],
           "IntervalSeconds": 1,
           "MaxAttempts": 5,
@@ -1036,6 +1161,104 @@
             "States.ALL"
           ],
           "ResultPath": "$.recordError",
+          "Next": "ReleaseStock"
+        }
+      ],
+      "Next": "ReleaseStock"
+    },
+    "ReleaseStock": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${StockFunctionArn}",
+        "Payload": {
+          "action": "releaseStock",
+          "input": {
+            "reservationId.$": "$.ids.reservationId",
+            "correlationId.$": "$.correlationId"
+          }
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "States.Timeout",
+            "ThrottlingException",
+            "ProvisionedThroughputExceededException",
+            "TransactionConflictException",
+            "InternalServerError",
+            "ServiceUnavailable",
+            "Sandbox.Timedout",
+            "Lambda.Unknown"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkCompensationFailed"
+        }
+      ],
+      "Next": "RecordReleaseStock",
+      "ResultPath": null
+    },
+    "RecordReleaseStock": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "releaseStock"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "COMPENSATED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
           "Next": "CancelOrder"
         }
       ],
@@ -1066,7 +1289,9 @@
             "ProvisionedThroughputExceededException",
             "TransactionConflictException",
             "InternalServerError",
-            "ServiceUnavailable"
+            "ServiceUnavailable",
+            "Sandbox.Timedout",
+            "Lambda.Unknown"
           ],
           "IntervalSeconds": 1,
           "MaxAttempts": 5,
@@ -1187,6 +1412,52 @@
       "Error": "SagaCompensated",
       "Cause": "A step failed and all completed steps were compensated"
     },
+    "CleanupOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${OrderFunctionArn}",
+        "Payload": {
+          "action": "cancelOrder",
+          "input": {
+            "orderId.$": "$.ids.orderId",
+            "correlationId.$": "$.correlationId"
+          }
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "States.Timeout",
+            "ThrottlingException",
+            "ProvisionedThroughputExceededException",
+            "TransactionConflictException",
+            "InternalServerError",
+            "ServiceUnavailable",
+            "Sandbox.Timedout",
+            "Lambda.Unknown"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkCompensationFailed"
+        }
+      ],
+      "Next": "MarkFailed",
+      "ResultPath": null
+    },
     "MarkFailed": {
       "Type": "Task",
       "Resource": "arn:aws:states:::dynamodb:updateItem",
@@ -1245,7 +1516,7 @@
     "SagaFailed": {
       "Type": "Fail",
       "Error": "SagaFailed",
-      "Cause": "The first step failed; nothing to compensate"
+      "Cause": "The first step failed; the order was cleaned up"
     },
     "MarkCompensationFailed": {
       "Type": "Task",

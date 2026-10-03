@@ -1,5 +1,6 @@
 import { Database } from '../database.mjs';
 import { NotFoundError, ValidationError } from '../errors.mjs';
+import { generateId } from '../ids.mjs';
 
 /**
  * SDK Público - Interface uniforme para operações de produto
@@ -7,6 +8,7 @@ import { NotFoundError, ValidationError } from '../errors.mjs';
  * A tabela `products` guarda só o catálogo (nome, preço, descrição). A
  * quantidade em estoque pertence ao serviço de Stock: o estoque inicial segue
  * no evento ProductCreated e o Stock cria o inventário a partir dele.
+ * Ao excluir um produto, o evento ProductDeleted faz o Stock remover o inventário.
  */
 export class ProductSDK {
   constructor(eventBridgeClient, db = new Database()) {
@@ -16,24 +18,30 @@ export class ProductSDK {
 
   /**
    * Criar produto
+   * O evento ProductCreated é obrigatório: sem ele o Stock nunca cria o
+   * inventário. Se a publicação falhar, o produto é removido e o erro relançado.
    */
   async createProduct({ initialStock = 0, ...productData }) {
     const now = new Date().toISOString();
     const product = {
-      id: generateId(),
       ...productData,
+      id: generateId('prod'),
       createdAt: now,
       updatedAt: now
     };
 
     await this.db.putItem('products', product);
 
-    if (this.eventBridgeClient) {
-      await this.eventBridgeClient.publish({
-        Source: 'products',
-        DetailType: 'ProductCreated',
-        Detail: { productId: product.id, name: product.name, initialStock, correlationId: generateCorrelationId() }
-      });
+    try {
+      await this.publish('ProductCreated', {
+        productId: product.id,
+        name: product.name,
+        initialStock,
+        correlationId: generateId('corr')
+      }, { required: true });
+    } catch (error) {
+      await this.db.deleteItem('products', { id: product.id });
+      throw error;
     }
 
     return product;
@@ -77,6 +85,9 @@ export class ProductSDK {
     if ('stock' in updates) {
       throw new ValidationError('stock is managed by the stock service');
     }
+    if ('price' in updates && (typeof updates.price !== 'number' || !Number.isFinite(updates.price) || updates.price < 0)) {
+      throw new ValidationError('price must be a non-negative number');
+    }
 
     const fields = Object.entries(updates)
       .filter(([key, value]) => !['id', 'createdAt', 'updatedAt'].includes(key) && value !== undefined);
@@ -103,26 +114,25 @@ export class ProductSDK {
 
   /**
    * Deletar produto
+   * Publica ProductDeleted para o Stock remover o inventário do produto.
    */
   async deleteProduct(productId) {
-    await this.getProduct(productId); // Verifica se existe
-    await this.db.deleteItem('products', { id: productId });
+    try {
+      await this.db.deleteItem('products', { id: productId }, { conditionExpression: 'attribute_exists(id)' });
+    } catch (error) {
+      if (error.name === 'ConditionalCheckFailedException') throw new NotFoundError('Product not found');
+      throw error;
+    }
+
+    await this.publish('ProductDeleted', { productId, correlationId: generateId('corr') });
     return { success: true };
   }
-}
 
-/**
- * Gerar ID único
- */
-function generateId() {
-  return `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-/**
- * Gerar ID de correlação
- */
-function generateCorrelationId() {
-  return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  async publish(detailType, detail, options) {
+    if (this.eventBridgeClient) {
+      await this.eventBridgeClient.publish({ Source: 'products', DetailType: detailType, Detail: detail }, options);
+    }
+  }
 }
 
 export default ProductSDK;

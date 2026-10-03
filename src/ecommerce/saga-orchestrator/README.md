@@ -35,18 +35,28 @@ execução para o `createOrder`, congelado no momento da compra.
 | Passo | Serviço | Compensação |
 |---|---|---|
 | `createOrder` | orders | `cancelOrder` |
-| `processPayment` | payments | `refundPayment` |
 | `reserveStock` | stock | `releaseStock` |
-| `confirmOrder` | orders | (nada depois dele) |
+| `processPayment` | payments | `refundPayment` |
+| `commitReservation` | stock | (desfeito pelo `releaseStock`) |
+| `confirmOrder` | orders | (desfeito pelo `cancelOrder`) |
 
-Se o passo *N* falhar, os passos *1..N-1* são compensados em ordem reversa:
+Se o passo *N* falhar, os passos *1..N* (incluindo o que falhou) são
+compensados em ordem reversa. Uma falha vista pelo Step Functions (timeout,
+erro de rede) não garante que o passo não gravou nada:
 
 | Falhou em | Compensações executadas |
 |---|---|
-| `createOrder` | nenhuma → `FAILED` |
-| `processPayment` | `cancelOrder` → `COMPENSATED` |
-| `reserveStock` | `refundPayment`, `cancelOrder` → `COMPENSATED` |
-| `confirmOrder` | `releaseStock`, `refundPayment`, `cancelOrder` → `COMPENSATED` |
+| `createOrder` | `cancelOrder` → `FAILED` |
+| `reserveStock` | `releaseStock`, `cancelOrder` → `COMPENSATED` |
+| `processPayment` | `refundPayment`, `releaseStock`, `cancelOrder` → `COMPENSATED` |
+| `commitReservation` | `refundPayment`, `releaseStock`, `cancelOrder` → `COMPENSATED` |
+| `confirmOrder` | `refundPayment`, `releaseStock`, `cancelOrder` → `COMPENSATED` |
+
+As compensações tratam o que nunca foi gravado como nada a desfazer:
+`cancelOrder` ignora pedido inexistente; `refundPayment` ignora pagamento
+recusado e grava `voided` se o pagamento não existe; `releaseStock` grava a
+reserva como `released` se ela não existe. Os registros anulados barram um
+`processPayment`/`reserveStock` atrasado com o mesmo id (`InvalidState`).
 
 Se uma compensação falhar mesmo após as tentativas, a saga termina em
 `COMPENSATION_FAILED` e precisa de intervenção manual.
@@ -57,7 +67,8 @@ Se uma compensação falhar mesmo após as tentativas, a saga termina em
   `sagaId` (`order_<sagaId>`, `pay_<sagaId>`, `res_<sagaId>`) e gravados com
   escrita condicional. Repetir um passo devolve o resultado já existente.
   Compensar duas vezes também não tem efeito colateral.
-- **Retry só para falhas transitórias:** erros da Lambda, throttling e
+- **Retry só para falhas transitórias:** erros e timeouts da Lambda
+  (`Sandbox.Timedout`, `Lambda.Unknown`), throttling e
   `TransactionConflictException` são repetidos com backoff exponencial. Erros de
   negócio (`InsufficientStock`, `PaymentDeclined`, `NotFound`, `InvalidState`)
   vão direto para a compensação: o `name` do erro lançado pelo SDK vira o
@@ -66,7 +77,9 @@ Se uma compensação falhar mesmo após as tentativas, a saga termina em
   Stock) numa transação do DynamoDB com a condição `stock >= quantidade`, então compras simultâneas nunca deixam o
   estoque negativo.
 - **Idempotency-Key:** o cliente pode mandar o header `Idempotency-Key`; a mesma
-  chave sempre corresponde à mesma saga (`saga_<chave>`).
+  chave sempre corresponde à mesma saga (`saga_` + SHA-256 da chave). A mesma
+  chave com outro pedido responde `409`; uma saga que falhou ao iniciar é
+  iniciada de novo (execução `<sagaId>-<tentativa>`).
 
 ## Registro da saga (tabela Sagas)
 
@@ -75,21 +88,24 @@ DynamoDB, sem Lambda extra):
 
 ```json
 {
-  "id": "saga_checkout-123",
+  "id": "saga_3c1f...",
   "status": "COMPENSATED",
   "productId": "server", "quantity": 1,
-  "orderId": "order_saga_checkout-123",
-  "paymentId": "pay_saga_checkout-123",
-  "reservationId": "res_saga_checkout-123",
+  "orderId": "order_saga_3c1f...",
+  "paymentId": "pay_saga_3c1f...",
+  "reservationId": "res_saga_3c1f...",
   "executionArn": "arn:aws:states:...",
   "failedStep": "processPayment",
   "error": { "type": "PaymentDeclined", "message": "Payment declined: Amount exceeds limit of 10000" },
   "steps": {
     "createOrder":    { "status": "COMPLETED",   "at": "..." },
+    "reserveStock":   { "status": "COMPLETED",   "at": "..." },
     "processPayment": { "status": "FAILED",      "at": "...", "error": { "type": "PaymentDeclined", "message": "..." } },
+    "refundPayment":  { "status": "COMPENSATED", "at": "..." },
+    "releaseStock":   { "status": "COMPENSATED", "at": "..." },
     "cancelOrder":    { "status": "COMPENSATED", "at": "..." }
   },
-  "progress": { "completed": 1, "total": 4, "order": ["createOrder", "processPayment", "reserveStock", "confirmOrder"] }
+  "progress": { "completed": 2, "total": 5, "order": ["createOrder", "reserveStock", "processPayment", "commitReservation", "confirmOrder"] }
 }
 ```
 

@@ -15,8 +15,14 @@
 ```bash
 npm install
 npm run validate     # opcional: sam validate --lint
+export ADMIN_API_KEY=$(openssl rand -hex 24)   # guarde: é a chave das rotas de admin
 npm run deploy       # scripts/deploy.sh: sam build + sam deploy
 ```
+
+`ADMIN_API_KEY` vira o parâmetro `AdminApiKey` do stack. As rotas
+`POST /products`, `POST /stock/{id}/adjust`, `GET /orders` e `GET /sagas` exigem
+o header `X-Api-Key` com essa chave. Para restringir o CORS a uma origem, passe
+também `AllowedOrigin=https://...` em `--parameter-overrides`.
 
 O `sam deploy` mostra o changeset e pede confirmação antes de criar os recursos
 (`confirm_changeset = true` no `samconfig.toml`). O bucket S3 dos artefatos é
@@ -36,11 +42,12 @@ npm run seed -- --stage dev
 | `ProductFunction`, `OrderFunction`, `StockFunction` | Serviços (HTTP + ações/eventos internos) |
 | `PaymentFunction` | Só ações da saga (sem rota HTTP) |
 | `SagaOrchestratorFunction` | `/saga/execute`, `/saga/{id}`, `/sagas` |
+| `AdminAuthorizerFunction` | Authorizer das rotas de admin (`X-Api-Key`) |
 | `SagaStateMachine` (`dev-purchase-saga`) | Saga de compra (Step Functions Standard) |
 | `GatewayFunction` | `/health` e 404 com a lista de endpoints |
 | Tabelas `dev-Products`, `dev-Orders`, `dev-Payments`, `dev-Inventory`, `dev-StockReservations`, `dev-Sagas` | DynamoDB on-demand, uma ou mais por serviço |
 | `EventBus` (`dev-ecommerce-events`) | Eventos de domínio dos serviços |
-| `ProductCreatedToStockRule` | Entrega `ProductCreated` à `StockFunction`, que cria o inventário inicial |
+| `ProductEventsToStockRule` | Entrega `ProductCreated`/`ProductDeleted` à `StockFunction` (cria/remove o inventário), com retry e DLQ `ProductEventsDlq` |
 | `OrderEventsQueue` + `OrderEventsDlq` | Recebe os eventos `source: orders` (auditoria) |
 
 Cada função recebe só as permissões de que precisa, e cada serviço acessa apenas
@@ -51,7 +58,7 @@ as próprias tabelas:
 | `ProductFunction` | `Products` | publica eventos |
 | `OrderFunction` | `Orders` | publica eventos |
 | `PaymentFunction` | `Payments` | publica eventos |
-| `StockFunction` | `Inventory`, `StockReservations` | publica eventos; recebe `ProductCreated` |
+| `StockFunction` | `Inventory`, `StockReservations` | publica eventos; recebe `ProductCreated` e `ProductDeleted` (falhas vão para `ProductEventsDlq`) |
 | `SagaOrchestratorFunction` | `Sagas` | invoca `ProductFunction` (preço/validação); inicia a state machine |
 | `SagaStateMachine` | `Sagas` | invoca as três Lambdas dos passos |
 
@@ -67,12 +74,15 @@ curl $API/products
 # Compra com sucesso
 curl -X POST $API/saga/execute -H 'Idempotency-Key: compra-1' \
   -d '{"productId": "apple", "quantity": 2}'
-curl $API/saga/saga_compra-1
+curl $API/saga/<sagaId da resposta>
+
+# Rotas de admin
+curl -H "X-Api-Key: $ADMIN_API_KEY" $API/sagas
 
 # Pagamento recusado (produto de 25000 > limite de 10000): saga termina COMPENSATED
 curl -X POST $API/saga/execute -d '{"productId": "server", "quantity": 1}'
 
-# Estoque insuficiente: pagamento reembolsado e pedido cancelado
+# Estoque insuficiente: falha antes de cobrar; pedido cancelado
 curl -X POST $API/saga/execute -d '{"productId": "apple", "quantity": 999}'
 ```
 

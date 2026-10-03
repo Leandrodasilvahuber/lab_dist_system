@@ -39,11 +39,11 @@ describe('PaymentSDK', () => {
     assert.strictEqual(typeof sdk.getPayment, 'function');
   });
 
-  it('should have refundPayment method on instance', async () => {
+  it('should have refundPaymentById method on instance', async () => {
     const PaymentSDK = await loadPaymentSDK();
     const dbClient = {};
     const eventBridgeClient = {};
     const sdk = new PaymentSDK(dbClient, eventBridgeClient);
-    assert.strictEqual(typeof sdk.refundPayment, 'function');
+    assert.strictEqual(typeof sdk.refundPaymentById, 'function');
   });
 });

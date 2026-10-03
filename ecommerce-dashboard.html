@@ -486,6 +486,23 @@
             font-size: 0.8em;
             margin-top: 8px;
         }
+
+        .admin-key {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            font-size: 0.85em;
+            color: #666;
+            flex-wrap: wrap;
+        }
+
+        .admin-key input {
+            width: 220px;
+            max-width: 100%;
+            padding: 6px 10px;
+        }
     </style>
 </head>
 <body>
@@ -501,6 +518,10 @@
                 <div class="health-status" id="healthStatus">Verificando...</div>
             </div>
             <div class="api-info" id="apiInfo"></div>
+            <div class="admin-key">
+                <label for="adminKey">Chave de admin (X-Api-Key):</label>
+                <input type="password" id="adminKey" autocomplete="off" placeholder="necessária para criar produtos e ver listas">
+            </div>
         </div>
 
         <div class="tabs">
@@ -530,8 +551,8 @@
                     </form>
                     <p class="hint">
                         A compra é uma <strong>saga</strong> executada pelo Step Functions:
-                        pedido → pagamento → reserva de estoque → confirmação.
-                        Se um passo falhar, os anteriores são desfeitos (compensação).<br><br>
+                        pedido → reserva de estoque → pagamento → baixa da reserva → confirmação.
+                        Se um passo falhar, ele e os anteriores são desfeitos (compensação).<br><br>
                         Para ver a compensação: compre o produto <em>Server</em> (pagamento recusado
                         acima de R$ 10.000) ou uma quantidade maior que o estoque.
                     </p>
@@ -605,15 +626,16 @@
         const TERMINAL = ['COMPLETED', 'COMPENSATED', 'FAILED', 'COMPENSATION_FAILED'];
         const STEP_LABELS = {
             createOrder: 'Pedido',
-            processPayment: 'Pagamento',
             reserveStock: 'Estoque',
+            processPayment: 'Pagamento',
+            commitReservation: 'Baixa da reserva',
             confirmOrder: 'Confirmação',
-            releaseStock: 'Libera estoque',
             refundPayment: 'Reembolso',
+            releaseStock: 'Libera estoque',
             cancelOrder: 'Cancela pedido'
         };
-        const FORWARD = ['createOrder', 'processPayment', 'reserveStock', 'confirmOrder'];
-        const COMPENSATIONS = ['releaseStock', 'refundPayment', 'cancelOrder'];
+        const FORWARD = ['createOrder', 'reserveStock', 'processPayment', 'commitReservation', 'confirmOrder'];
+        const COMPENSATIONS = ['refundPayment', 'releaseStock', 'cancelOrder'];
         const SAGA_STATUS = {
             RUNNING: ['⏳ Em andamento', 'status-processing'],
             COMPENSATING: ['↩️ Compensando', 'status-processing'],
@@ -654,14 +676,36 @@
             showToast.timer = setTimeout(() => { toast.style.display = 'none'; }, 4000);
         }
 
+        // Chave de admin: só neste navegador (localStorage), enviada como X-Api-Key
+        const storage = {
+            get(key, fallback) {
+                try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+            },
+            set(key, value) {
+                try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* sem storage: só nesta sessão */ }
+            }
+        };
+        let adminKey = storage.get('adminKey', '');
+
+        // Compras feitas neste navegador: acompanhadas por GET /saga/{id} (público)
+        // quando GET /sagas (admin) não está disponível
+        let mySagaIds = storage.get('mySagaIds', []);
+
         async function api(path, options = {}) {
             const response = await fetch(API_BASE + path, {
                 ...options,
-                headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(adminKey && { 'X-Api-Key': adminKey }),
+                    ...(options.headers || {})
+                }
             });
             const body = await response.json().catch(() => ({}));
             if (!response.ok) {
-                const error = new Error(body.error || `HTTP ${response.status}`);
+                const message = response.status === 401 || response.status === 403
+                    ? 'informe a chave de admin (X-Api-Key) no topo da página'
+                    : body.error || body.message || `HTTP ${response.status}`;
+                const error = new Error(message);
                 error.status = response.status;
                 error.body = body;
                 throw error;
@@ -731,7 +775,7 @@
                     <h3>${escapeHtml(p.name)}</h3>
                     <p>Preço: ${money(p.price)} | Estoque: ${p.stock ?? 0}</p>
                     <div class="product-actions">
-                        <button class="btn-primary" onclick="buyFromList('${escapeHtml(p.id)}')">Comprar</button>
+                        <button class="btn-primary" data-buy-id="${escapeHtml(p.id)}">Comprar</button>
                     </div>
                 </li>`).join('') : '<li class="empty">Nenhum produto. Rode npm run seed:local ou adicione um.</li>';
 
@@ -786,6 +830,8 @@
                     headers: { 'Idempotency-Key': crypto.randomUUID() },
                     body: JSON.stringify({ productId, quantity })
                 });
+                mySagaIds = [result.sagaId, ...mySagaIds.filter(id => id !== result.sagaId)].slice(0, 20);
+                storage.set('mySagaIds', mySagaIds);
                 showToast('Compra iniciada! Acompanhe o andamento ao lado.', 'info');
                 document.getElementById('buyQuantity').value = 1;
                 await fetchSagas();
@@ -809,9 +855,14 @@
             try {
                 ({ sagas } = await api('/sagas'));
             } catch (error) {
-                document.getElementById('sagaList').innerHTML =
-                    `<div class="empty">Não foi possível carregar as compras: ${escapeHtml(error.message)}</div>`;
-                return;
+                if (error.status !== 401 && error.status !== 403) {
+                    document.getElementById('sagaList').innerHTML =
+                        `<div class="empty">Não foi possível carregar as compras: ${escapeHtml(error.message)}</div>`;
+                    return;
+                }
+                // Sem chave de admin: mostra só as compras feitas neste navegador
+                const mine = await Promise.all(mySagaIds.map(id => api(`/saga/${encodeURIComponent(id)}`).catch(() => null)));
+                sagas = mine.filter(Boolean);
             }
 
             notifyFinished(sagas);
@@ -886,7 +937,7 @@
                     <li class="stock-item">
                         <div class="stock-info">
                             <h3>${escapeHtml(item.name)}</h3>
-                            <p>Reservado para pedidos: ${item.reserved}</p>
+                            <p>Reservado (compras em andamento): ${item.reserved}</p>
                         </div>
                         <div class="stock-quantity">${item.available} disponíveis</div>
                     </li>`).join('') : '<li class="empty">Nenhum produto.</li>';
@@ -951,6 +1002,18 @@
         document.getElementById('apiInfo').textContent = `API: ${API_BASE}`;
         document.getElementById('productForm').addEventListener('submit', createProduct);
         document.getElementById('buyForm').addEventListener('submit', startPurchase);
+        // Botão "Comprar" da lista: o id vem de data-buy-id (nada de JS montado em atributo)
+        document.getElementById('productList').addEventListener('click', event => {
+            const button = event.target.closest('[data-buy-id]');
+            if (button) buyFromList(button.dataset.buyId);
+        });
+        const adminKeyInput = document.getElementById('adminKey');
+        adminKeyInput.value = adminKey;
+        adminKeyInput.addEventListener('change', () => {
+            adminKey = adminKeyInput.value.trim();
+            storage.set('adminKey', adminKey);
+            refreshTab(document.querySelector('.tab-btn.active').dataset.tab);
+        });
         setupTabs();
         updateHealthStatus();
         fetchProducts().then(fetchSagas);

@@ -4,10 +4,13 @@ import { log } from './logger.mjs';
 /**
  * Publica eventos de domínio (OrderCreated, PaymentRefunded...) no EventBridge.
  *
- * Os eventos são informativos: avisam o resto do sistema sobre o que aconteceu
- * (auditoria, e-mail, analytics). O fluxo da compra é controlado pela saga no
- * Step Functions, então uma falha ao publicar é registrada mas não interrompe
- * a operação de negócio.
+ * A maioria dos eventos é informativa (auditoria, e-mail, analytics): o fluxo
+ * da compra é controlado pela saga no Step Functions, então uma falha ao
+ * publicar é registrada mas não interrompe a operação de negócio.
+ *
+ * Eventos dos quais outro serviço depende (ex.: ProductCreated, que cria o
+ * inventário no Stock) usam `{ required: true }`: a falha é relançada para
+ * quem publicou desfazer a operação em vez de deixar os serviços divergentes.
  *
  * Sem EVENT_BUS_NAME (execução local) os eventos são registrados no log e
  * entregues aos assinantes locais (subscribe), no mesmo formato do EventBridge.
@@ -34,7 +37,7 @@ export class EventBus {
     this.subscribers.push({ source, detailType, fn });
   }
 
-  async publish({ Source, DetailType, Detail }) {
+  async publish({ Source, DetailType, Detail }, { required = false } = {}) {
     const detail = typeof Detail === 'string' ? JSON.parse(Detail) : Detail;
 
     if (!this.client) {
@@ -69,6 +72,7 @@ export class EventBus {
         message: `Failed to publish ${Source}/${DetailType}`,
         error
       });
+      if (required) throw error;
     }
   }
 

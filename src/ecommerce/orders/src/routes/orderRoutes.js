@@ -1,4 +1,5 @@
 import { OrderController } from '../controllers/OrderController.js';
+import { notFoundResponse } from '../../../../common/response.mjs';
 
 export async function setupRoutes(event) {
   const method = event.httpMethod;
@@ -16,15 +17,5 @@ export async function setupRoutes(event) {
     return OrderController.getOrders(event, { id: decodeURIComponent(idMatch[1]) });
   }
 
-  return {
-    statusCode: 404,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    },
-    body: JSON.stringify({
-      error: 'Not found',
-      path: path
-    })
-  };
+  return notFoundResponse(path);
 }

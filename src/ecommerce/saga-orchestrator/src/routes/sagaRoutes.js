@@ -1,4 +1,5 @@
 import { SagaOrchestratorController } from '../controllers/SagaOrchestratorController.js';
+import { notFoundResponse } from '../../../../common/response.mjs';
 
 export async function setupRoutes(event) {
   const method = event.httpMethod;
@@ -21,20 +22,7 @@ export async function setupRoutes(event) {
     return SagaOrchestratorController.getSagas(event);
   }
 
-  return {
-    statusCode: 404,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    },
-    body: JSON.stringify({
-      error: 'Not found',
-      path: path,
-      availableEndpoints: [
-        'POST /saga/execute',
-        'GET /saga/{sagaId}',
-        'GET /sagas'
-      ]
-    })
-  };
+  return notFoundResponse(path, {
+    availableEndpoints: ['POST /saga/execute', 'GET /saga/{sagaId}', 'GET /sagas']
+  });
 }

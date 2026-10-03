@@ -1,6 +1,7 @@
 import { ProductSDK } from '../../../../common/sdks/index.mjs';
 import { eventBus } from '../../../../common/event-bus.mjs';
 import { successResponse, errorResponse, parseBody, sdkErrorResponse } from '../../../../common/response.mjs';
+import { toNumber } from '../../../../common/validation.mjs';
 
 const productSDK = new ProductSDK(eventBus);
 
@@ -29,18 +30,26 @@ export class ProductController {
     try {
       const { name, price, description = '', stock = 0 } = parseBody(event);
 
-      if (!name || price === undefined) {
-        return errorResponse('Missing required fields: name, price', 400);
+      if (typeof name !== 'string' || !name.trim()) {
+        return errorResponse('name is required', 400);
       }
-      if (Number.isNaN(Number(price)) || Number(price) < 0) {
-        return errorResponse('Price must be a non-negative number', 400);
+      const priceValue = toNumber(price);
+      if (!Number.isFinite(priceValue) || priceValue < 0) {
+        return errorResponse('price must be a non-negative number', 400);
+      }
+      if (typeof description !== 'string') {
+        return errorResponse('description must be a string', 400);
+      }
+      const initialStock = toNumber(stock);
+      if (!Number.isInteger(initialStock) || initialStock < 0) {
+        return errorResponse('stock must be a non-negative integer', 400);
       }
 
       const product = await productSDK.createProduct({
-        name,
-        price: Number(price),
+        name: name.trim(),
+        price: priceValue,
         description,
-        initialStock: Math.max(0, parseInt(stock, 10) || 0)
+        initialStock
       });
 
       return successResponse(product, 201);

@@ -75,11 +75,21 @@ async function getItem(tableType, key) {
 }
 
 async function queryItems(tableType, queryParams) {
-  const { Items } = await docClient.send(new QueryCommand({
-    TableName: getTable(tableType),
-    ...queryParams
-  }));
-  return Items || [];
+  const items = [];
+  let ExclusiveStartKey;
+
+  // Percorre todas as páginas da consulta (limite de 1MB por chamada)
+  do {
+    const result = await docClient.send(new QueryCommand({
+      TableName: getTable(tableType),
+      ...queryParams,
+      ExclusiveStartKey
+    }));
+    items.push(...(result.Items || []));
+    ExclusiveStartKey = result.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+
+  return items;
 }
 
 async function updateItem(tableType, key, updateExpression, expressionAttributeValues, options = {}) {
@@ -124,10 +134,11 @@ async function scanItems(tableType) {
   return items;
 }
 
-async function deleteItem(tableType, key) {
+async function deleteItem(tableType, key, options = {}) {
   await docClient.send(new DeleteCommand({
     TableName: getTable(tableType),
-    Key: key
+    Key: key,
+    ...(options.conditionExpression && { ConditionExpression: options.conditionExpression })
   }));
 }
 
@@ -165,8 +176,8 @@ export class Database {
     return scanItems(tableType);
   }
 
-  async deleteItem(tableType, key) {
-    return deleteItem(tableType, key);
+  async deleteItem(tableType, key, options) {
+    return deleteItem(tableType, key, options);
   }
 }
 

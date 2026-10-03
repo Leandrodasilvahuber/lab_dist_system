@@ -11,16 +11,21 @@
  *   npm run localstack:start && npm run seed:local
  *   npm run build && npm run localstack:deploy
  *   npm run local-server        # abra http://localhost:3001
+ *
+ * Com ADMIN_API_KEY definida, as rotas administrativas (src/common/auth.mjs)
+ * exigem o header X-Api-Key, como o authorizer do HttpApi faz na AWS.
  */
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SFNClient, ListStateMachinesCommand } from '@aws-sdk/client-sfn';
+import { isAdminRoute, isValidApiKey } from './src/common/auth.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3001);
 const STATE_MACHINE_NAME = 'local-purchase-saga';
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
 
 // Os serviços leem a configuração ao carregar, então ela vem antes dos imports dinâmicos
 process.env.AWS_ENDPOINT ||= 'http://localhost:4566';
@@ -53,6 +58,7 @@ const handlers = {
 // Sem EventBridge local: ProductCreated é entregue ao Stock em processo (como a regra faria na AWS)
 const { eventBus } = await import('./src/common/event-bus.mjs');
 eventBus.subscribe('products', 'ProductCreated', handlers.stock);
+eventBus.subscribe('products', 'ProductDeleted', handlers.stock);
 
 // Mesmo roteamento do template.yaml
 function routeFor(pathname) {
@@ -67,7 +73,7 @@ function routeFor(pathname) {
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Idempotency-Key, X-Correlation-Id'
+  'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key, Idempotency-Key, X-Correlation-Id'
 };
 
 function readBody(req) {
@@ -95,6 +101,10 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
     const html = fs.readFileSync(path.join(ROOT, 'ecommerce-dashboard.html'));
     return send(res, 200, { 'Content-Type': 'text/html; charset=utf-8' }, html);
+  }
+
+  if (ADMIN_API_KEY && isAdminRoute(req.method, url.pathname) && !isValidApiKey(req.headers, ADMIN_API_KEY)) {
+    return send(res, 401, { 'Content-Type': 'application/json' }, JSON.stringify({ error: 'Unauthorized: X-Api-Key inválida ou ausente' }));
   }
 
   if (routeFor(url.pathname) === 'saga' && !process.env.SAGA_STATE_MACHINE_ARN && req.method === 'POST') {
@@ -134,4 +144,7 @@ server.listen(PORT, () => {
   console.log(process.env.SAGA_STATE_MACHINE_ARN
     ? `   Saga: ${process.env.SAGA_STATE_MACHINE_ARN}`
     : `   ⚠️  Saga não publicada: compras indisponíveis. Rode npm run build && npm run localstack:deploy`);
+  console.log(ADMIN_API_KEY
+    ? '   Rotas de admin exigem X-Api-Key (ADMIN_API_KEY)'
+    : '   ⚠️  ADMIN_API_KEY não definida: rotas de admin abertas (só para desenvolvimento local)');
 });

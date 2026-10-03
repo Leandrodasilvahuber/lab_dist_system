@@ -1,5 +1,10 @@
 import { Database } from '../database.mjs';
 import { NotFoundError, InsufficientStockError, InvalidStateError, ValidationError } from '../errors.mjs';
+import { generateId } from '../ids.mjs';
+
+// GSI da tabela de reservas (status, productId): consulta as reservas ativas
+// sem varrer a tabela. Depois do commit, só as compras em andamento ficam ativas.
+const STATUS_INDEX = 'StatusIndex';
 
 /**
  * SDK Público - Interface uniforme para operações de estoque
@@ -10,8 +15,10 @@ import { NotFoundError, InsufficientStockError, InvalidStateError, ValidationErr
  * mesmo produto podem coexistir sem risco de vender além do disponível, mesmo
  * com pedidos simultâneos.
  *
+ * Status da reserva: active -> committed (compra concluída) | released (compensada)
+ *
  * O inventário nasce do evento ProductCreated (initializeStock), publicado
- * pelo serviço de Products.
+ * pelo serviço de Products, e é removido com ProductDeleted (removeInventory).
  */
 export class StockSDK {
   constructor(eventBridgeClient, db = new Database()) {
@@ -43,17 +50,20 @@ export class StockSDK {
    * `id` opcional torna a operação idempotente (a saga usa um id derivado do sagaId).
    */
   async reserveStock({ productId, quantity, correlationId, id }) {
+    if (!productId) {
+      throw new ValidationError('productId is required');
+    }
     if (!Number.isInteger(quantity) || quantity <= 0) {
       throw new ValidationError('Quantity must be a positive integer');
     }
 
     const now = new Date().toISOString();
     const reservation = {
-      id: id || generateId(),
+      id: id || generateId('res'),
       productId,
       quantity,
       status: 'active',
-      correlationId: correlationId || generateCorrelationId(),
+      correlationId: correlationId || generateId('corr'),
       reservedAt: now
     };
 
@@ -82,9 +92,14 @@ export class StockSDK {
 
       const [reservationReason, productReason] = (error.CancellationReasons || []).map(r => r?.Code);
 
-      // Reserva com este id já existe: repetição da mesma operação
+      // Reserva com este id já existe: repetição da mesma operação, ou a saga
+      // já compensou (liberou) esta reserva e ela não pode mais ser usada
       if (reservationReason === 'ConditionalCheckFailed') {
-        return this.getReservation(reservation.id);
+        const existing = await this.getReservation(reservation.id);
+        if (existing.status === 'released') {
+          throw new InvalidStateError('Reservation was already released by the saga compensation');
+        }
+        return existing;
       }
       if (productReason === 'ConditionalCheckFailed') {
         const inventory = await this.db.getItem('inventory', { id: productId });
@@ -107,11 +122,63 @@ export class StockSDK {
   }
 
   /**
-   * Liberar uma reserva e devolver a quantidade ao estoque.
-   * Liberar uma reserva já liberada não é erro (idempotente).
+   * Confirmar a reserva de uma compra concluída (active -> committed).
+   * O estoque já foi debitado na reserva; aqui ela só deixa de contar como
+   * "reservada". Confirmar de novo não é erro.
+   */
+  async commitReservation({ reservationId, correlationId }) {
+    const reservation = await this.getReservation(reservationId);
+    if (reservation.status === 'committed') {
+      return reservation;
+    }
+
+    try {
+      const committed = await this.db.updateItem(
+        'stockReservations',
+        { id: reservationId },
+        'SET #status = :committed, committedAt = :now',
+        { ':committed': 'committed', ':active': 'active', ':now': new Date().toISOString() },
+        {
+          conditionExpression: '#status = :active',
+          expressionAttributeNames: { '#status': 'status' },
+          returnValues: 'ALL_NEW'
+        }
+      );
+
+      await this.publish('StockCommitted', {
+        reservationId,
+        productId: reservation.productId,
+        quantity: reservation.quantity,
+        correlationId: correlationId || reservation.correlationId
+      });
+
+      return committed;
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+
+      const current = await this.getReservation(reservationId);
+      if (current.status === 'committed') return current;
+      throw new InvalidStateError(`Cannot commit reservation in status ${current.status}`);
+    }
+  }
+
+  /**
+   * Liberar uma reserva (ativa ou confirmada) e devolver a quantidade ao estoque.
+   * Idempotente: liberar de novo não é erro. Se a reserva não existe (o
+   * ReserveStock falhou antes de gravar), grava um registro `released` para que
+   * uma reserva atrasada com o mesmo id não debite o estoque depois.
    */
   async releaseStock({ reservationId, correlationId }) {
-    const reservation = await this.getReservation(reservationId);
+    const reservation = await this.db.getItem('stockReservations', { id: reservationId });
+
+    if (!reservation) {
+      const tombstone = { id: reservationId, status: 'released', releasedAt: new Date().toISOString(), quantity: 0, correlationId };
+      if (await this.db.putItemIfNotExists('stockReservations', tombstone)) {
+        return tombstone;
+      }
+      // A reserva foi gravada entre a leitura e a liberação: libera normalmente
+      return this.releaseStock({ reservationId, correlationId });
+    }
 
     if (reservation.status === 'released') {
       return reservation;
@@ -125,9 +192,9 @@ export class StockSDK {
             table: 'stockReservations',
             Key: { id: reservationId },
             UpdateExpression: 'SET #status = :released, releasedAt = :now',
-            ConditionExpression: '#status = :active',
+            ConditionExpression: '#status IN (:active, :committed)',
             ExpressionAttributeNames: { '#status': 'status' },
-            ExpressionAttributeValues: { ':released': 'released', ':active': 'active', ':now': now }
+            ExpressionAttributeValues: { ':released': 'released', ':active': 'active', ':committed': 'committed', ':now': now }
           }
         },
         {
@@ -143,6 +210,11 @@ export class StockSDK {
     } catch (error) {
       if (error.name !== 'TransactionCanceledException') throw error;
       throwIfConflict(error);
+
+      const [, inventoryReason] = (error.CancellationReasons || []).map(r => r?.Code);
+      if (inventoryReason === 'ConditionalCheckFailed') {
+        throw new NotFoundError('Inventory not found for product');
+      }
 
       // Outra execução liberou a reserva ao mesmo tempo
       const current = await this.getReservation(reservationId);
@@ -219,8 +291,7 @@ export class StockSDK {
       throw new NotFoundError('Inventory not found for product');
     }
 
-    const activeReservations = (await this.db.scanItems('stockReservations'))
-      .filter(r => r.productId === productId && r.status === 'active');
+    const activeReservations = await this.activeReservations(productId);
 
     return {
       productId: inventory.id,
@@ -236,8 +307,7 @@ export class StockSDK {
    */
   async listStock(filters = {}) {
     const allItems = await this.db.scanItems('inventory');
-    const activeReservations = (await this.db.scanItems('stockReservations'))
-      .filter(r => r.status === 'active');
+    const activeReservations = await this.activeReservations();
 
     return allItems.filter(item => {
       if (filters.productId && item.id !== filters.productId) {
@@ -256,6 +326,31 @@ export class StockSDK {
       available: item.stock || 0,
       reserved: sumQuantities(activeReservations.filter(r => r.productId === item.id))
     }));
+  }
+
+  /**
+   * Remover o inventário de um produto excluído (evento ProductDeleted).
+   * Idempotente: remover de novo não é erro.
+   */
+  async removeInventory({ productId }) {
+    if (!productId) {
+      throw new ValidationError('productId is required');
+    }
+    await this.db.deleteItem('inventory', { id: productId });
+    return { productId, removed: true };
+  }
+
+  /**
+   * Reservas ativas (compras em andamento), de um produto ou de todos,
+   * consultadas pelo GSI de status.
+   */
+  async activeReservations(productId) {
+    return this.db.queryItems('stockReservations', {
+      IndexName: STATUS_INDEX,
+      KeyConditionExpression: productId ? '#status = :active AND productId = :productId' : '#status = :active',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: { ':active': 'active', ...(productId && { ':productId': productId }) }
+    });
   }
 
   async publish(detailType, detail) {
@@ -279,20 +374,6 @@ function throwIfConflict(error) {
 
 function sumQuantities(reservations) {
   return reservations.reduce((sum, r) => sum + r.quantity, 0);
-}
-
-/**
- * Gerar ID único
- */
-function generateId() {
-  return `stock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-/**
- * Gerar ID de correlação
- */
-function generateCorrelationId() {
-  return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
 export default StockSDK;

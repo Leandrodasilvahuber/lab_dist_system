@@ -1,5 +1,6 @@
 import { Database } from '../database.mjs';
 import { NotFoundError, InvalidStateError, PaymentDeclinedError, ValidationError } from '../errors.mjs';
+import { generateId } from '../ids.mjs';
 
 // Gateway de pagamento simulado: recusa valores acima do limite.
 // Permite testar a compensação da saga de forma determinística.
@@ -8,7 +9,9 @@ const MAX_APPROVED_AMOUNT = Number(process.env.PAYMENT_MAX_AMOUNT || 10000);
 /**
  * SDK Público - Interface uniforme para operações de pagamento
  *
- * Status: approved | declined | refunded
+ * Status: approved | declined | refunded | voided
+ * `voided` marca um pagamento que a saga anulou antes de ele ser gravado
+ * (compensação de um ProcessPayment que falhou sem resposta).
  */
 export class PaymentSDK {
   constructor(eventBridgeClient, db = new Database()) {
@@ -27,12 +30,12 @@ export class PaymentSDK {
 
     const approved = amount <= MAX_APPROVED_AMOUNT;
     const payment = {
-      id: id || generateId(),
+      id: id || generateId('pay'),
       orderId,
       amount,
       status: approved ? 'approved' : 'declined',
-      correlationId: correlationId || generateCorrelationId(),
-      transactionId: generateTransactionId(),
+      correlationId: correlationId || generateId('corr'),
+      transactionId: generateId('txn'),
       createdAt: new Date().toISOString(),
       ...(!approved && { declineReason: `Amount exceeds limit of ${MAX_APPROVED_AMOUNT}` })
     };
@@ -52,6 +55,9 @@ export class PaymentSDK {
     if (result.status === 'declined') {
       throw new PaymentDeclinedError(`Payment declined: ${result.declineReason}`);
     }
+    if (result.status === 'voided') {
+      throw new InvalidStateError('Payment was voided by the saga compensation');
+    }
     return result;
   }
 
@@ -67,26 +73,32 @@ export class PaymentSDK {
   }
 
   /**
-   * Reembolsar pagamento pelo transactionId (API HTTP)
-   */
-  async refundPayment(transactionId, amount, correlationId) {
-    const payment = await this.getPaymentByTransactionId(transactionId);
-    if (!payment) {
-      throw new NotFoundError('Payment not found');
-    }
-    return this.refundPaymentById(payment.id, amount, correlationId);
-  }
-
-  /**
-   * Reembolsar pagamento pelo id (usado pela saga). Reembolsar de novo não é erro.
+   * Reembolsar pagamento pelo id (compensação da saga). Idempotente:
+   *  - já reembolsado, recusado ou anulado: nada a fazer;
+   *  - inexistente: grava um registro `voided`, para que um ProcessPayment
+   *    atrasado com o mesmo id não cobre depois da compensação.
    */
   async refundPaymentById(paymentId, amount, correlationId) {
-    const payment = await this.getPayment(paymentId);
-    if (payment.status === 'refunded') {
+    const payment = await this.db.getItem('payments', { id: paymentId });
+
+    if (!payment) {
+      const voided = { id: paymentId, status: 'voided', voidedAt: new Date().toISOString(), correlationId };
+      if (await this.db.putItemIfNotExists('payments', voided)) {
+        return voided;
+      }
+      // O pagamento foi gravado entre a leitura e a anulação: reembolsa normalmente
+      return this.refundPaymentById(paymentId, amount, correlationId);
+    }
+
+    if (payment.status !== 'approved') {
       return payment;
     }
 
     const refundAmount = amount ?? payment.amount;
+    if (typeof refundAmount !== 'number' || !(refundAmount > 0) || refundAmount > payment.amount) {
+      throw new ValidationError(`Refund amount must be between 0 and ${payment.amount}`);
+    }
+
     try {
       const refunded = await this.db.updateItem(
         'payments',
@@ -117,40 +129,11 @@ export class PaymentSDK {
     }
   }
 
-  /**
-   * Buscar pagamento por transaction ID
-   */
-  async getPaymentByTransactionId(transactionId) {
-    const allPayments = await this.db.scanItems('payments');
-    return allPayments.find(p => p.transactionId === transactionId);
-  }
-
   async publish(detailType, detail) {
     if (this.eventBridgeClient) {
       await this.eventBridgeClient.publish({ Source: 'payments', DetailType: detailType, Detail: detail });
     }
   }
-}
-
-/**
- * Gerar ID único
- */
-function generateId() {
-  return `pay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-/**
- * Gerar ID de transação
- */
-function generateTransactionId() {
-  return `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-/**
- * Gerar ID de correlação
- */
-function generateCorrelationId() {
-  return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
 export default PaymentSDK;

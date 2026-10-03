@@ -20,6 +20,14 @@ if ! aws sts get-caller-identity &> /dev/null; then
     exit 1
 fi
 
+# Chave das rotas administrativas (parâmetro AdminApiKey do template.yaml)
+if [ -z "$ADMIN_API_KEY" ] || [ ${#ADMIN_API_KEY} -lt 16 ]; then
+    echo "❌ Defina ADMIN_API_KEY (mínimo 16 caracteres) com a chave das rotas de admin:"
+    echo "   export ADMIN_API_KEY=\$(openssl rand -hex 24)"
+    echo "   Guarde a chave: o dashboard e as chamadas de admin usam o header X-Api-Key."
+    exit 1
+fi
+
 # O bucket S3 de artefatos é criado/gerenciado pelo SAM (resolve_s3 = true no samconfig.toml)
 
 echo ""
@@ -30,7 +38,9 @@ npm run build || exit 1
 
 echo ""
 echo "🚀 Fazendo deploy na AWS..."
-sam deploy --config-file samconfig.toml || exit 1
+# --parameter-overrides substitui o do samconfig.toml, por isso repete Environment
+sam deploy --config-file samconfig.toml \
+    --parameter-overrides "Environment=dev" "AdminApiKey=$ADMIN_API_KEY" || exit 1
 
 echo ""
 echo "✅ Deployment concluído!"
@@ -55,9 +65,8 @@ if [ ! -z "$API_URL" ]; then
     echo "🧪 Testar endpoints:"
     echo "   Health:     $API_URL/health"
     echo "   Products:   $API_URL/products"
-    echo "   Orders:     $API_URL/orders"
-    echo "   Payments:   $API_URL/payments"
     echo "   Stock:      $API_URL/stock"
+    echo "   Orders:     curl -H \"X-Api-Key: \$ADMIN_API_KEY\" $API_URL/orders   (admin)"
     echo "   Saga:       curl -X POST $API_URL/saga/execute -d '{\"productId\":\"apple\",\"quantity\":1}'"
     echo ""
     echo "🌱 Popular produtos: npm run seed -- --stage dev"

@@ -5,6 +5,14 @@ import { ValidationError } from './errors.mjs';
  * Invocação direta da Lambda pelo Step Functions: { action, input }.
  * Erros são relançados para o Step Functions decidir entre retry e compensação.
  */
+// Campos que nunca vão para o log (dados de pagamento/credenciais)
+const SENSITIVE_FIELDS = ['cardNumber', 'cvv', 'cardToken', 'token', 'password', 'apiKey'];
+
+function redact(input) {
+  return Object.fromEntries(Object.entries(input).map(([key, value]) =>
+    [key, SENSITIVE_FIELDS.includes(key) ? '[REDACTED]' : value]));
+}
+
 export function isActionInvocation(event) {
   return Boolean(event && typeof event.action === 'string' && !event.requestContext);
 }
@@ -20,7 +28,7 @@ export async function runAction(actions, { action, input = {} }) {
     correlationId: input.correlationId,
     status: 'info',
     message: `Running action ${action}`,
-    data: input
+    data: redact(input)
   });
 
   try {

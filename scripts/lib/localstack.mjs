@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import * as ddb from '@aws-sdk/client-dynamodb';
 import * as lambda from '@aws-sdk/client-lambda';
 import * as sfn from '@aws-sdk/client-sfn';
+import { ensureTable, logicalName } from './tables.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BUILD = path.join(ROOT, '.aws-sam', 'build');
@@ -35,16 +36,10 @@ export function assertBuilt() {
   }
 }
 
+// `tables`: { PRODUCTS_TABLE: 'nome', ... }, com os mesmos índices do template.yaml
 export async function ensureTables({ D }, tables) {
-  const existing = new Set((await D.send(new ddb.ListTablesCommand({}))).TableNames);
-  for (const TableName of Object.values(tables)) {
-    if (existing.has(TableName)) continue;
-    await D.send(new ddb.CreateTableCommand({
-      TableName,
-      BillingMode: 'PAY_PER_REQUEST',
-      AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' }],
-      KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' }]
-    }));
+  for (const [envKey, TableName] of Object.entries(tables)) {
+    await ensureTable(D, logicalName(envKey), TableName);
   }
 }
 

@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
-import { SagaService, parseLambdaError } from '../../../src/ecommerce/saga-orchestrator/src/services/SagaService.js';
-import { NotFoundError, ValidationError } from '../../../src/common/errors.mjs';
+import { SagaService, parseLambdaError, sagaIdFromKey } from '../../../src/ecommerce/saga-orchestrator/src/services/SagaService.js';
+import { IdempotencyConflictError, NotFoundError, ValidationError } from '../../../src/common/errors.mjs';
 
 // Banco em memória com o subconjunto usado pelo SagaService
 class FakeDb {
@@ -12,10 +12,20 @@ class FakeDb {
     this.tables[table].set(item.id, structuredClone(item));
     return true;
   }
-  async updateItem(table, { id }, expression, values) {
+  // Simula só as expressões usadas pelo SagaService
+  async updateItem(table, { id }, expression, values, options = {}) {
     const item = this.tables[table].get(id);
+    const condition = options.conditionExpression || '';
+    const fail = () => Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException' });
+    if (condition.includes(':startFailed') && !(item.status === values[':failed'] && item.error === values[':startFailed'])) throw fail();
+    if (condition.includes('size(steps)') && !(item.status === values[':running'] && Object.keys(item.steps).length === 0)) throw fail();
+
     if (expression.includes('executionArn')) item.executionArn = values[':arn'];
     if (values[':status']) item.status = values[':status'];
+    if (values[':error']) item.error = values[':error'];
+    if (expression.includes('REMOVE #error')) delete item.error;
+    if (expression.includes('startAttempts')) item.startAttempts = (item.startAttempts || 1) + 1;
+    return structuredClone(item);
   }
   async scanItems(table) { return [...this.tables[table].values()]; }
 }
@@ -78,7 +88,22 @@ describe('SagaService', () => {
 
     assert.strictEqual(second.created, false);
     assert.strictEqual(second.saga.id, first.saga.id);
-    assert.strictEqual(first.saga.id, 'saga_abc_123');
+    assert.strictEqual(first.saga.id, sagaIdFromKey('abc/123'));
+    assert.strictEqual(sfn.started.length, 1);
+  });
+
+  it('chaves diferentes nunca colidem, mesmo com caracteres inválidos ou longas', () => {
+    assert.notStrictEqual(sagaIdFromKey('a.b'), sagaIdFromKey('a_b'));
+    const long = 'x'.repeat(100);
+    assert.notStrictEqual(sagaIdFromKey(long + '1'), sagaIdFromKey(long + '2'));
+    assert.match(sagaIdFromKey('qualquer/coisa ç'), /^saga_[a-f0-9]{48}$/);
+    // nome de execução (id + "-N" nas novas tentativas) cabe nos 80 caracteres
+    assert.ok(`${sagaIdFromKey('k')}-99`.length <= 80);
+  });
+
+  it('mesma idempotencyKey com outro pedido responde conflito', async () => {
+    await service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: 'k1' });
+    await assert.rejects(service.startSaga({ productId: 'apple', quantity: 2, idempotencyKey: 'k1' }), IdempotencyConflictError);
     assert.strictEqual(sfn.started.length, 1);
   });
 
@@ -95,7 +120,33 @@ describe('SagaService', () => {
   it('marca FAILED se o Step Functions não iniciar', async () => {
     service = new SagaService({ db, stepFunctions: new FakeStepFunctions({ fail: true }), productClient });
     await assert.rejects(service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: 'k' }));
-    assert.strictEqual(db.tables.sagas.get('saga_k').status, 'FAILED');
+    const saga = db.tables.sagas.get(sagaIdFromKey('k'));
+    assert.strictEqual(saga.status, 'FAILED');
+    assert.strictEqual(saga.error, 'StartExecutionFailed');
+  });
+
+  it('nova tentativa com a mesma chave reinicia a saga que falhou ao iniciar', async () => {
+    const failing = new FakeStepFunctions({ fail: true });
+    service = new SagaService({ db, stepFunctions: failing, productClient });
+    await assert.rejects(service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: 'retry' }));
+
+    failing.fail = false;
+    const { saga, created } = await service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: 'retry' });
+    assert.strictEqual(created, true);
+    assert.strictEqual(saga.status, 'RUNNING');
+    assert.strictEqual(saga.error, undefined);
+    // nome de execução novo: o Step Functions não aceita repetir nomes
+    assert.strictEqual(failing.started[0].name, `${saga.id}-2`);
+  });
+
+  it('não marca FAILED se a execução já começou a registrar passos', async () => {
+    const sfnLost = { startExecution: async (name) => {
+      db.tables.sagas.get(name).steps = { createOrder: { status: 'COMPLETED' } };
+      throw new Error('resposta perdida');
+    } };
+    service = new SagaService({ db, stepFunctions: sfnLost, productClient });
+    await assert.rejects(service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: 'lost' }));
+    assert.strictEqual(db.tables.sagas.get(sagaIdFromKey('lost')).status, 'RUNNING');
   });
 
   it('getSaga calcula o progresso e lança NotFound', async () => {

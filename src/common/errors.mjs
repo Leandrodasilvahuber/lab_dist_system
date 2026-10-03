@@ -30,3 +30,9 @@ export class InsufficientStockError extends DomainError {
 export class PaymentDeclinedError extends DomainError {
   constructor(message = 'Payment declined') { super(message, 'PaymentDeclined', 402); }
 }
+
+export class IdempotencyConflictError extends DomainError {
+  constructor(message = 'Idempotency key already used with a different request') {
+    super(message, 'IdempotencyConflict', 409);
+  }
+}

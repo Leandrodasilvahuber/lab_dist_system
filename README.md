@@ -57,33 +57,46 @@ compensação automática.
 ## A saga de compra
 
 ```
-CreateOrder ──▶ ProcessPayment ──▶ ReserveStock ──▶ ConfirmOrder ──▶ COMPLETED
-     │                │                  │                 │
-     ▼ falha          ▼ falha            ▼ falha           ▼ falha
-  FAILED          CancelOrder      RefundPayment     ReleaseStock
-                                    CancelOrder       RefundPayment
-                                                       CancelOrder ──▶ COMPENSATED
+CreateOrder ─▶ ReserveStock ─▶ ProcessPayment ─▶ CommitReservation ─▶ ConfirmOrder ─▶ COMPLETED
+     │              │                │                  │                   │
+     ▼ falha        ▼ falha          ▼ falha            ▼ falha             ▼ falha
+ CancelOrder    ReleaseStock     RefundPayment ◀────────┴───────────────────┘
+     │          CancelOrder      ReleaseStock
+     ▼               │           CancelOrder
+  FAILED             └──────────────┴──▶ COMPENSATED
 ```
 
-Somente os passos que já foram concluídos são compensados, em ordem reversa.
-Falhas transitórias (throttling, conflito de transação, erro da Lambda) são
-repetidas com backoff; erros de negócio (`InsufficientStock`, `PaymentDeclined`)
-vão direto para a compensação.
+O estoque é reservado **antes** da cobrança: falta de estoque (a falha mais
+comum) não gera cobrança seguida de reembolso. `CommitReservation` dá baixa na
+reserva (`active` → `committed`) quando a compra está paga.
+
+A compensação começa **no próprio passo que falhou** e segue em ordem reversa.
+Uma falha vista pelo Step Functions (timeout, erro de rede) não garante que o
+passo não gravou nada; por isso as compensações são idempotentes e tratam
+"nunca foi gravado" como nada a desfazer, gravando um registro anulado
+(`voided`/`released`) que barra uma escrita atrasada com o mesmo id.
+
+Falhas transitórias (throttling, conflito de transação, timeout ou erro da
+Lambda) são repetidas com backoff; erros de negócio (`InsufficientStock`,
+`PaymentDeclined`) vão direto para a compensação.
 
 ```bash
 # 1. Inicia a compra: responde na hora com 202
 curl -X POST $API/saga/execute \
   -H 'Idempotency-Key: checkout-123' \
   -d '{"productId": "apple", "quantity": 2}'
-# {"sagaId":"saga_checkout-123","orderId":"order_saga_checkout-123","status":"RUNNING","statusUrl":"/saga/saga_checkout-123"}
+# {"sagaId":"saga_3c1f...","orderId":"order_saga_3c1f...","status":"RUNNING","statusUrl":"/saga/saga_3c1f..."}
 
-# 2. Acompanha o andamento
-curl $API/saga/saga_checkout-123
-# {"status":"COMPLETED","steps":{"createOrder":{"status":"COMPLETED",...},...},"progress":{"completed":4,"total":4}}
+# 2. Acompanha o andamento (statusUrl da resposta)
+curl $API/saga/saga_3c1f...
+# {"status":"COMPLETED","steps":{"createOrder":{"status":"COMPLETED",...},...},"progress":{"completed":5,"total":5}}
 ```
 
 O header `Idempotency-Key` (opcional) evita compras duplicadas: repetir a
-requisição com a mesma chave devolve a saga existente (200) em vez de criar outra.
+requisição com a mesma chave e o mesmo pedido devolve a saga existente (200) em
+vez de criar outra. A mesma chave com outro pedido responde `409`. Se a saga
+falhou ao iniciar (Step Functions indisponível), repetir com a mesma chave a
+inicia de novo. O `sagaId` é `saga_` + hash SHA-256 da chave.
 
 **Status da saga:** `RUNNING` → `COMPLETED` | `COMPENSATING` → `COMPENSATED` |
 `FAILED` (falhou no primeiro passo) | `COMPENSATION_FAILED` (exige intervenção manual).
@@ -94,16 +107,20 @@ requisição com a mesma chave devolve a saga existente (200) em vez de criar ou
 |---|---|---|
 | GET | `/health` | Health check |
 | GET | `/products` | Lista produtos (`?name=&priceMin=&priceMax=`) |
-| POST | `/products` | Cria produto `{ name, price, description?, stock? }` (`stock` vira o estoque inicial no serviço de Stock) |
+| POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
-| GET | `/orders` | Lista pedidos (`?status=&productId=`) |
+| GET | `/orders` 🔑 | Lista pedidos (`?status=&productId=`) |
 | GET | `/orders/{id}` | Busca pedido |
 | GET | `/stock` | Estoque de todos os produtos |
-| GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado) |
-| POST | `/stock/{productId}/adjust` | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir) |
+| GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento) |
+| POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir) |
 | **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` → 202 |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
-| GET | `/sagas` | Lista as compras (`?status=`) |
+| GET | `/sagas` 🔑 | Lista as compras (`?status=`) |
+
+🔑 Rota administrativa: exige o header `X-Api-Key` com a chave do parâmetro
+`AdminApiKey` do stack (authorizer Lambda do HttpApi). As demais rotas são
+públicas; o stage tem throttling (100 req/s, rajada de 50).
 
 ### Exposição
 
@@ -111,19 +128,22 @@ requisição com a mesma chave devolve a saga existente (200) em vez de criar ou
   HTTP apenas pelas rotas acima.
 - **Invocações internas** (exigem permissão IAM, inacessíveis pela internet):
   Step Functions → Orders/Payments/Stock (`{ action, input }`), Saga → Products
-  (`getProduct`), EventBridge → Stock (`ProductCreated`) e → SQS. Um request HTTP
+  (`getProduct`), EventBridge → Stock (`ProductCreated`, `ProductDeleted`) e → SQS. Um request HTTP
   nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
 - **O dashboard usa só** `/health`, `GET/POST /products`, `GET /stock`,
-  `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`.
+  `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. Sem a
+  chave de admin (campo no topo da página), ele mostra só as compras feitas no
+  próprio navegador, via `GET /saga/{id}`.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
   rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem
   nenhuma rota pública.
-- ⚠️ **A API não tem autenticação.** A única escrita operacional pública é
-  `POST /stock/{id}/adjust` (reposição de estoque); antes de expor de verdade,
-  proteja-a com um authorizer (JWT/IAM).
+- **Escritas administrativas e listagens completas exigem `X-Api-Key`.** É uma
+  chave única de admin, adequada ao laboratório; para usuários reais, troque
+  por um authorizer JWT (Cognito ou outro IdP).
 
 Erros de negócio: `400` validação, `402` pagamento recusado, `404` não
-encontrado, `409` estado inválido ou estoque insuficiente.
+encontrado, `409` estado inválido, estoque insuficiente ou `Idempotency-Key`
+reutilizada com outro pedido. Erros `500` não expõem detalhes internos (ficam no log).
 
 **Estoque:** a quantidade disponível fica na tabela `Inventory`, do serviço de
 Stock (o catálogo de Products não guarda estoque). Cada reserva
@@ -208,17 +228,25 @@ npm run build && npm run localstack:deploy   # publica as Lambdas e a saga no Lo
 npm run local-server                         # abra http://localhost:3001
 ```
 
+Localmente as rotas de admin ficam abertas, a menos que `ADMIN_API_KEY` esteja
+definida ao subir o `local-server`.
+
 Para usar o dashboard com a API publicada na AWS, abra
 `http://localhost:3001/?api=<ApiGatewayUrl>`.
 
 ## Limitações conhecidas
 
 - Eventos de domínio são publicados depois da escrita no banco, sem *outbox*
-  transacional: se a publicação falhar, o evento se perde (fica registrado no log).
-  Para `ProductCreated` isso deixa o produto sem inventário; recupere com
-  `POST /stock/{id}/adjust { delta, name }`.
+  transacional. Eventos informativos que falharem ficam só no log.
+  `ProductCreated` é obrigatório: se não puder ser publicado, o produto é
+  desfeito e a criação falha. Entregas ao Stock que falharem após as tentativas
+  vão para a DLQ `ProductEventsDlq`; recupere com
+  `POST /stock/{id}/adjust { delta, name }`. Sem inventário, a compra falha no
+  `ReserveStock`, antes de cobrar.
 - O inventário é criado de forma assíncrona: logo após `POST /products`, o estoque
   pode levar um instante para aparecer em `/stock` (consistência eventual).
 - A saga depende de forma síncrona do serviço de Products ao iniciar a compra.
-- Listagens usam `Scan` (adequado para o laboratório, não para volume grande).
-- Não há autenticação na API.
+- As listagens administrativas (`/orders`, `/sagas`, `/products`, `/stock`)
+  usam `Scan`, sem paginação. As consultas em caminhos críticos usam chave ou
+  GSI (`StatusIndex` nas reservas).
+- A autenticação é uma chave única de admin, sem usuários.

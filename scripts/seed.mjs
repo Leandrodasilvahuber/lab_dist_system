@@ -13,7 +13,8 @@
  * (PRODUCTS_TABLE, ORDERS_TABLE...). Com --stage, viram <stage>-Products etc.
  */
 import fs from 'node:fs';
-import { DynamoDBClient, CreateTableCommand, DescribeTableCommand, waitUntilTableExists } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { ensureTable } from './lib/tables.mjs';
 
 const args = process.argv.slice(2);
 const stage = args.includes('--stage') ? args[args.indexOf('--stage') + 1] : null;
@@ -35,32 +36,11 @@ const { putItem, tables } = await import('../src/common/database.mjs');
 const endpoint = process.env.DYNAMODB_ENDPOINT || process.env.AWS_ENDPOINT;
 const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1', ...(endpoint && { endpoint }) });
 
-async function ensureTable(name) {
-  try {
-    await client.send(new DescribeTableCommand({ TableName: name }));
-    return 'existe';
-  } catch (error) {
-    if (error.name !== 'ResourceNotFoundException') throw error;
-  }
-
-  if (!endpoint) {
-    throw new Error(`Tabela ${name} não existe. Na AWS ela é criada pelo deploy (npm run deploy).`);
-  }
-
-  await client.send(new CreateTableCommand({
-    TableName: name,
-    BillingMode: 'PAY_PER_REQUEST',
-    AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' }],
-    KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' }]
-  }));
-  await waitUntilTableExists({ client, maxWaitTime: 60 }, { TableName: name });
-  return 'criada';
-}
-
 console.log(`🌱 Seed em ${endpoint || 'AWS (' + (process.env.AWS_REGION || 'us-east-1') + ')'}`);
 
-for (const name of Object.values(tables)) {
-  console.log(`   tabela ${name}: ${await ensureTable(name)}`);
+// Localmente cria o que faltar; na AWS as tabelas vêm do stack e só são conferidas
+for (const [logical, name] of Object.entries(tables)) {
+  console.log(`   tabela ${name}: ${await ensureTable(client, logical, name, { create: Boolean(endpoint) })}`);
 }
 
 const { products } = JSON.parse(fs.readFileSync(new URL('./seed-products.json', import.meta.url)));

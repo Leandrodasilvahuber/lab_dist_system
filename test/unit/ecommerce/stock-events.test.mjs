@@ -46,3 +46,20 @@ describe('eventos de domínio', () => {
     await bus.publish({ Source: 'products', DetailType: 'ProductCreated', Detail: {} });
   });
 });
+
+describe('EventBus com EventBridge', () => {
+  const failingClient = { send: async () => { throw new Error('EventBridge indisponível'); } };
+
+  it('evento informativo: falha só é registrada', async () => {
+    const bus = new EventBus({ eventBusName: 'bus', client: failingClient });
+    await bus.publish({ Source: 'orders', DetailType: 'OrderCreated', Detail: {} });
+  });
+
+  it('evento obrigatório: falha é relançada para quem publicou', async () => {
+    const bus = new EventBus({ eventBusName: 'bus', client: failingClient });
+    await assert.rejects(
+      bus.publish({ Source: 'products', DetailType: 'ProductCreated', Detail: {} }, { required: true }),
+      /EventBridge indisponível/
+    );
+  });
+});

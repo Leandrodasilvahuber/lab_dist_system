@@ -1,5 +1,6 @@
 import { Database } from '../database.mjs';
 import { NotFoundError, InvalidStateError, ValidationError } from '../errors.mjs';
+import { generateId } from '../ids.mjs';
 
 /**
  * SDK Público - Interface uniforme para operações de pedido
@@ -27,13 +28,13 @@ export class OrderSDK {
 
     const now = new Date().toISOString();
     const order = {
-      id: id || generateId(),
+      id: id || generateId('order'),
       productId,
       quantity,
       unitPrice,
       total: unitPrice * quantity,
       status: 'pending',
-      correlationId: correlationId || generateCorrelationId(),
+      correlationId: correlationId || generateId('corr'),
       createdAt: now,
       updatedAt: now
     };
@@ -78,8 +79,15 @@ export class OrderSDK {
 
   /**
    * Cancelar pedido (pending/confirmed -> cancelled). Cancelar de novo não é erro.
+   * Usado como compensação da saga, inclusive quando o próprio CreateOrder
+   * falhou: se o pedido nunca foi gravado, não há o que cancelar.
    */
   async cancelOrder(orderId, correlationId) {
+    const existing = await this.db.getItem('orders', { id: orderId });
+    if (!existing) {
+      return { id: orderId, status: 'not_created' };
+    }
+
     const order = await this.transition(orderId, ['pending', 'confirmed'], 'cancelled');
     if (order.changed) {
       await this.publish('OrderCancelled', { orderId, correlationId: correlationId || order.correlationId });
@@ -145,20 +153,6 @@ export class OrderSDK {
       await this.eventBridgeClient.publish({ Source: 'orders', DetailType: detailType, Detail: detail });
     }
   }
-}
-
-/**
- * Gerar ID único
- */
-function generateId() {
-  return `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-/**
- * Gerar ID de correlação
- */
-function generateCorrelationId() {
-  return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
 export default OrderSDK;

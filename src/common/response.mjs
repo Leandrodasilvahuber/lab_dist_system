@@ -1,32 +1,37 @@
 import { DomainError, ValidationError } from './errors.mjs';
+import { log } from './logger.mjs';
 
-export function successResponse(body, statusCode = 200) {
+// Na AWS o CORS é respondido pelo HttpApi (CorsConfiguration); estes headers
+// valem para o local-server e para quem invoca a Lambda diretamente.
+// Sem Allow-Credentials: com origem '*' o navegador rejeitaria a combinação.
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': process.env.CORS_ALLOW_ORIGIN || '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key, Idempotency-Key, X-Idempotency-Key, X-Correlation-ID'
+};
+
+function jsonResponse(statusCode, body) {
   return {
     statusCode,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Credentials': true,
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, X-Idempotency-Key, X-Correlation-ID'
-    },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     body: JSON.stringify(body)
   };
 }
 
-export function errorResponse(message, statusCode = 500, error = null) {
-  return {
-    statusCode,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Credentials': true
-    },
-    body: JSON.stringify({
-      error: message,
-      details: error ? error.message || error : undefined
-    })
-  };
+export function successResponse(body, statusCode = 200) {
+  return jsonResponse(statusCode, body);
+}
+
+/**
+ * Resposta de erro. Só a mensagem vai para o cliente: detalhes internos
+ * (mensagem da exceção, stack) ficam apenas no log.
+ */
+export function errorResponse(message, statusCode = 500) {
+  return jsonResponse(statusCode, { error: message });
+}
+
+export function notFoundResponse(path, extra = {}) {
+  return jsonResponse(404, { error: 'Not found', path, ...extra });
 }
 
 /**
@@ -55,5 +60,6 @@ export function sdkErrorResponse(error, fallbackMessage) {
   if (error instanceof DomainError) {
     return errorResponse(error.message, error.statusCode);
   }
-  return errorResponse(fallbackMessage, 500, error);
+  log({ event: 'UNEXPECTED_ERROR', status: 'error', message: fallbackMessage, error });
+  return errorResponse(fallbackMessage, 500);
 }
