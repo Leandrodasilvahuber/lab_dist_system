@@ -1,6 +1,6 @@
 import { OrderSDK } from '../../../../common/sdks/index.mjs';
 import { eventBus } from '../../../../common/event-bus.mjs';
-import { successResponse, errorResponse, parseBody, sdkErrorResponse } from '../../../../common/response.mjs';
+import { successResponse, sdkErrorResponse } from '../../../../common/response.mjs';
 
 const orderSDK = new OrderSDK(eventBus);
 
@@ -19,42 +19,6 @@ export class OrderController {
       return successResponse({ orders });
     } catch (error) {
       return sdkErrorResponse(error, 'Failed to get orders');
-    }
-  }
-
-  /**
-   * POST /orders/confirm
-   */
-  static async confirmOrder(event) {
-    try {
-      const { orderId, correlationId } = parseBody(event);
-
-      if (!orderId) {
-        return errorResponse('Missing required field: orderId', 400);
-      }
-
-      const order = await orderSDK.confirmOrder(orderId, correlationId);
-      return successResponse(order);
-    } catch (error) {
-      return sdkErrorResponse(error, 'Failed to confirm order');
-    }
-  }
-
-  /**
-   * POST /orders/cancel
-   */
-  static async cancelOrder(event) {
-    try {
-      const { orderId, correlationId } = parseBody(event);
-
-      if (!orderId) {
-        return errorResponse('Missing required field: orderId', 400);
-      }
-
-      const order = await orderSDK.cancelOrder(orderId, correlationId);
-      return successResponse(order);
-    } catch (error) {
-      return sdkErrorResponse(error, 'Failed to cancel order');
     }
   }
 }

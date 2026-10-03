@@ -33,7 +33,8 @@ npm run seed -- --stage dev
 | Recurso | Descrição |
 |---|---|
 | `ApiGateway` (HttpApi, stage `dev`) | Rotas de cada serviço + `/health` e fallback na GatewayFunction |
-| `ProductFunction`, `OrderFunction`, `PaymentFunction`, `StockFunction` | Serviços (HTTP + ações da saga) |
+| `ProductFunction`, `OrderFunction`, `StockFunction` | Serviços (HTTP + ações/eventos internos) |
+| `PaymentFunction` | Só ações da saga (sem rota HTTP) |
 | `SagaOrchestratorFunction` | `/saga/execute`, `/saga/{id}`, `/sagas` |
 | `SagaStateMachine` (`dev-purchase-saga`) | Saga de compra (Step Functions Standard) |
 | `GatewayFunction` | `/health` e 404 com a lista de endpoints |

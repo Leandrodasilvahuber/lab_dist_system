@@ -17,11 +17,12 @@ compensação automática.
 
 ```
                         ┌──────────────────────── API Gateway (HttpApi) ─────────────────────────┐
-                        │ /products  /orders  /payments  /stock      /saga/*  /sagas    /health  │
-                        └─────┬─────────┬─────────┬────────┬────────────┬──────────────────┬─────┘
-                              ▼         ▼         ▼        ▼            ▼                  ▼
+                        │ /products  /orders             /stock      /saga/*  /sagas    /health  │
+                        └─────┬─────────┬──────────────────┬────────────┬──────────────────┬─────┘
+                              ▼         ▼                  ▼            ▼                  ▼
                           Products   Orders   Payments   Stock    SagaOrchestrator     Gateway
                            Lambda    Lambda    Lambda    Lambda       Lambda            Lambda
+                                             (sem HTTP)
                                        ▲         ▲         ▲            │ StartExecution
                                        │  invoca │ ações   │            ▼
                                        └─────────┴─────────┴──── Step Functions ──▶ tabela Sagas
@@ -97,14 +98,8 @@ requisição com a mesma chave devolve a saga existente (200) em vez de criar ou
 | GET | `/products/{id}` | Busca produto |
 | GET | `/orders` | Lista pedidos (`?status=&productId=`) |
 | GET | `/orders/{id}` | Busca pedido |
-| POST | `/orders/confirm` | Confirma pedido `{ orderId }` |
-| POST | `/orders/cancel` | Cancela pedido `{ orderId }` |
-| POST | `/payments` | Processa pagamento `{ orderId, amount }` |
-| POST | `/payments/refund` | Reembolsa `{ transactionId, amount? }` |
 | GET | `/stock` | Estoque de todos os produtos |
 | GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado) |
-| POST | `/stock/{productId}/reserve` | Reserva `{ quantity }` |
-| POST | `/stock/{productId}/release` | Libera uma reserva `{ reservationId }` |
 | POST | `/stock/{productId}/adjust` | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir) |
 | **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` → 202 |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
@@ -120,10 +115,12 @@ requisição com a mesma chave devolve a saga existente (200) em vez de criar ou
   nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
 - **O dashboard usa só** `/health`, `GET/POST /products`, `GET /stock`,
   `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`.
-- ⚠️ **A API não tem autenticação.** As rotas operacionais (`/orders/confirm|cancel`,
-  `/payments`, `/payments/refund`, `/stock/{id}/reserve|release|adjust`) ficam
-  públicas para testes manuais; a saga não depende delas. Antes de expor de verdade,
-  remova-as do `template.yaml` ou proteja com um authorizer (JWT/IAM).
+- **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
+  rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem
+  nenhuma rota pública.
+- ⚠️ **A API não tem autenticação.** A única escrita operacional pública é
+  `POST /stock/{id}/adjust` (reposição de estoque); antes de expor de verdade,
+  proteja-a com um authorizer (JWT/IAM).
 
 Erros de negócio: `400` validação, `402` pagamento recusado, `404` não
 encontrado, `409` estado inválido ou estoque insuficiente.

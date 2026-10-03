@@ -137,18 +137,6 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /orders/{id}
             Method: GET
-        ConfirmOrder:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref ApiGateway
-            Path: /orders/confirm
-            Method: POST
-        CancelOrder:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref ApiGateway
-            Path: /orders/cancel
-            Method: POST
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref OrdersTable
@@ -173,19 +161,7 @@ Resources:
         Variables:
           SERVICE_TYPE: payment
           PAYMENT_MAX_AMOUNT: '10000'
-      Events:
-        ProcessPayment:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref ApiGateway
-            Path: /payments
-            Method: POST
-        RefundPayment:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref ApiGateway
-            Path: /payments/refund
-            Method: POST
+      # Sem rotas HTTP: só executa as ações da saga (processPayment, refundPayment)
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref PaymentsTable
@@ -222,18 +198,6 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /stock/{productId}
             Method: GET
-        ReserveStock:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref ApiGateway
-            Path: /stock/{productId}/reserve
-            Method: POST
-        ReleaseStock:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref ApiGateway
-            Path: /stock/{productId}/release
-            Method: POST
         AdjustStock:
           Type: HttpApi
           Properties:

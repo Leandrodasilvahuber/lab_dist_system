@@ -45,7 +45,6 @@ process.env.PRODUCT_FUNCTION_NAME ||= 'local-ProductFunction';
 const handlers = {
   products: (await import('./src/ecommerce/products/index.mjs')).handler,
   orders: (await import('./src/ecommerce/orders/index.mjs')).handler,
-  payments: (await import('./src/ecommerce/payments/index.mjs')).handler,
   stock: (await import('./src/ecommerce/stock/index.mjs')).handler,
   saga: (await import('./src/ecommerce/saga-orchestrator/index.mjs')).handler,
   gateway: (await import('./src/layers/api-gateway-layer/src/routes/apiRoutes.js')).handler
@@ -60,7 +59,6 @@ function routeFor(pathname) {
   const [, first] = pathname.split('/');
   if (first === 'products') return 'products';
   if (first === 'orders') return 'orders';
-  if (first === 'payments') return 'payments';
   if (first === 'stock') return 'stock';
   if (first === 'saga' || first === 'sagas') return 'saga';
   return 'gateway';

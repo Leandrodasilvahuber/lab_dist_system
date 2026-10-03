@@ -11,16 +11,6 @@ export async function setupRoutes(event) {
     return OrderController.getOrders(event, queryStringParameters);
   }
 
-  // POST /orders/confirm
-  if (method === 'POST' && path === '/orders/confirm') {
-    return OrderController.confirmOrder(event);
-  }
-
-  // POST /orders/cancel
-  if (method === 'POST' && path === '/orders/cancel') {
-    return OrderController.cancelOrder(event);
-  }
-
   // GET /orders/{id}
   if (method === 'GET' && idMatch) {
     return OrderController.getOrders(event, { id: decodeURIComponent(idMatch[1]) });

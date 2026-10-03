@@ -142,13 +142,21 @@ const res = (await call(stock, 'GET', `/stock/${c.id}`)).body;
 console.log(`  GET /stock: ${JSON.stringify(res)}`);
 check('5 reservas ativas', res.activeReservations === 5 && res.reserved === 5);
 
-console.log('\n7) Várias reservas do mesmo produto via HTTP + liberação');
-const ra = (await call(stock, 'POST', `/stock/${p.id}/reserve`, { quantity: 2 })).body;
-const rb = (await call(stock, 'POST', `/stock/${p.id}/reserve`, { quantity: 3 })).body;
+console.log('\n7) Várias reservas do mesmo produto via ação interna + liberação');
+// Reserva/liberação não têm rota HTTP: só a saga as invoca ({ action, input })
+const action = (fn, name, input) => fn({ action: name, input });
+const ra = await action(stock, 'reserveStock', { productId: p.id, quantity: 2 });
+const rb = await action(stock, 'reserveStock', { productId: p.id, quantity: 3 });
 check('duas reservas aceitas (7 -> 2)', ra.status === 'active' && rb.status === 'active' && await productStock(p.id) === 2);
-const rel = await call(stock, 'POST', `/stock/${p.id}/release`, { reservationId: ra.id });
-const rel2 = await call(stock, 'POST', `/stock/${p.id}/release`, { reservationId: ra.id });
-check('liberação devolve ao estoque (2 -> 4) e repetir não duplica', rel.status === 200 && rel2.status === 200 && await productStock(p.id) === 4);
+const rel = await action(stock, 'releaseStock', { reservationId: ra.id });
+const rel2 = await action(stock, 'releaseStock', { reservationId: ra.id });
+check('liberação devolve ao estoque (2 -> 4) e repetir não duplica', rel.status === 'released' && rel2.status === 'released' && await productStock(p.id) === 4);
+
+console.log('\n8) Rotas operacionais não são públicas');
+const reserveHttp = await call(stock, 'POST', `/stock/${p.id}/reserve`, { quantity: 1 });
+const confirmHttp = await call(orders, 'POST', '/orders/confirm', { orderId: s.orderId });
+check('POST /stock/{id}/reserve e /orders/confirm respondem 404', reserveHttp.status === 404 && confirmHttp.status === 404);
+check('estoque intacto (4)', await productStock(p.id) === 4);
 
 console.log(`\n${failures === 0 ? 'TODOS OS CENÁRIOS PASSARAM' : failures + ' VERIFICAÇÕES FALHARAM'}`);
 await teardown();
