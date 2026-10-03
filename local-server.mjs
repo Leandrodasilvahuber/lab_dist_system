@@ -13,7 +13,8 @@
  *   npm run local-server        # abra http://localhost:3001
  *
  * Com ADMIN_API_KEY definida, as rotas administrativas (src/common/auth.mjs)
- * exigem o header X-Api-Key, como o authorizer do HttpApi faz na AWS.
+ * exigem o header X-Api-Key, como o authorizer do HttpApi faz na AWS. O
+ * `npm run local-server` lê o .env da raiz (se existir), onde a chave pode ficar fixa.
  *
  * Escuta só em 127.0.0.1 (as rotas de admin podem estar abertas). Para expor
  * na rede local, defina HOST=0.0.0.0 junto com ADMIN_API_KEY.

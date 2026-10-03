@@ -240,7 +240,14 @@ npm run local-server                         # abra http://localhost:3001
 ```
 
 Localmente as rotas de admin ficam abertas, a menos que `ADMIN_API_KEY` esteja
-definida ao subir o `local-server`. Por isso ele escuta só em `127.0.0.1`; para
+definida ao subir o `local-server`. Para deixar a chave fixa, grave-a num `.env`
+na raiz do projeto (fora do git), que o `npm run local-server` carrega sozinho:
+
+```bash
+(umask 077 && echo "ADMIN_API_KEY=$(openssl rand -hex 16)" > .env)
+```
+
+Uma variável já definida no shell tem prioridade sobre o `.env`. Por isso ele escuta só em `127.0.0.1`; para
 expor na rede, use `HOST=0.0.0.0` junto com `ADMIN_API_KEY` (sem a chave, o
 servidor se recusa a subir).
 

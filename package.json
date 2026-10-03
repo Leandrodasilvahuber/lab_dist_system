@@ -20,7 +20,7 @@
     "localstack:start": "bash scripts/localstack-start.sh",
     "localstack:stop": "bash scripts/localstack-stop.sh",
     "localstack:deploy": "node scripts/localstack-deploy.mjs",
-    "local-server": "LOG_LEVEL=${LOG_LEVEL:-error} node local-server.mjs"
+    "local-server": "LOG_LEVEL=${LOG_LEVEL:-error} node --env-file-if-exists=.env local-server.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.578.0",
