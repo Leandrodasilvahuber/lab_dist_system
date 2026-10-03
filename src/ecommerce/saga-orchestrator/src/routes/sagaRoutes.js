@@ -1,9 +1,9 @@
 import { SagaOrchestratorController } from '../controllers/SagaOrchestratorController.js';
 
-export function setupRoutes(event) {
+export async function setupRoutes(event) {
   const method = event.httpMethod;
   const path = event.path;
-  const pathParameters = event.pathParameters;
+  const sagaMatch = path.match(/^\/saga\/([^/]+)$/);
 
   // POST /saga/execute
   if (method === 'POST' && path === '/saga/execute') {
@@ -11,22 +11,9 @@ export function setupRoutes(event) {
   }
 
   // GET /saga/{sagaId}
-  if (method === 'GET' && path && path.startsWith('/saga/') && pathParameters?.sagaId) {
+  if (method === 'GET' && sagaMatch) {
+    event.pathParameters = { ...event.pathParameters, sagaId: decodeURIComponent(sagaMatch[1]) };
     return SagaOrchestratorController.getSaga(event);
-  }
-
-  // POST /saga/{sagaId}/cancel
-  if (method === 'POST' && path && path.match(/\/saga\/[^\/]+\/cancel$/)) {
-    const sagaId = path.split('/')[2];
-    event.pathParameters = { sagaId };
-    return SagaOrchestratorController.cancelSaga(event);
-  }
-
-  // POST /saga/rollback/{orderId}
-  if (method === 'POST' && path && path.match(/\/saga\/rollback\/[^\/]+$/)) {
-    const orderId = path.split('/')[3];
-    event.pathParameters = { orderId };
-    return SagaOrchestratorController.rollbackSaga(event);
   }
 
   // GET /sagas
@@ -46,8 +33,6 @@ export function setupRoutes(event) {
       availableEndpoints: [
         'POST /saga/execute',
         'GET /saga/{sagaId}',
-        'POST /saga/{sagaId}/cancel',
-        'POST /saga/rollback/{orderId}',
         'GET /sagas'
       ]
     })

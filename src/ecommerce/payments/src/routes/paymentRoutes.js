@@ -1,9 +1,8 @@
 import { PaymentController } from '../controllers/PaymentController.js';
 
-export function setupRoutes(event, context) {
+export async function setupRoutes(event) {
   const method = event.httpMethod;
   const path = event.path;
-  const body = event.body ? JSON.parse(event.body) : null;
 
   // POST /payments
   if (method === 'POST' && path === '/payments') {

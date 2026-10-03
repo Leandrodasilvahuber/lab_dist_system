@@ -1,0 +1,144 @@
+#!/usr/bin/env node
+/**
+ * Teste ponta a ponta da saga no LocalStack (Lambda + Step Functions + DynamoDB).
+ *
+ * Publica as funções geradas pelo `sam build` e a state machine real
+ * (workflow/saga-workflow.asl.json) e executa cenários de compra:
+ * sucesso, pagamento recusado, estoque insuficiente, idempotência e concorrência.
+ *
+ * Pré-requisitos:
+ *   npm run localstack:start
+ *   npm run build
+ *
+ * Uso: npm run test:e2e
+ * Cada execução usa nomes próprios (prefixo e2e-<timestamp>) e remove tudo ao final.
+ * O runtime das Lambdas é o mesmo do template.yaml.
+ */
+import { ROOT, clients, assertBuilt, ensureTables, deploySaga, removeSaga } from './lib/localstack.mjs';
+
+const endpoint = process.env.LOCALSTACK_ENDPOINT || 'http://localhost:4566';
+const PREFIX = `e2e-${Date.now()}`;
+const T = {
+  PRODUCTS_TABLE: `${PREFIX}-Products`,
+  ORDERS_TABLE: `${PREFIX}-Orders`,
+  PAYMENTS_TABLE: `${PREFIX}-Payments`,
+  STOCK_RESERVATIONS_TABLE: `${PREFIX}-StockReservations`,
+  SAGAS_TABLE: `${PREFIX}-Sagas`
+};
+const aws = clients(endpoint);
+const teardown = () => removeSaga(aws, { prefix: PREFIX, tables: T });
+let stateMachineArn;
+
+try {
+  assertBuilt();
+  await ensureTables(aws, T);
+  let runtime;
+  ({ stateMachineArn, runtime } = await deploySaga(aws, { prefix: PREFIX, tables: T }));
+  console.log(`Infra de teste criada no LocalStack (${PREFIX}, ${runtime})`);
+} catch (error) {
+  console.error(`Falha ao preparar o LocalStack em ${endpoint}: ${error.message}`);
+  console.error('Verifique se ele está rodando (npm run localstack:start) e se rodou npm run build.');
+  await teardown();
+  process.exit(1);
+}
+
+// O orquestrador e as rotas HTTP rodam neste processo, apontando para o LocalStack
+Object.assign(process.env, T, {
+  SAGA_STATE_MACHINE_ARN: stateMachineArn,
+  AWS_ENDPOINT: endpoint,
+  AWS_REGION: 'us-east-1',
+  AWS_ACCESS_KEY_ID: 'test',
+  AWS_SECRET_ACCESS_KEY: 'test',
+  LOG_LEVEL: 'silent'
+});
+const saga = (await import(`${ROOT}/src/ecommerce/saga-orchestrator/index.mjs`)).handler;
+const products = (await import(`${ROOT}/src/ecommerce/products/index.mjs`)).handler;
+const stock = (await import(`${ROOT}/src/ecommerce/stock/index.mjs`)).handler;
+const orders = (await import(`${ROOT}/src/ecommerce/orders/index.mjs`)).handler;
+const ev = (method, path, body, headers = {}) => ({ version: '2.0', rawPath: `/dev${path}`, headers,
+  requestContext: { stage: 'dev', http: { method } }, body: body && JSON.stringify(body) });
+const call = async (fn, ...a) => { const r = await fn(ev(...a)); return { status: r.statusCode, body: JSON.parse(r.body) }; };
+
+const TERMINAL = ['COMPLETED', 'COMPENSATED', 'FAILED', 'COMPENSATION_FAILED'];
+async function waitSaga(id) {
+  for (let i = 0; i < 120; i++) {
+    const { body } = await call(saga, 'GET', `/saga/${id}`);
+    if (TERMINAL.includes(body.status)) return body;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error('timeout esperando saga ' + id);
+}
+const steps = s => ['createOrder', 'processPayment', 'reserveStock', 'confirmOrder', 'releaseStock', 'refundPayment', 'cancelOrder']
+  .filter(k => s.steps?.[k]).map(k => `${k}:${s.steps[k].status}`).join(' ');
+const productStock = async id => (await call(products, 'GET', `/products/${id}`)).body.stock;
+const orderStatus = async id => (await call(orders, 'GET', `/orders/${id}`)).body.status;
+let failures = 0;
+const check = (label, cond) => { console.log(`  ${cond ? '✔' : '✘'} ${label}`); if (!cond) failures++; };
+
+const p = (await call(products, 'POST', '/products', { name: 'Teclado', price: 150, stock: 10 })).body;
+const caro = (await call(products, 'POST', '/products', { name: 'Servidor', price: 20000, stock: 3 })).body;
+
+console.log('\n1) Compra com sucesso (2 unidades)');
+let r = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 2 });
+console.log(`  resposta imediata: ${r.status} ${JSON.stringify(r.body)}`);
+check('responde 202 com status RUNNING', r.status === 202 && r.body.status === 'RUNNING');
+let s = await waitSaga(r.body.sagaId);
+console.log(`  final: ${s.status} | ${steps(s)}`);
+check('saga COMPLETED', s.status === 'COMPLETED');
+check('estoque 10 -> 8', await productStock(p.id) === 8);
+check('pedido confirmado', await orderStatus(s.orderId) === 'confirmed');
+
+console.log('\n2) Pagamento recusado (valor acima do limite)');
+r = await call(saga, 'POST', '/saga/execute', { productId: caro.id, quantity: 1 });
+s = await waitSaga(r.body.sagaId);
+console.log(`  final: ${s.status} | falhou em ${s.failedStep} (${s.error?.type}: ${s.error?.message}) | ${steps(s)}`);
+check('saga COMPENSATED', s.status === 'COMPENSATED');
+check('só o pedido foi compensado (nada de estoque/reembolso)', s.steps.cancelOrder && !s.steps.refundPayment && !s.steps.releaseStock);
+check('pedido cancelado', await orderStatus(s.orderId) === 'cancelled');
+check('estoque intacto (3)', await productStock(caro.id) === 3);
+
+console.log('\n3) Estoque insuficiente (pede 50, tem 8)');
+r = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 50 });
+s = await waitSaga(r.body.sagaId);
+console.log(`  final: ${s.status} | falhou em ${s.failedStep} (${s.error?.type}: ${s.error?.message}) | ${steps(s)}`);
+check('saga COMPENSATED', s.status === 'COMPENSATED');
+check('pagamento reembolsado e pedido cancelado', s.steps.refundPayment?.status === 'COMPENSATED' && s.steps.cancelOrder?.status === 'COMPENSATED');
+check('estoque continua 8', await productStock(p.id) === 8);
+
+console.log('\n4) Produto inexistente');
+r = await call(saga, 'POST', '/saga/execute', { productId: 'nao-existe', quantity: 1 });
+console.log(`  ${r.status} ${JSON.stringify(r.body)}`);
+check('responde 404 sem iniciar saga', r.status === 404);
+
+console.log('\n5) Idempotency-Key (clique duplo)');
+const h = { 'Idempotency-Key': 'checkout-abc-123' };
+const r1 = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 1 }, h);
+const r2 = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 1 }, h);
+console.log(`  1ª: ${r1.status} ${r1.body.sagaId} | 2ª: ${r2.status} ${r2.body.sagaId}`);
+check('mesma saga, 202 depois 200', r1.body.sagaId === r2.body.sagaId && r1.status === 202 && r2.status === 200);
+await waitSaga(r1.body.sagaId);
+check('estoque debitado uma vez só (8 -> 7)', await productStock(p.id) === 7);
+
+console.log('\n6) Concorrência: 10 compras simultâneas de 1 unidade, produto com 5 em estoque');
+const c = (await call(products, 'POST', '/products', { name: 'Mouse', price: 80, stock: 5 })).body;
+const started = await Promise.all(Array.from({ length: 10 }, () => call(saga, 'POST', '/saga/execute', { productId: c.id, quantity: 1 })));
+const finals = await Promise.all(started.map(x => waitSaga(x.body.sagaId)));
+const count = st => finals.filter(f => f.status === st).length;
+console.log(`  COMPLETED=${count('COMPLETED')} COMPENSATED=${count('COMPENSATED')} outros=${10 - count('COMPLETED') - count('COMPENSATED')}`);
+check('exatamente 5 concluídas e 5 compensadas', count('COMPLETED') === 5 && count('COMPENSATED') === 5);
+check('estoque final 0 (nunca negativo)', await productStock(c.id) === 0);
+const res = (await call(stock, 'GET', `/stock/${c.id}`)).body;
+console.log(`  GET /stock: ${JSON.stringify(res)}`);
+check('5 reservas ativas', res.activeReservations === 5 && res.reserved === 5);
+
+console.log('\n7) Várias reservas do mesmo produto via HTTP + liberação');
+const ra = (await call(stock, 'POST', `/stock/${p.id}/reserve`, { quantity: 2 })).body;
+const rb = (await call(stock, 'POST', `/stock/${p.id}/reserve`, { quantity: 3 })).body;
+check('duas reservas aceitas (7 -> 2)', ra.status === 'active' && rb.status === 'active' && await productStock(p.id) === 2);
+const rel = await call(stock, 'POST', `/stock/${p.id}/release`, { reservationId: ra.id });
+const rel2 = await call(stock, 'POST', `/stock/${p.id}/release`, { reservationId: ra.id });
+check('liberação devolve ao estoque (2 -> 4) e repetir não duplica', rel.status === 200 && rel2.status === 200 && await productStock(p.id) === 4);
+
+console.log(`\n${failures === 0 ? 'TODOS OS CENÁRIOS PASSARAM' : failures + ' VERIFICAÇÕES FALHARAM'}`);
+await teardown();
+process.exit(failures ? 1 : 0);

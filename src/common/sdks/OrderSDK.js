@@ -1,38 +1,57 @@
-import { DynamoDBClientClass } from '../../common/database.js';
+import { Database } from '../database.mjs';
+import { NotFoundError, InvalidStateError, ValidationError } from '../errors.mjs';
 
 /**
  * SDK Público - Interface uniforme para operações de pedido
+ *
+ * Status: pending -> confirmed | cancelled (confirmed também pode ser cancelado)
  */
 export class OrderSDK {
-  constructor(eventBridgeClient) {
+  constructor(eventBridgeClient, db = new Database()) {
     this.eventBridgeClient = eventBridgeClient;
+    this.db = db;
   }
 
   /**
    * Criar pedido
+   * `id` opcional torna a operação idempotente (a saga usa um id derivado do sagaId).
    */
-  async createOrder(orderData) {
-    const correlationId = orderData.correlationId || generateCorrelationId();
-
-    // Calcular total
-    const product = await Database.getItem('Products', { id: orderData.productId });
-    if (!product) {
-      throw new Error('Product not found');
+  async createOrder({ productId, quantity, correlationId, id }) {
+    if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
+      throw new ValidationError('productId and a positive integer quantity are required');
     }
 
-    const total = product.price * orderData.quantity;
+    const product = await this.db.getItem('products', { id: productId });
+    if (!product) {
+      throw new NotFoundError('Product not found');
+    }
 
+    const now = new Date().toISOString();
     const order = {
-      id: generateId(),
-      productId: orderData.productId,
-      quantity: orderData.quantity,
-      total: total,
-      status: 'pending', // pending, confirmed, paid, cancelled
-      correlationId: correlationId,
-      createdAt: new Date().toISOString()
+      id: id || generateId(),
+      productId,
+      quantity,
+      unitPrice: product.price,
+      total: product.price * quantity,
+      status: 'pending',
+      correlationId: correlationId || generateCorrelationId(),
+      createdAt: now,
+      updatedAt: now
     };
 
-    await Database.putItem('Orders', order);
+    const created = await this.db.putItemIfNotExists('orders', order);
+    if (!created) {
+      return this.getOrder(order.id);
+    }
+
+    await this.publish('OrderCreated', {
+      orderId: order.id,
+      productId,
+      quantity,
+      total: order.total,
+      correlationId: order.correlationId
+    });
+
     return order;
   }
 
@@ -40,47 +59,74 @@ export class OrderSDK {
    * Buscar pedido por ID
    */
   async getOrder(orderId) {
-    const order = await Database.getItem('Orders', { id: orderId });
+    const order = await this.db.getItem('orders', { id: orderId });
     if (!order) {
-      throw new Error('Order not found');
+      throw new NotFoundError('Order not found');
     }
     return order;
   }
 
   /**
-   * Cancelar pedido
+   * Confirmar pedido (pending -> confirmed). Confirmar de novo não é erro.
+   */
+  async confirmOrder(orderId, correlationId) {
+    const order = await this.transition(orderId, ['pending'], 'confirmed');
+    if (order.changed) {
+      await this.publish('OrderConfirmed', { orderId, correlationId: correlationId || order.correlationId });
+    }
+    return order.item;
+  }
+
+  /**
+   * Cancelar pedido (pending/confirmed -> cancelled). Cancelar de novo não é erro.
    */
   async cancelOrder(orderId, correlationId) {
+    const order = await this.transition(orderId, ['pending', 'confirmed'], 'cancelled');
+    if (order.changed) {
+      await this.publish('OrderCancelled', { orderId, correlationId: correlationId || order.correlationId });
+    }
+    return order.item;
+  }
+
+  /**
+   * Muda o status de forma atômica (condicional ao status atual)
+   */
+  async transition(orderId, allowedFrom, to) {
     const order = await this.getOrder(orderId);
-
-    if (order.status === 'cancelled' || order.status === 'completed') {
-      throw new Error(`Cannot cancel ${order.status} order`);
+    if (order.status === to) {
+      return { item: order, changed: false };
     }
 
-    order.status = 'cancelled';
-    order.updatedAt = new Date().toISOString();
-    await Database.putItem('Orders', order);
+    const values = { ':to': to, ':now': new Date().toISOString() };
+    allowedFrom.forEach((status, i) => { values[`:from${i}`] = status; });
 
-    // Em produção, publicar evento
-    if (this.eventBridgeClient) {
-      await this.eventBridgeClient.publish({
-        Source: 'orders',
-        DetailType: 'OrderCancelled',
-        Detail: JSON.stringify({
-          orderId,
-          correlationId
-        })
-      });
+    try {
+      const item = await this.db.updateItem(
+        'orders',
+        { id: orderId },
+        'SET #status = :to, updatedAt = :now',
+        values,
+        {
+          conditionExpression: `#status IN (${allowedFrom.map((_, i) => `:from${i}`).join(', ')})`,
+          expressionAttributeNames: { '#status': 'status' },
+          returnValues: 'ALL_NEW'
+        }
+      );
+      return { item, changed: true };
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+
+      const current = await this.getOrder(orderId);
+      if (current.status === to) return { item: current, changed: false };
+      throw new InvalidStateError(`Cannot change order from ${current.status} to ${to}`);
     }
-
-    return order;
   }
 
   /**
    * Listar pedidos
    */
   async listOrders(filters = {}) {
-    const allOrders = await DynamoDBClientClass.queryItems('Orders');
+    const allOrders = await this.db.scanItems('orders');
     return allOrders.filter(order => {
       if (filters.status && order.status !== filters.status) {
         return false;
@@ -93,6 +139,12 @@ export class OrderSDK {
       }
       return true;
     });
+  }
+
+  async publish(detailType, detail) {
+    if (this.eventBridgeClient) {
+      await this.eventBridgeClient.publish({ Source: 'orders', DetailType: detailType, Detail: detail });
+    }
   }
 }
 

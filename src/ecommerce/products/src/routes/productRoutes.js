@@ -1,11 +1,10 @@
 import { ProductController } from '../controllers/ProductController.js';
 
-export function setupRoutes(event, context) {
+export async function setupRoutes(event) {
   const method = event.httpMethod;
   const path = event.path;
-  const pathParameters = event.pathParameters;
-  const queryStringParameters = event.queryStringParameters;
-  const body = event.body ? JSON.parse(event.body) : null;
+  const queryStringParameters = event.queryStringParameters || {};
+  const idMatch = path.match(/^\/products\/([^/]+)$/);
 
   // GET /products
   if (method === 'GET' && path === '/products') {
@@ -13,8 +12,8 @@ export function setupRoutes(event, context) {
   }
 
   // GET /products/{id}
-  if (method === 'GET' && pathParameters?.id) {
-    return ProductController.getProducts(event, { id: pathParameters.id });
+  if (method === 'GET' && idMatch) {
+    return ProductController.getProducts(event, { id: decodeURIComponent(idMatch[1]) });
   }
 
   // POST /products

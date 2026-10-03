@@ -1,11 +1,14 @@
 import { StockController } from '../controllers/StockController.js';
 
-export function setupRoutes(event, context) {
+export async function setupRoutes(event) {
   const method = event.httpMethod;
   const path = event.path;
-  const pathParameters = event.pathParameters;
-  const queryStringParameters = event.queryStringParameters;
-  const body = event.body ? JSON.parse(event.body) : null;
+  const queryStringParameters = event.queryStringParameters || {};
+  const match = path.match(/^\/stock\/([^/]+)(?:\/(reserve|release|adjust))?$/);
+
+  if (match) {
+    event.pathParameters = { ...event.pathParameters, productId: decodeURIComponent(match[1]) };
+  }
 
   // GET /stock
   if (method === 'GET' && path === '/stock') {
@@ -13,22 +16,22 @@ export function setupRoutes(event, context) {
   }
 
   // GET /stock/{productId}
-  if (method === 'GET' && pathParameters?.productId) {
-    return StockController.getStock(event, { productId: pathParameters.productId });
+  if (method === 'GET' && match && !match[2]) {
+    return StockController.getStock(event);
   }
 
   // POST /stock/{productId}/reserve
-  if (method === 'POST' && path.endsWith('/reserve')) {
+  if (method === 'POST' && match?.[2] === 'reserve') {
     return StockController.reserveStock(event);
   }
 
   // POST /stock/{productId}/release
-  if (method === 'POST' && path.endsWith('/release')) {
+  if (method === 'POST' && match?.[2] === 'release') {
     return StockController.releaseStock(event);
   }
 
   // POST /stock/{productId}/adjust
-  if (method === 'POST' && path.endsWith('/adjust')) {
+  if (method === 'POST' && match?.[2] === 'adjust') {
     return StockController.adjustStock(event);
   }
 

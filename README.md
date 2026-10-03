@@ -1,275 +1,194 @@
-# 🛒 Distributed Systems Playground - E-Commerce Module
+# 🛒 Distributed Systems Playground - E-Commerce
 
-## Nova Arquitetura: Sistema Distribuído com API Gateway Centralizado e SDKs
+Laboratório de sistemas distribuídos na AWS: um e-commerce serverless em que a
+compra é uma **saga orquestrada pelo AWS Step Functions**, assíncrona e com
+compensação automática.
 
-### Objetivo
+## Stack
 
-Construir um sistema de e-commerce distribuído escalável e desacoplado com:
-- ✅ API Gateway Centralizado (HttpApi)
-- ✅ Microservices com SDKs dedicados
-- ✅ Saga Orchestrator para transações distribuídas
-- ✅ EventBridge para comunicação assíncrona
-- ✅ SQS para mensagens com retry
-- ✅ Correlation ID para observabilidade distribuída
+- **Node.js 22** em **AWS Lambda** (arm64), empacotado com esbuild
+- **API Gateway HttpApi**
+- **AWS Step Functions** (Standard) para orquestrar a saga de compra
+- **DynamoDB** (on-demand), com transações e escritas condicionais
+- **EventBridge** para eventos de domínio e **SQS + DLQ** para auditoria dos eventos de pedidos
+- **AWS SAM** para infraestrutura e deploy, **LocalStack** para rodar localmente
 
-### Stack
+## Arquitetura
 
-- **Node.js 18x**
-- **AWS Lambda** (arm64)
-- **API Gateway HttpApi** (centralizado)
-- **DynamoDB** (PAY_PER_REQUEST)
-- **AWS SAM** (deploy)
-- **EventBridge** (comunicação entre serviços)
-- **SQS** (mensagens com retry)
-- **AWS SDKs** (desacoplamento)
+```
+                        ┌──────────────────────── API Gateway (HttpApi) ─────────────────────────┐
+                        │ /products  /orders  /payments  /stock      /saga/*  /sagas    /health  │
+                        └─────┬─────────┬─────────┬────────┬────────────┬──────────────────┬─────┘
+                              ▼         ▼         ▼        ▼            ▼                  ▼
+                          Products   Orders   Payments   Stock    SagaOrchestrator     Gateway
+                           Lambda    Lambda    Lambda    Lambda       Lambda            Lambda
+                                       ▲         ▲         ▲            │ StartExecution
+                                       │  invoca │ ações   │            ▼
+                                       └─────────┴─────────┴──── Step Functions ──▶ tabela Sagas
+                                                                 (saga de compra)    (progresso)
 
-### Estrutura (Arquitetura Modular)
+  Cada serviço publica eventos de domínio (OrderCreated, PaymentRefunded...) no EventBridge.
+```
+
+- **Serviços** (`src/ecommerce/*`): cada Lambda atende as próprias rotas HTTP e
+  também as **ações** invocadas pela saga (`{ action, input }`).
+- **SDKs** (`src/common/sdks`): toda a lógica de negócio e acesso ao DynamoDB.
+  As operações usadas pela saga são **idempotentes**, então o Step Functions pode
+  repeti-las com segurança.
+- **Saga** (`src/ecommerce/saga-orchestrator`): inicia a execução e expõe o
+  andamento. Os passos e a compensação estão em
+  [`workflow/saga-workflow.asl.json`](src/ecommerce/saga-orchestrator/workflow/saga-workflow.asl.json).
+  Detalhes em [src/ecommerce/saga-orchestrator/README.md](src/ecommerce/saga-orchestrator/README.md).
+
+## A saga de compra
+
+```
+CreateOrder ──▶ ProcessPayment ──▶ ReserveStock ──▶ ConfirmOrder ──▶ COMPLETED
+     │                │                  │                 │
+     ▼ falha          ▼ falha            ▼ falha           ▼ falha
+  FAILED          CancelOrder      RefundPayment     ReleaseStock
+                                    CancelOrder       RefundPayment
+                                                       CancelOrder ──▶ COMPENSATED
+```
+
+Somente os passos que já foram concluídos são compensados, em ordem reversa.
+Falhas transitórias (throttling, conflito de transação, erro da Lambda) são
+repetidas com backoff; erros de negócio (`InsufficientStock`, `PaymentDeclined`)
+vão direto para a compensação.
+
+```bash
+# 1. Inicia a compra: responde na hora com 202
+curl -X POST $API/saga/execute \
+  -H 'Idempotency-Key: checkout-123' \
+  -d '{"productId": "apple", "quantity": 2}'
+# {"sagaId":"saga_checkout-123","orderId":"order_saga_checkout-123","status":"RUNNING","statusUrl":"/saga/saga_checkout-123"}
+
+# 2. Acompanha o andamento
+curl $API/saga/saga_checkout-123
+# {"status":"COMPLETED","steps":{"createOrder":{"status":"COMPLETED",...},...},"progress":{"completed":4,"total":4}}
+```
+
+O header `Idempotency-Key` (opcional) evita compras duplicadas: repetir a
+requisição com a mesma chave devolve a saga existente (200) em vez de criar outra.
+
+**Status da saga:** `RUNNING` → `COMPLETED` | `COMPENSATING` → `COMPENSATED` |
+`FAILED` (falhou no primeiro passo) | `COMPENSATION_FAILED` (exige intervenção manual).
+
+## API
+
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/health` | Health check |
+| GET | `/products` | Lista produtos (`?name=&priceMin=&priceMax=`) |
+| POST | `/products` | Cria produto `{ name, price, description?, stock? }` |
+| GET | `/products/{id}` | Busca produto |
+| GET | `/orders` | Lista pedidos (`?status=&productId=`) |
+| POST | `/orders` | Cria pedido `{ productId, quantity }` |
+| GET | `/orders/{id}` | Busca pedido |
+| POST | `/orders/confirm` | Confirma pedido `{ orderId }` |
+| POST | `/orders/cancel` | Cancela pedido `{ orderId }` |
+| POST | `/payments` | Processa pagamento `{ orderId, amount }` |
+| POST | `/payments/refund` | Reembolsa `{ transactionId, amount? }` |
+| GET | `/stock` | Estoque de todos os produtos |
+| GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado) |
+| POST | `/stock/{productId}/reserve` | Reserva `{ quantity }` |
+| POST | `/stock/{productId}/release` | Libera uma reserva `{ reservationId }` |
+| POST | `/stock/{productId}/adjust` | Ajusta o estoque `{ delta }` |
+| **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` → 202 |
+| GET | `/saga/{sagaId}` | Andamento de uma compra |
+| GET | `/sagas` | Lista as compras (`?status=`) |
+
+Erros de negócio: `400` validação, `402` pagamento recusado, `404` não
+encontrado, `409` estado inválido ou estoque insuficiente.
+
+**Estoque:** o campo `stock` do produto é a quantidade disponível. Cada reserva
+debita o estoque na mesma transação do DynamoDB em que é registrada, então várias
+reservas do mesmo produto podem coexistir sem risco de vender além do disponível,
+mesmo com compras simultâneas.
+
+**Pagamento:** o gateway de pagamento é simulado e recusa valores acima de
+`PAYMENT_MAX_AMOUNT` (padrão 10000). O produto `server` do seed custa 25000 e
+serve para ver a compensação acontecer.
+
+## Estrutura
 
 ```
 src/
 ├── common/
-│   ├── contracts/                      # Contratos TypeScript para interfaces
-│   └── sdks/                          # SDKs para comunicação entre serviços
-│       ├── ProductSDK.mjs             # SDK do serviço de produtos
-│       ├── OrderSDK.mjs              # SDK do serviço de pedidos
-│       ├── PaymentSDK.mjs            # SDK do serviço de pagamentos
-│       ├── StockSDK.mjs              # SDK do serviço de estoque
-│       └── index.mjs                 # Exportação centralizada dos SDKs
-│
-├── layers/
-│   └── api-gateway-layer/             # API Gateway centralizado
-│       └── src/
-│           ├── routes/
-│           │   └── apiRoutes.js      # Roteamento centralizado
-│           └── middleware/
-│               ├── errorHandler.js    # Tratamento de erros
-│               └── authMiddleware.js  # Autenticação (futura)
-│               └── response.mjs       # Helpers de response
-│
-└── ecommerce/
-    ├── products/                     # Serviço de produtos
-    │   ├── src/
-    │   │   ├── index.mjs             # Handler Lambda
-    │   │   ├── service.mjs           # Lógica de negócio
-    │   │   └── repository.mjs        # Acesso ao DynamoDB
-    │   └── test/
-    │       └── unit/
-    │           └── products.test.mjs # Testes unitários
-    │
-    ├── orders/                       # Serviço de pedidos
-    │   ├── src/
-    │   │   ├── index.mjs             # Handler Lambda
-    │   │   ├── service.mjs           # Lógica de negócio
-    │   │   └── repository.mjs        # Acesso ao DynamoDB
-    │   └── test/
-    │       └── unit/
-    │           └── orders.test.mjs   # Testes unitários
-    │
-    ├── payments/                     # Serviço de pagamentos
-    │   ├── src/
-    │   │   ├── index.mjs             # Handler Lambda
-    │   │   ├── service.mjs           # Lógica de negócio
-    │   │   └── repository.mjs        # Acesso ao DynamoDB
-    │   └── test/
-    │       └── unit/
-    │           └── payments.test.mjs # Testes unitários
-    │
-    ├── stock/                        # Serviço de estoque
-    │   ├── src/
-    │   │   ├── index.mjs             # Handler Lambda
-    │   │   ├── service.mjs           # Lógica de negócio
-    │   │   └── repository.mjs        # Acesso ao DynamoDB
-    │   └── test/
-    │       └── unit/
-    │           └── stock.test.mjs   # Testes unitários
-    │
-    └── saga-orchestrator/             # Saga Orchestrator
-        ├── src/
-        │   ├── index.mjs             # Handler principal
-        │   ├── SagaExecutor.mjs      # Execução das sagas
-        │   ├── CompensationHandler.mjs # Gerenciamento de compensação
-        │   ├── SagaModel.mjs        # Modelo de dados
-        │   └── EventPublisher.mjs    # Publicação de eventos
-        ├── workflow/
-        │   ├── order-creation.mjs    # Workflow completo
-        │   └── templates/            # Templates de sagas
-        └── README.md                 # Documentação completa
-│
+│   ├── database.mjs        # DynamoDB (nomes de tabela via env, transações)
+│   ├── errors.mjs          # Erros de negócio (viram errorType na Lambda)
+│   ├── event-bus.mjs       # Publicação de eventos de domínio no EventBridge
+│   ├── http-event.mjs      # Normaliza eventos do HttpApi (payload 2.0)
+│   ├── actions.mjs         # Despacho das ações invocadas pela saga
+│   ├── response.mjs        # Respostas HTTP
+│   ├── logger.mjs          # Logs JSON (LOG_LEVEL = info | error | silent)
+│   └── sdks/               # ProductSDK, OrderSDK, PaymentSDK, StockSDK
+├── ecommerce/
+│   ├── products/ orders/ payments/ stock/
+│   │   ├── index.mjs       # Handler: HTTP ou ação da saga
+│   │   └── src/            # routes, controllers, actions
+│   └── saga-orchestrator/
+│       ├── index.mjs
+│       ├── src/            # routes, controller, SagaService, StepFunctionsClient
+│       └── workflow/saga-workflow.asl.json   # gerado por scripts/generate-saga-workflow.py
+└── layers/api-gateway-layer/   # /health e fallback 404
+
+scripts/       # seed, deploy, LocalStack, teste e2e, gerador do workflow
 test/
-├── unit/                            # Testes unitários
-│   ├── common/
-│   │   ├── contracts.test.mjs       # Testes de contratos
-│   │   └── sdks.test.mjs           # Testes de SDKs
-│   └── ecommerce/
-│       ├── orders.test.mjs
-│       ├── payments.test.mjs
-│       ├── products.test.mjs
-│       ├── stock.test.mjs
-│       └── saga-orchestrator.test.mjs
-└── integration/                     # Testes de integração
-    └── e2e/                          # Testes end-to-end
-        └── order-creation.test.mjs
+├── unit/          # sem infraestrutura
+└── integration/   # SDKs contra DynamoDB (LocalStack)
+template.yaml  # infraestrutura (SAM)
 ```
 
-### API Endpoints (API Gateway Centralizado)
-
-```http
-# Health Check
-GET  /health
-
-# Products Service
-GET    /products                           # Listar todos os produtos
-GET    /products/{id}                      # Buscar produto por ID
-POST   /products                           # Criar novo produto
-
-# Orders Service  
-GET    /orders                             # Listar todos os pedidos
-GET    /orders/{id}                        # Buscar pedido por ID
-POST   /orders                             # Criar novo pedido
-POST   /orders/confirm                      # Confirmar pedido
-POST   /orders/cancel                      # Cancelar pedido
-
-# Payments Service
-POST   /payments                           # Processar pagamento
-POST   /payments/refund                     # Estornar pagamento
-
-# Stock Service
-GET    /stock                              # Listar todo o estoque
-GET    /stock/{productId}                   # Buscar estoque do produto
-POST   /stock/{productId}/reserve          # Reservar estoque
-POST   /stock/{productId}/release          # Liberar estoque
-POST   /stock/{productId}/adjust           # Ajustar estoque
-
-# Saga Orchestrator
-POST   /saga/execute                       # Executar saga completa de compra
-GET    /saga/{sagaId}                      # Obter status da saga
-POST   /saga/{sagaId}/cancel              # Cancelar saga e acionar compensação
-POST   /saga/rollback/{orderId}            # Acionar compensação manual
-GET    /sagas                              # Listar todas as sagas
-```
-
-### Fluxo da Saga (Event-Driven)
-
-**Fluxo Sucesso:**
-```
-CLIENTE → API Gateway → Saga Orchestrator
-                          ↓
-                    1. Create Order
-                    2. Process Payment (EventBridge → Payment Service)
-                    3. Reserve Stock (EventBridge → Stock Service)
-                    4. Confirm Order (EventBridge → Order Service)
-                          ↓
-                    COMPLETED
-```
-
-**Fluxo com Falha e Compensação:**
-```
-1. Create Order → SUCESSO
-2. Process Payment → FALHA
-                          ↓
-                    Trigger Compensation
-                    ↓
-3. Release Stock (Reverso) → SUCESSO
-4. Refund Payment (Reverso) → SUCESSO
-5. Cancel Order (Reverso) → SUCESSO
-                          ↓
-                    COMPENSATED
-```
-
-### Estados da Saga
-
-```text
-# Estados Principais
-STARTED           → Saga iniciada
-EXECUTING        → Passos em execução
-COMPLETED        → Saga concluída com sucesso
-FAILED           → Saga falhou
-COMPENSATING     → Compensação em andamento
-COMPENSATED      → Saga compensada
-CANCELLED        → Saga cancelada manualmente
-
-# Estados dos Passos
-PENDING          → Passo pendente
-EXECUTING        → Passo em execução
-COMPLETED        → Passo concluído
-FAILED           → Passo falhou
-COMPENSATING     → Compensação do passo
-COMPENSATED      → Compensação concluída
-```
-
-### DynamoDB Tables
-
-- **dev-Products** - Dados dos produtos (id, nome, preço, estoque)
-- **dev-Orders** - Dados dos pedidos (id, productId, quantity, status, total)
-- **dev-Payments** - Dados dos pagamentos (id, orderId, amount, status)
-- **dev-Stock** - Controle de estoque (id, productId, available, reserved)
-- **dev-StockReservations** - Reservas pendentes (id, productId, quantity, orderId)
-- **dev-Sagas** - Estado e rastreamento das sagas (id, orderId, status, steps)
-
-### Como Executar
+## Comandos
 
 ```bash
-# Instalar dependências
 npm install
 
-# Rodar testes unitários
-npm run test:unit
+npm test                  # testes unitários
+npm run lint
+npm run validate          # valida o template (sam validate --lint)
+npm run build             # empacota as Lambdas (sam build + esbuild)
 
-# Rodar testes de integração
-npm run test
+# Local (LocalStack): veja README-LOCALSTACK.md
+npm run localstack:start
+npm run seed:local
+npm run localstack:deploy # publica Lambdas e saga no LocalStack (para o dashboard)
+npm run local-server      # dashboard em http://localhost:3001
+npm run test:integration  # SDKs contra o DynamoDB do LocalStack
+npm run test:e2e          # saga completa: Lambda + Step Functions + DynamoDB
 
-# Rodar testes end-to-end
-npm run test:e2e
-
-# Rodar todos os testes
-npm run test:all
+# AWS: veja AWS-SETUP.md
+npm run deploy
+npm run seed -- --stage dev
 ```
 
-### Próximos Passos
+O workflow é gerado a partir de `scripts/generate-saga-workflow.py`; depois de
+alterar o fluxo, rode `npm run generate:workflow`.
 
-1. **Deploy no AWS**:
-   ```bash
-   # Build do projeto
-   npm run build
-   
-   # Deploy dos recursos
-   ./deploy.sh
-   
-   # Popular dados iniciais
-   ./seed-env.sh
-   ```
+## Dashboard
 
-2. **Testes da aplicação**:
-   - Testar endpoints via Postman/AWS Console
-   - Validar fluxo completo da saga
-   - Verificar logs e métricas
+`ecommerce-dashboard.html`, servido pelo `local-server.mjs`, permite comprar e
+acompanhar cada saga em tempo real: os passos concluídos, o que falhou e as
+compensações executadas.
 
-3. **Implementar funcionalidades avançadas**:
-   - Monitoramento e dashboards
-   - Circuit breakers e retries
-   - Rate limiting e segurança
+O `local-server.mjs` funciona como um API Gateway local: monta o mesmo evento
+que o HttpApi envia e chama os handlers reais dos serviços, com o DynamoDB e a
+state machine no LocalStack. É o mesmo código que vai para a AWS.
 
-4. **Avançar para**:
-   - Etapa 02: Chaos Testing
-   - Etapa 03: Observabilidade e Monitoring
-   - Etapa 04: Scaling e Performance
+```bash
+npm run localstack:start
+npm run seed:local
+npm run build && npm run localstack:deploy   # publica as Lambdas e a saga no LocalStack
+npm run local-server                         # abra http://localhost:3001
+```
 
-### Notas Importantes
+Para usar o dashboard com a API publicada na AWS, abra
+`http://localhost:3001/?api=<ApiGatewayUrl>`.
 
-- ✅ **Arquitetura Modular**: Cada serviço é independente com seu próprio SDK
-- ✅ **Comunicação Assíncrona**: EventBridge + SQS para desacoplamento total
-- ✅ **Saga Pattern**: Orquestrador completo com compensação automática
-- ✅ **Observabilidade**: Correlation ID em todas as requisições
-- ✅ **Retry e DLQ**: Mensagens com retry automático e dead-letter queue
-- ✅ **Idempotência**: Todos os endpoints suportam requisições idempotentes
-- ⚠️ **Pagamento**: Simulado (integrar gateway real em produção)
-- 🔄 **Próximo**: Chaos Engineering e observabilidade avançada
+## Limitações conhecidas
 
-### Tecnologias Utilizadas
-
-- **HttpApi**: API Gateway moderno com performance superior
-- **Arm64**: Lambda functions otimizadas para custo-performance
-- **PAY_PER_REQUEST**: DynamoDB escalável conforme uso
-- **EventBridge**: Comunicação entre serviços confiável
-- **SQS**: Filas de mensagens com retry automático
-- **SAM**: Deploy simplificado e infra-as-code
+- Eventos de domínio são publicados depois da escrita no banco, sem *outbox*
+  transacional: se a publicação falhar, o evento se perde (fica registrado no log).
+- Listagens usam `Scan` (adequado para o laboratório, não para volume grande).
+- Não há autenticação na API.

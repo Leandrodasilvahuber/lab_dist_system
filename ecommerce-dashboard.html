@@ -13,7 +13,7 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) fixed;
             min-height: 100vh;
             padding: 20px;
         }
@@ -26,22 +26,56 @@
         h1 {
             color: white;
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             font-size: 2.5em;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
         }
 
-        .dashboard {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
+        .tabs {
+            display: flex;
+            justify-content: center;
             margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 10px;
         }
 
-        @media (max-width: 900px) {
-            .dashboard {
-                grid-template-columns: 1fr;
-            }
+        .tab-btn {
+            width: auto;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .tab-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .tab-btn.active {
+            background: white;
+            color: #667eea;
+            border-color: white;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .card {
@@ -95,6 +129,11 @@
             font-weight: 600;
             cursor: pointer;
             transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: wait;
         }
 
         button:hover {
@@ -270,9 +309,10 @@
         .health-indicator {
             text-align: center;
             padding: 20px;
-            background: #f8f9fa;
-            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
             margin-bottom: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
         }
 
         .health-status {
@@ -292,6 +332,7 @@
         .connection-status {
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 10px;
             margin-top: 10px;
         }
@@ -311,6 +352,140 @@
         .connection-dot.disconnected {
             background: #f45c43;
         }
+
+        .tab-content {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .tab-content h2 {
+            color: #667eea;
+            margin-bottom: 25px;
+            font-size: 1.8em;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 2fr 3fr;
+            gap: 25px;
+        }
+
+        @media (max-width: 900px) {
+            .two-col {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .hint {
+            color: #666;
+            font-size: 0.9em;
+            margin: 10px 0 20px;
+            line-height: 1.5;
+        }
+
+        .saga-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 12px;
+            border-left: 4px solid #ccc;
+        }
+
+        .saga-card.s-COMPLETED { border-left-color: #38ef7d; }
+        .saga-card.s-RUNNING, .saga-card.s-COMPENSATING { border-left-color: #f0ad4e; }
+        .saga-card.s-COMPENSATED, .saga-card.s-FAILED, .saga-card.s-COMPENSATION_FAILED { border-left-color: #f45c43; }
+
+        .saga-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .saga-header h3 {
+            font-size: 1em;
+            color: #333;
+        }
+
+        .saga-meta {
+            color: #666;
+            font-size: 0.85em;
+            margin-bottom: 10px;
+        }
+
+        .steps {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .step {
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.78em;
+            font-weight: 600;
+            background: #e9ecef;
+            color: #888;
+        }
+
+        .step.COMPLETED { background: #d4edda; color: #155724; }
+        .step.FAILED { background: #f8d7da; color: #721c24; }
+        .step.COMPENSATED { background: #fff3cd; color: #856404; }
+        .step.RUNNING { background: #cfe2ff; color: #084298; animation: pulse 1s infinite alternate; }
+
+        @keyframes pulse {
+            from { opacity: 0.5; }
+            to { opacity: 1; }
+        }
+
+        .arrow { color: #bbb; font-size: 0.8em; }
+
+        .compensation-label {
+            width: 100%;
+            font-size: 0.78em;
+            color: #856404;
+            margin-top: 6px;
+        }
+
+        .saga-error {
+            margin-top: 8px;
+            font-size: 0.85em;
+            color: #721c24;
+        }
+
+        .status-pending { background: #fff3cd; color: #856404; }
+        .status-confirmed { background: #d4edda; color: #155724; }
+        .status-cancelled { background: #f8d7da; color: #721c24; }
+
+        .empty {
+            text-align: center;
+            color: #999;
+            padding: 20px;
+        }
+
+        .api-info {
+            color: #666;
+            font-size: 0.8em;
+            margin-top: 8px;
+        }
     </style>
 </head>
 <body>
@@ -318,300 +493,458 @@
         <h1>🛒 E-commerce Dashboard</h1>
 
         <div class="card health-indicator">
-            <h2>🏥 Status do Sistema</h2>
-            <div class="connection-status">
-                <div class="connection-dot" id="connectionDot"></div>
-                <span id="connectionStatus">Conectando...</span>
+            <div style="display: flex; justify-content: center; align-items: center; gap: 20px;">
+                <div class="connection-status">
+                    <div class="connection-dot" id="connectionDot"></div>
+                    <span id="connectionStatus">Conectando...</span>
+                </div>
+                <div class="health-status" id="healthStatus">Verificando...</div>
             </div>
-            <div class="health-status" id="healthStatus">Verificando...</div>
+            <div class="api-info" id="apiInfo"></div>
         </div>
 
-        <div class="dashboard">
-            <div class="card">
-                <h2>📦 Adicionar Produto</h2>
-                <form id="productForm">
-                    <div class="form-group">
-                        <label for="productName">Nome do Produto</label>
-                        <input type="text" id="productName" required placeholder="Ex: Smartphone XYZ">
-                    </div>
-                    <div class="form-group">
-                        <label for="productPrice">Preço (R$)</label>
-                        <input type="number" id="productPrice" required step="0.01" min="0" placeholder="Ex: 999.90">
-                    </div>
-                    <div class="form-group">
-                        <label for="productStock">Estoque Inicial</label>
-                        <input type="number" id="productStock" required min="0" placeholder="Ex: 50">
-                    </div>
-                    <button type="submit" class="btn-primary">Adicionar Produto</button>
-                </form>
-            </div>
-
-            <div class="card">
-                <h2>📋 Lista de Produtos</h2>
-                <ul id="productList" class="product-list">
-                    <li style="text-align: center; color: #999; padding: 20px;">Carregando produtos...</li>
-                </ul>
-            </div>
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="buy">🛍️ Comprar</button>
+            <button class="tab-btn" data-tab="products">📦 Produtos</button>
+            <button class="tab-btn" data-tab="stock">📊 Estoque</button>
+            <button class="tab-btn" data-tab="orders">🧾 Pedidos</button>
+            <button class="tab-btn" data-tab="summary">📈 Resumo</button>
         </div>
 
-        <div class="dashboard">
-            <div class="card">
-                <h2>📦 Estoque Atual</h2>
-                <ul id="stockList" class="stock-list">
-                    <li style="text-align: center; color: #999; padding: 20px;">Carregando estoque...</li>
-                </ul>
-            </div>
+        <div class="tab-content active" id="buy-tab">
+            <div class="two-col">
+                <div>
+                    <h2>🛍️ Nova Compra</h2>
+                    <form id="buyForm">
+                        <div class="form-group">
+                            <label for="buyProduct">Produto</label>
+                            <select id="buyProduct" required>
+                                <option value="">Carregando produtos...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="buyQuantity">Quantidade</label>
+                            <input type="number" id="buyQuantity" required min="1" step="1" value="1">
+                        </div>
+                        <button type="submit" class="btn-success" id="buyButton">Comprar</button>
+                    </form>
+                    <p class="hint">
+                        A compra é uma <strong>saga</strong> executada pelo Step Functions:
+                        pedido → pagamento → reserva de estoque → confirmação.
+                        Se um passo falhar, os anteriores são desfeitos (compensação).<br><br>
+                        Para ver a compensação: compre o produto <em>Server</em> (pagamento recusado
+                        acima de R$ 10.000) ou uma quantidade maior que o estoque.
+                    </p>
+                </div>
 
-            <div class="card">
-                <h2>🛒 Novo Pedido</h2>
-                <form id="orderForm">
-                    <div class="form-group">
-                        <label for="orderProduct">Produto</label>
-                        <select id="orderProduct" required>
-                            <option value="">Selecione um produto</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="orderQuantity">Quantidade</label>
-                        <input type="number" id="orderQuantity" required min="1" value="1">
-                    </div>
-                    <div class="form-group">
-                        <label for="orderUserId">ID do Usuário</label>
-                        <input type="text" id="orderUserId" required placeholder="Ex: user-123">
-                    </div>
-                    <button type="submit" class="btn-success">Criar Pedido</button>
-                </form>
+                <div>
+                    <h2>🔄 Compras (sagas)</h2>
+                    <div id="sagaList"><div class="empty">Carregando...</div></div>
+                </div>
             </div>
         </div>
 
-        <div class="card">
-            <h2>📝 Histórico de Pedidos</h2>
-            <ul id="orderList" class="order-list">
-                <li style="text-align: center; color: #999; padding: 20px;">Carregando pedidos...</li>
+        <div class="tab-content" id="products-tab">
+            <div class="dashboard-grid">
+                <div>
+                    <h2>📦 Adicionar Produto</h2>
+                    <form id="productForm">
+                        <div class="form-group">
+                            <label for="productName">Nome do Produto</label>
+                            <input type="text" id="productName" required placeholder="Ex: Smartphone XYZ">
+                        </div>
+                        <div class="form-group">
+                            <label for="productPrice">Preço (R$)</label>
+                            <input type="number" id="productPrice" required step="0.01" min="0" placeholder="Ex: 999.90">
+                        </div>
+                        <div class="form-group">
+                            <label for="productStock">Estoque Inicial</label>
+                            <input type="number" id="productStock" required min="0" step="1" placeholder="Ex: 50">
+                        </div>
+                        <button type="submit" class="btn-primary">Adicionar Produto</button>
+                    </form>
+                </div>
+
+                <div>
+                    <h2>📋 Lista de Produtos</h2>
+                    <ul id="productList" class="product-list">
+                        <li class="empty">Carregando produtos...</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="stock-tab">
+            <h2>📊 Estoque Atual</h2>
+            <ul id="stockList" class="stock-list">
+                <li class="empty">Carregando estoque...</li>
             </ul>
+        </div>
+
+        <div class="tab-content" id="orders-tab">
+            <h2>🧾 Pedidos</h2>
+            <ul id="orderList" class="order-list" style="max-height: none;">
+                <li class="empty">Carregando pedidos...</li>
+            </ul>
+        </div>
+
+        <div class="tab-content" id="summary-tab">
+            <h2>📈 Resumo do Sistema</h2>
+            <div id="summaryContent" style="padding: 20px;"></div>
         </div>
     </div>
 
-    <div id="toast" class="toast"></div>
+    <div id="toast" class="toast" style="display: none;"></div>
 
     <script>
-        const API_BASE = 'http://localhost:3001';
+        // API: o próprio local-server (padrão) ou outra via ?api=https://.../dev
+        const params = new URLSearchParams(location.search);
+        const API_BASE = (params.get('api') ||
+            (location.protocol.startsWith('http') ? location.origin : 'http://localhost:3001')).replace(/\/$/, '');
 
-        // Show toast notification
+        const TERMINAL = ['COMPLETED', 'COMPENSATED', 'FAILED', 'COMPENSATION_FAILED'];
+        const STEP_LABELS = {
+            createOrder: 'Pedido',
+            processPayment: 'Pagamento',
+            reserveStock: 'Estoque',
+            confirmOrder: 'Confirmação',
+            releaseStock: 'Libera estoque',
+            refundPayment: 'Reembolso',
+            cancelOrder: 'Cancela pedido'
+        };
+        const FORWARD = ['createOrder', 'processPayment', 'reserveStock', 'confirmOrder'];
+        const COMPENSATIONS = ['releaseStock', 'refundPayment', 'cancelOrder'];
+        const SAGA_STATUS = {
+            RUNNING: ['⏳ Em andamento', 'status-processing'],
+            COMPENSATING: ['↩️ Compensando', 'status-processing'],
+            COMPLETED: ['✅ Concluída', 'status-completed'],
+            COMPENSATED: ['↩️ Desfeita', 'status-failed'],
+            FAILED: ['❌ Falhou', 'status-failed'],
+            COMPENSATION_FAILED: ['🚨 Compensação falhou', 'status-failed']
+        };
+        const ORDER_STATUS = {
+            pending: 'Pendente',
+            confirmed: 'Confirmado',
+            cancelled: 'Cancelado'
+        };
+
+        let products = [];
+        let pollTimer = null;
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        function money(value) {
+            return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+
+        function time(iso) {
+            return iso ? new Date(iso).toLocaleTimeString('pt-BR') : '';
+        }
+
         function showToast(message, type = 'info') {
             const toast = document.getElementById('toast');
-            toast.className = 'toast toast-' + type;
             toast.textContent = message;
-            setTimeout(() => toast.className = 'toast', 3000);
+            toast.className = `toast toast-${type}`;
+            toast.style.display = 'block';
+            clearTimeout(showToast.timer);
+            showToast.timer = setTimeout(() => { toast.style.display = 'none'; }, 4000);
         }
 
-        // Update health status
+        async function api(path, options = {}) {
+            const response = await fetch(API_BASE + path, {
+                ...options,
+                headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const error = new Error(body.error || `HTTP ${response.status}`);
+                error.status = response.status;
+                error.body = body;
+                throw error;
+            }
+            return body;
+        }
+
         async function updateHealthStatus() {
-            const response = await fetch(API_BASE + '/health');
-            const health = await response.json();
-
-            const statusEl = document.getElementById('healthStatus');
-            const dotEl = document.getElementById('connectionDot');
-
-            if (health.status === 'healthy') {
-                statusEl.textContent = '✅ Sistema Operacional';
-                statusEl.className = 'health-status healthy';
-                dotEl.className = 'connection-dot connected';
-            } else {
-                statusEl.textContent = '❌ Sistema Indisponível';
-                statusEl.className = 'health-status unhealthy';
-                dotEl.className = 'connection-dot disconnected';
+            const dot = document.getElementById('connectionDot');
+            const status = document.getElementById('connectionStatus');
+            const health = document.getElementById('healthStatus');
+            try {
+                await api('/health');
+                dot.className = 'connection-dot connected';
+                status.textContent = 'Conectado';
+                health.textContent = '✅ Sistema Saudável';
+                health.className = 'health-status healthy';
+            } catch {
+                dot.className = 'connection-dot disconnected';
+                status.textContent = 'Desconectado';
+                health.textContent = '❌ API indisponível';
+                health.className = 'health-status unhealthy';
             }
         }
 
-        // Fetch products
+        function setupTabs() {
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => showTab(btn.dataset.tab));
+            });
+        }
+
+        function showTab(name) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === `${name}-tab`));
+            refreshTab(name);
+        }
+
+        function refreshTab(name) {
+            const actions = {
+                buy: () => Promise.all([fetchProducts(), fetchSagas()]),
+                products: fetchProducts,
+                stock: fetchStock,
+                orders: fetchOrders,
+                summary: fetchSummary
+            };
+            return actions[name]?.();
+        }
+
+        // ---------- Produtos ----------
         async function fetchProducts() {
-            const response = await fetch(API_BASE + '/api/ecommerce/products');
-            const products = await response.json();
+            try {
+                ({ products } = await api('/products'));
+                products.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            } catch {
+                products = [];
+            }
 
-            const productListEl = document.getElementById('productList');
-            const orderProductEl = document.getElementById('orderProduct');
-
-            productListEl.innerHTML = '';
-
-            products.forEach(product => {
-                const li = document.createElement('li');
-                li.className = 'product-item';
-                li.innerHTML = `
-                    <h3>${product.name}</h3>
-                    <p>Preço: R$ ${product.price.toFixed(2)}</p>
-                    <p>ID: ${product.id}</p>
+            const list = document.getElementById('productList');
+            list.innerHTML = products.length ? products.map(p => `
+                <li class="product-item">
+                    <h3>${escapeHtml(p.name)}</h3>
+                    <p>Preço: ${money(p.price)} | Estoque: ${p.stock ?? 0}</p>
                     <div class="product-actions">
-                        <button class="btn-primary" onclick="buyProduct('${product.id}', ${product.price})">
-                            🛒 Comprar
-                        </button>
+                        <button class="btn-primary" onclick="buyFromList('${escapeHtml(p.id)}')">Comprar</button>
                     </div>
-                `;
-                productListEl.appendChild(li);
+                </li>`).join('') : '<li class="empty">Nenhum produto. Rode npm run seed:local ou adicione um.</li>';
 
-                const option = document.createElement('option');
-                option.value = product.id;
-                option.textContent = `${product.name} - R$ ${product.price.toFixed(2)}`;
-                orderProductEl.appendChild(option);
-            });
+            const select = document.getElementById('buyProduct');
+            const selected = select.value;
+            select.innerHTML = '<option value="">Selecione um produto</option>' + products.map(p =>
+                `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} — ${money(p.price)} (estoque ${p.stock ?? 0})</option>`
+            ).join('');
+            select.value = selected;
         }
 
-        // Fetch stock
-        async function fetchStock() {
-            const response = await fetch(API_BASE + '/api/ecommerce/stock');
-            const stock = await response.json();
-
-            const stockListEl = document.getElementById('stockList');
-
-            stockListEl.innerHTML = '';
-
-            stock.forEach(item => {
-                const li = document.createElement('li');
-                li.className = 'stock-item';
-                li.innerHTML = `
-                    <div class="stock-info">
-                        <h3>${item.name}</h3>
-                        <p>ID: ${item.productId}</p>
-                    </div>
-                    <div class="stock-quantity">${item.quantity}</div>
-                `;
-                stockListEl.appendChild(li);
-            });
+        function buyFromList(productId) {
+            showTab('buy');
+            document.getElementById('buyProduct').value = productId;
+            document.getElementById('buyQuantity').focus();
         }
 
-        // Fetch orders
-        async function fetchOrders() {
-            const response = await fetch(API_BASE + '/api/ecommerce/orders');
-            const orders = await response.json();
-
-            const orderListEl = document.getElementById('orderList');
-
-            orderListEl.innerHTML = '';
-
-            orders.forEach(order => {
-                const li = document.createElement('li');
-                li.className = 'order-item';
-
-                const statusClass = order.status === 'completed' ? 'status-completed' :
-                                   order.status === 'processing' ? 'status-processing' : 'status-failed';
-
-                li.innerHTML = `
-                    <h3>Pedido #${order.id}</h3>
-                    <p>Produto: ${order.productId}</p>
-                    <p>Quantidade: ${order.quantity}</p>
-                    <p>Usuário: ${order.userId}</p>
-                    <p>Total: R$ ${order.totalAmount.toFixed(2)}</p>
-                    <p>Data: ${new Date(order.createdAt).toLocaleString('pt-BR')}</p>
-                    <span class="status-badge ${statusClass}">${order.status}</span>
-                `;
-                orderListEl.appendChild(li);
-            });
-        }
-
-        // Create product
-        async function createProduct(name, price, stock) {
-            const response = await fetch(API_BASE + '/api/ecommerce/products', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ id: 'prod-' + Date.now(), name, price, stock })
-            });
-
-            if (response.ok) {
-                showToast('Produto criado com sucesso!', 'success');
+        async function createProduct(event) {
+            event.preventDefault();
+            try {
+                await api('/products', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name: document.getElementById('productName').value,
+                        price: Number(document.getElementById('productPrice').value),
+                        stock: Number(document.getElementById('productStock').value)
+                    })
+                });
+                event.target.reset();
+                showToast('Produto adicionado!', 'success');
                 fetchProducts();
-                fetchStock();
-                return true;
-            } else {
-                showToast('Erro ao criar produto', 'error');
-                return false;
+            } catch (error) {
+                showToast(`Erro ao adicionar produto: ${error.message}`, 'error');
             }
         }
 
-        // Buy product (create order)
-        async function buyProduct(productId, price) {
-            const quantity = document.getElementById('orderQuantity').value;
-            const userId = document.getElementById('orderUserId').value;
+        // ---------- Compra (saga) ----------
+        async function startPurchase(event) {
+            event.preventDefault();
+            const button = document.getElementById('buyButton');
+            const productId = document.getElementById('buyProduct').value;
+            const quantity = Number(document.getElementById('buyQuantity').value);
 
-            if (!userId) {
-                showToast('Por favor, informe o ID do usuário', 'error');
+            button.disabled = true;
+            try {
+                // Uma chave por clique: reenvios da mesma compra não duplicam o pedido
+                const result = await api('/saga/execute', {
+                    method: 'POST',
+                    headers: { 'Idempotency-Key': crypto.randomUUID() },
+                    body: JSON.stringify({ productId, quantity })
+                });
+                showToast('Compra iniciada! Acompanhe o andamento ao lado.', 'info');
+                await fetchSagas();
+                highlight(result.sagaId);
+            } catch (error) {
+                showToast(`Compra recusada: ${error.message}`, 'error');
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        function highlight(sagaId) {
+            const card = document.getElementById(`saga-${sagaId}`);
+            if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        let lastStatuses = {};
+
+        async function fetchSagas() {
+            let sagas = [];
+            try {
+                ({ sagas } = await api('/sagas'));
+            } catch (error) {
+                document.getElementById('sagaList').innerHTML =
+                    `<div class="empty">Não foi possível carregar as compras: ${escapeHtml(error.message)}</div>`;
                 return;
             }
 
-            const orderData = {
-                productId,
-                quantity: parseInt(quantity),
-                userId
-            };
+            notifyFinished(sagas);
+            const productNames = Object.fromEntries(products.map(p => [p.id, p.name]));
+            document.getElementById('sagaList').innerHTML = sagas.length
+                ? sagas.slice(0, 20).map(s => renderSaga(s, productNames)).join('')
+                : '<div class="empty">Nenhuma compra ainda.</div>';
 
-            try {
-                showToast('Criando pedido...', 'info');
-                const response = await fetch(API_BASE + '/api/ecommerce/orders', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(orderData)
-                });
-
-                if (response.ok) {
-                    const order = await response.json();
-                    showToast(`Pedido criado! ID: ${order.id}`, 'success');
-
-                    // Reserve stock
-                    const stockResponse = await fetch(API_BASE + `/api/ecommerce/stock/${productId}/reserve`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ quantity: parseInt(quantity) })
-                    });
-
-                    if (stockResponse.ok) {
-                        fetchStock();
-                        fetchOrders();
-                    }
-                } else {
-                    const error = await response.json();
-                    showToast(`Erro ao criar pedido: ${error.message || 'Falha'}`, 'error');
-                }
-            } catch (error) {
-                showToast('Erro de conexão', 'error');
+            // Continua atualizando enquanto houver saga em andamento
+            clearTimeout(pollTimer);
+            if (sagas.some(s => !TERMINAL.includes(s.status))) {
+                pollTimer = setTimeout(() => {
+                    fetchSagas();
+                    fetchProducts();
+                }, 1000);
             }
         }
 
-        // Handle product form submission
-        document.getElementById('productForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        function notifyFinished(sagas) {
+            for (const s of sagas) {
+                const before = lastStatuses[s.id];
+                if (before && !TERMINAL.includes(before) && TERMINAL.includes(s.status)) {
+                    if (s.status === 'COMPLETED') showToast('✅ Compra concluída!', 'success');
+                    else showToast(`↩️ Compra desfeita: ${s.error?.message || s.status}`, 'error');
+                }
+                lastStatuses[s.id] = s.status;
+            }
+        }
 
-            const name = document.getElementById('productName').value;
-            const price = parseFloat(document.getElementById('productPrice').value);
-            const stock = parseInt(document.getElementById('productStock').value);
+        function renderSaga(saga, productNames) {
+            const [statusLabel, statusClass] = SAGA_STATUS[saga.status] || [saga.status, ''];
+            const steps = saga.steps || {};
+            const running = !TERMINAL.includes(saga.status);
 
-            await createProduct(name, price, stock);
+            // O primeiro passo ainda sem registro é o que está executando
+            const nextStep = FORWARD.find(name => !steps[name]);
+            const forward = FORWARD.map(name => {
+                let state = steps[name]?.status || '';
+                if (!state && running && saga.status === 'RUNNING' && name === nextStep) state = 'RUNNING';
+                return `<span class="step ${state}" title="${escapeHtml(steps[name]?.error?.message || '')}">${STEP_LABELS[name]}</span>`;
+            }).join('<span class="arrow">→</span>');
 
-            e.target.reset();
-        });
+            const compensations = COMPENSATIONS.filter(name => steps[name]);
+            const compensationHtml = compensations.length || saga.status === 'COMPENSATING'
+                ? `<div class="compensation-label">Compensação:</div>` + compensations.map(name =>
+                    `<span class="step ${steps[name].status}">${STEP_LABELS[name]}</span>`).join('<span class="arrow">→</span>')
+                : '';
 
-        // Handle order form submission
-        document.getElementById('orderForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-        });
+            const error = saga.error?.message
+                ? `<div class="saga-error">Falhou em <strong>${STEP_LABELS[saga.failedStep] || escapeHtml(saga.failedStep)}</strong>: ${escapeHtml(saga.error.message)}</div>`
+                : '';
 
-        // Check connection on load
+            return `
+                <div class="saga-card s-${escapeHtml(saga.status)}" id="saga-${escapeHtml(saga.id)}">
+                    <div class="saga-header">
+                        <h3>${escapeHtml(productNames[saga.productId] || saga.productId)} × ${saga.quantity}</h3>
+                        <span class="status-badge ${statusClass}">${statusLabel}</span>
+                    </div>
+                    <div class="saga-meta">${time(saga.createdAt)} · ${escapeHtml(saga.id)}</div>
+                    <div class="steps">${forward}${compensationHtml}</div>
+                    ${error}
+                </div>`;
+        }
+
+        // ---------- Estoque ----------
+        async function fetchStock() {
+            const list = document.getElementById('stockList');
+            try {
+                const { stock } = await api('/stock');
+                stock.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                list.innerHTML = stock.length ? stock.map(item => `
+                    <li class="stock-item">
+                        <div class="stock-info">
+                            <h3>${escapeHtml(item.name)}</h3>
+                            <p>Reservado para pedidos: ${item.reserved}</p>
+                        </div>
+                        <div class="stock-quantity">${item.available} disponíveis</div>
+                    </li>`).join('') : '<li class="empty">Nenhum produto.</li>';
+            } catch (error) {
+                list.innerHTML = `<li class="empty">Erro ao carregar estoque: ${escapeHtml(error.message)}</li>`;
+            }
+        }
+
+        // ---------- Pedidos ----------
+        async function fetchOrders() {
+            const list = document.getElementById('orderList');
+            try {
+                const [{ orders }] = await Promise.all([api('/orders'), products.length ? null : fetchProducts()]);
+                const productNames = Object.fromEntries(products.map(p => [p.id, p.name]));
+                orders.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+                list.innerHTML = orders.length ? orders.map(order => `
+                    <li class="order-item">
+                        <div class="saga-header">
+                            <h3>${escapeHtml(productNames[order.productId] || order.productId)} × ${order.quantity}</h3>
+                            <span class="status-badge status-${escapeHtml(order.status)}">${ORDER_STATUS[order.status] || escapeHtml(order.status)}</span>
+                        </div>
+                        <p>Total: ${money(order.total)} · ${new Date(order.createdAt).toLocaleString('pt-BR')}</p>
+                        <p style="font-size: 0.8em;">${escapeHtml(order.id)}</p>
+                    </li>`).join('') : '<li class="empty">Nenhum pedido ainda.</li>';
+            } catch (error) {
+                list.innerHTML = `<li class="empty">Erro ao carregar pedidos: ${escapeHtml(error.message)}</li>`;
+            }
+        }
+
+        // ---------- Resumo ----------
+        async function fetchSummary() {
+            const content = document.getElementById('summaryContent');
+            try {
+                const [{ products: all }, { orders }, { sagas }] = await Promise.all([
+                    api('/products'), api('/orders'), api('/sagas')
+                ]);
+                const totalStock = all.reduce((sum, p) => sum + (p.stock || 0), 0);
+                const confirmed = orders.filter(o => o.status === 'confirmed');
+                const revenue = confirmed.reduce((sum, o) => sum + (o.total || 0), 0);
+                const undone = sagas.filter(s => ['COMPENSATED', 'FAILED'].includes(s.status)).length;
+
+                const tile = (value, label, color) => `
+                    <div class="card" style="padding: 20px; background: ${color}; color: white; border-radius: 10px;">
+                        <h3 style="font-size: 2em; margin-bottom: 5px;">${value}</h3>
+                        <p>${label}</p>
+                    </div>`;
+
+                content.innerHTML = `
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                        ${tile(all.length, 'Produtos', '#667eea')}
+                        ${tile(totalStock, 'Unidades em estoque', '#11998e')}
+                        ${tile(money(revenue), 'Vendido (pedidos confirmados)', '#764ba2')}
+                        ${tile(confirmed.length, 'Pedidos confirmados', '#38a169')}
+                        ${tile(undone, 'Compras desfeitas', '#e53e3e')}
+                    </div>`;
+            } catch (error) {
+                content.innerHTML = `<div class="empty">Erro ao carregar resumo: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        // ---------- Inicialização ----------
+        document.getElementById('apiInfo').textContent = `API: ${API_BASE}`;
+        document.getElementById('productForm').addEventListener('submit', createProduct);
+        document.getElementById('buyForm').addEventListener('submit', startPurchase);
+        setupTabs();
         updateHealthStatus();
-        fetchProducts();
-        fetchStock();
-        fetchOrders();
-
-        // Refresh data every 30 seconds
-        setInterval(() => {
-            fetchProducts();
-            fetchStock();
-            fetchOrders();
-            updateHealthStatus();
-        }, 30000);
+        fetchProducts().then(fetchSagas);
+        setInterval(updateHealthStatus, 30000);
     </script>
 </body>
 </html>

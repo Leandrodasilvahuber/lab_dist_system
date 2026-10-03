@@ -1,0 +1,147 @@
+/**
+ * Testes de integração dos SDKs contra um DynamoDB real (LocalStack).
+ *   npm run localstack:start && npm run test:integration
+ * Sem DynamoDB acessível, os testes são pulados.
+ */
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert';
+import { DynamoDBClient, CreateTableCommand, DeleteTableCommand, ListTablesCommand } from '@aws-sdk/client-dynamodb';
+
+const endpoint = process.env.DYNAMODB_ENDPOINT || 'http://localhost:4566';
+const prefix = `it-${Date.now()}`;
+const TABLES = {
+  PRODUCTS_TABLE: `${prefix}-Products`,
+  ORDERS_TABLE: `${prefix}-Orders`,
+  PAYMENTS_TABLE: `${prefix}-Payments`,
+  STOCK_RESERVATIONS_TABLE: `${prefix}-StockReservations`,
+  SAGAS_TABLE: `${prefix}-Sagas`
+};
+Object.assign(process.env, TABLES, {
+  DYNAMODB_ENDPOINT: endpoint,
+  AWS_REGION: 'us-east-1',
+  AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID || 'test',
+  AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY || 'test',
+  PAYMENT_MAX_AMOUNT: '1000'
+});
+
+const client = new DynamoDBClient({ region: 'us-east-1', endpoint });
+const available = await client.send(new ListTablesCommand({})).then(() => true, () => false);
+
+// Import depois de configurar as variáveis (database.mjs lê no carregamento)
+const { ProductSDK, OrderSDK, PaymentSDK, StockSDK } = await import('../../src/common/sdks/index.mjs');
+const { InsufficientStockError, InvalidStateError, PaymentDeclinedError, NotFoundError } = await import('../../src/common/errors.mjs');
+
+describe('SDKs (DynamoDB)', { skip: !available && `DynamoDB indisponível em ${endpoint}` }, () => {
+  const products = new ProductSDK(null);
+  const orders = new OrderSDK(null);
+  const payments = new PaymentSDK(null);
+  const stock = new StockSDK(null);
+
+  before(async () => {
+    for (const TableName of Object.values(TABLES)) {
+      await client.send(new CreateTableCommand({
+        TableName,
+        BillingMode: 'PAY_PER_REQUEST',
+        AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' }],
+        KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' }]
+      }));
+    }
+  });
+
+  after(async () => {
+    for (const TableName of Object.values(TABLES)) {
+      await client.send(new DeleteTableCommand({ TableName })).catch(() => {});
+    }
+  });
+
+  describe('StockSDK', () => {
+    it('aceita várias reservas do mesmo produto e debita o estoque', async () => {
+      const p = await products.createProduct({ name: 'A', price: 10, stock: 10 });
+      await stock.reserveStock({ productId: p.id, quantity: 3 });
+      await stock.reserveStock({ productId: p.id, quantity: 4 });
+
+      const s = await stock.getStock(p.id);
+      assert.deepStrictEqual([s.available, s.reserved, s.activeReservations], [3, 7, 2]);
+    });
+
+    it('nunca vende além do estoque com reservas simultâneas', async () => {
+      const p = await products.createProduct({ name: 'B', price: 10, stock: 5 });
+      const results = await Promise.allSettled(
+        Array.from({ length: 12 }, () => stock.reserveStock({ productId: p.id, quantity: 1 }))
+      );
+
+      const ok = results.filter(r => r.status === 'fulfilled').length;
+      const rejected = results.filter(r => r.status === 'rejected');
+      assert.strictEqual(ok, 5);
+      // Conflito de transação também é aceitável (o Step Functions repete); estoque nunca fica negativo
+      assert.ok(rejected.every(r => r.reason instanceof InsufficientStockError || r.reason.name === 'TransactionConflictException'));
+      assert.strictEqual((await products.getProduct(p.id)).stock, 0);
+    });
+
+    it('rejeita reserva maior que o disponível', async () => {
+      const p = await products.createProduct({ name: 'C', price: 10, stock: 2 });
+      await assert.rejects(stock.reserveStock({ productId: p.id, quantity: 3 }), InsufficientStockError);
+      await assert.rejects(stock.reserveStock({ productId: 'nao-existe', quantity: 1 }), NotFoundError);
+    });
+
+    it('reserva com o mesmo id é idempotente', async () => {
+      const p = await products.createProduct({ name: 'D', price: 10, stock: 10 });
+      await stock.reserveStock({ id: 'res-fixo', productId: p.id, quantity: 2 });
+      await stock.reserveStock({ id: 'res-fixo', productId: p.id, quantity: 2 });
+      assert.strictEqual((await products.getProduct(p.id)).stock, 8);
+    });
+
+    it('liberar devolve ao estoque uma única vez', async () => {
+      const p = await products.createProduct({ name: 'E', price: 10, stock: 10 });
+      const r = await stock.reserveStock({ productId: p.id, quantity: 4 });
+      await stock.releaseStock({ reservationId: r.id });
+      await stock.releaseStock({ reservationId: r.id });
+      assert.strictEqual((await products.getProduct(p.id)).stock, 10);
+    });
+
+    it('ajuste não deixa o estoque negativo', async () => {
+      const p = await products.createProduct({ name: 'F', price: 10, stock: 3 });
+      assert.strictEqual((await stock.adjustStock(p.id, 5)).stock, 8);
+      await assert.rejects(stock.adjustStock(p.id, -9), InsufficientStockError);
+      assert.strictEqual((await stock.adjustStock(p.id, -8)).stock, 0);
+    });
+  });
+
+  describe('OrderSDK', () => {
+    it('cria, confirma e não deixa confirmar pedido cancelado', async () => {
+      const p = await products.createProduct({ name: 'G', price: 7, stock: 1 });
+      const o = await orders.createOrder({ productId: p.id, quantity: 3 });
+      assert.strictEqual(o.total, 21);
+
+      assert.strictEqual((await orders.confirmOrder(o.id)).status, 'confirmed');
+      assert.strictEqual((await orders.confirmOrder(o.id)).status, 'confirmed');
+      assert.strictEqual((await orders.cancelOrder(o.id)).status, 'cancelled');
+      assert.strictEqual((await orders.cancelOrder(o.id)).status, 'cancelled');
+      await assert.rejects(orders.confirmOrder(o.id), InvalidStateError);
+    });
+
+    it('createOrder com o mesmo id é idempotente', async () => {
+      const p = await products.createProduct({ name: 'H', price: 1, stock: 1 });
+      const a = await orders.createOrder({ id: 'order-fixo', productId: p.id, quantity: 1 });
+      const b = await orders.createOrder({ id: 'order-fixo', productId: p.id, quantity: 1 });
+      assert.strictEqual(a.createdAt, b.createdAt);
+    });
+  });
+
+  describe('PaymentSDK', () => {
+    it('aprova, reembolsa uma vez e recusa acima do limite', async () => {
+      const pay = await payments.processPayment({ orderId: 'o1', amount: 100 });
+      assert.strictEqual(pay.status, 'approved');
+
+      const refunded = await payments.refundPaymentById(pay.id);
+      const again = await payments.refundPaymentById(pay.id);
+      assert.strictEqual(refunded.status, 'refunded');
+      assert.strictEqual(again.refundedAt, refunded.refundedAt);
+
+      await assert.rejects(payments.processPayment({ id: 'pay-caro', orderId: 'o2', amount: 5000 }), PaymentDeclinedError);
+      // repetir a mesma tentativa continua recusada (idempotente)
+      await assert.rejects(payments.processPayment({ id: 'pay-caro', orderId: 'o2', amount: 5000 }), PaymentDeclinedError);
+      assert.strictEqual((await payments.getPayment('pay-caro')).status, 'declined');
+    });
+  });
+});

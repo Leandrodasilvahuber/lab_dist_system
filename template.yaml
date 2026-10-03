@@ -3,7 +3,8 @@ Transform: AWS::Serverless-2016-10-31
 Description: >
   E-Commerce System com Saga Pattern - API Gateway Centralizado
   - SDKs por serviço com desacoplamento total
-  - EventBridge como camada de comunicação
+  - Saga de compra orquestrada pelo Step Functions (assíncrona, com compensação)
+  - EventBridge para eventos de domínio
   - API Gateway centralizada para todos os endpoints
 
 Parameters:
@@ -12,265 +13,336 @@ Parameters:
     Default: dev
     Description: Environment name
 
+# Todas as funções são empacotadas com esbuild a partir da raiz do projeto,
+# o que inclui automaticamente o código compartilhado de src/common.
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 256
+    Timeout: 15
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        PRODUCTS_TABLE: !Ref ProductsTable
+        ORDERS_TABLE: !Ref OrdersTable
+        PAYMENTS_TABLE: !Ref PaymentsTable
+        STOCK_RESERVATIONS_TABLE: !Ref StockReservationsTable
+        SAGAS_TABLE: !Ref SagasTable
+        EVENT_BUS_NAME: !Ref EventBus
+
 Resources:
   # API Gateway Centralizado (HttpApi)
+  # Rotas específicas vão para cada serviço; o resto cai na GatewayFunction ({proxy+}).
   ApiGateway:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: !Ref Environment
-      CorsConfiguration:
-        AllowOrigins: "'*'"
-        AllowMethods: "'*'"
-        AllowHeaders: "'*'"
-      Auth:
-        DefaultAuthorizer: NONE
-        Authorizers:
-          JWT:
-            Type: JWT
-            IdentitySource: $request.header.Authorization
-            JwtConfiguration:
-              issuer: https://cognito-idp.<REGION>.amazonaws.com/<POOL_ID>
-              audience:
-                - <CLIENT_ID>
       Description: "API Gateway centralizado para todos os endpoints"
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowMethods: ['*']
+        AllowHeaders: ['*']
 
-  # Gateway Function - Roteamento centralizado
+  # Gateway Function - health check e roteamento de fallback
   GatewayFunction:
-    Type: AWS::ServerlessFunction
+    Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/layers/api-gateway-layer/
-      Handler: src/routes/apiRoutes.handler
-      Runtime: nodejs18.x
-      Architectures: [arm64]
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
+      CodeUri: .
+      Handler: apiRoutes.handler
       Events:
-        ApiEvent:
+        Health:
           Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
+            Path: /health
+            Method: GET
+        Proxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
             Path: /{proxy+}
             Method: ANY
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: ['.js=.mjs']
+        Target: es2022
+        EntryPoints: [src/layers/api-gateway-layer/src/routes/apiRoutes.js]
+        External: ['@aws-sdk/*']
+
+  # Product Service
+  ProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Environment:
+        Variables:
+          SERVICE_TYPE: product
+      Events:
+        ListProducts:
+          Type: HttpApi
+          Properties:
             ApiId: !Ref ApiGateway
+            Path: /products
+            Method: GET
+        GetProduct:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /products/{id}
+            Method: GET
+        CreateProduct:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /products
+            Method: POST
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ProductsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref OrdersTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref PaymentsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref StockReservationsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref SagasTable
-
-Outputs:
-  ApiGatewayUrl:
-    Description: "API Gateway URL (público)"
-    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
-
-  ApiGatewayId:
-    Description: "API Gateway ID"
-    Value: !Ref ApiGateway
-
-  # DynamoDB Tables (referenciadas pela API Gateway)
-  ProductsTable:
-    Description: "Products DynamoDB Table"
-    Value: !Ref ProductsTable
-
-  OrdersTable:
-    Description: "Orders DynamoDB Table"
-    Value: !Ref OrdersTable
-
-  PaymentsTable:
-    Description: "Payments DynamoDB Table"
-    Value: !Ref PaymentsTable
-
-  StockReservationsTable:
-    Description: "Stock Reservations DynamoDB Table"
-    Value: !Ref StockReservationsTable
-
-  SagasTable:
-    Description: "Sagas DynamoDB Table"
-    Value: !Ref SagasTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: ['.js=.mjs']
+        Target: es2022
+        EntryPoints: [src/ecommerce/products/index.mjs]
+        External: ['@aws-sdk/*']
 
   # Order Service
   OrderFunction:
-    Type: AWS::ServerlessFunction
+    Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/ecommerce/orders/
+      CodeUri: .
       Handler: index.handler
-      Runtime: nodejs18.x
-      Architectures: [arm64]
       Environment:
         Variables:
-          ENVIRONMENT: !Ref Environment
           SERVICE_TYPE: order
       Events:
         GetOrders:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /orders
             Method: GET
-            RestApiId: !Ref ApiGateway
         GetOrder:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /orders/{id}
             Method: GET
-            RestApiId: !Ref ApiGateway
         CreateOrder:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /orders
             Method: POST
-            RestApiId: !Ref ApiGateway
         ConfirmOrder:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /orders/confirm
             Method: POST
-            RestApiId: !Ref ApiGateway
         CancelOrder:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /orders/cancel
             Method: POST
-            RestApiId: !Ref ApiGateway
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductsTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: ['.js=.mjs']
+        Target: es2022
+        EntryPoints: [src/ecommerce/orders/index.mjs]
+        External: ['@aws-sdk/*']
 
   # Payment Service
   PaymentFunction:
-    Type: AWS::ServerlessFunction
+    Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/ecommerce/payments/
+      CodeUri: .
       Handler: index.handler
-      Runtime: nodejs18.x
-      Architectures: [arm64]
       Environment:
         Variables:
-          ENVIRONMENT: !Ref Environment
           SERVICE_TYPE: payment
+          PAYMENT_MAX_AMOUNT: '10000'
       Events:
         ProcessPayment:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /payments
             Method: POST
-            RestApiId: !Ref ApiGateway
         RefundPayment:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /payments/refund
             Method: POST
-            RestApiId: !Ref ApiGateway
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentsTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: ['.js=.mjs']
+        Target: es2022
+        EntryPoints: [src/ecommerce/payments/index.mjs]
+        External: ['@aws-sdk/*']
 
   # Stock Service
   StockFunction:
-    Type: AWS::ServerlessFunction
+    Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/ecommerce/stock/
+      CodeUri: .
       Handler: index.handler
-      Runtime: nodejs18.x
-      Architectures: [arm64]
       Environment:
         Variables:
-          ENVIRONMENT: !Ref Environment
           SERVICE_TYPE: stock
       Events:
         GetStock:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /stock
             Method: GET
-            RestApiId: !Ref ApiGateway
         GetStockItem:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /stock/{productId}
             Method: GET
-            RestApiId: !Ref ApiGateway
         ReserveStock:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /stock/{productId}/reserve
             Method: POST
-            RestApiId: !Ref ApiGateway
         ReleaseStock:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /stock/{productId}/release
             Method: POST
-            RestApiId: !Ref ApiGateway
         AdjustStock:
-          Type: Api
+          Type: HttpApi
           Properties:
+            ApiId: !Ref ApiGateway
             Path: /stock/{productId}/adjust
             Method: POST
-            RestApiId: !Ref ApiGateway
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref StockReservationsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProductsTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: ['.js=.mjs']
+        Target: es2022
+        EntryPoints: [src/ecommerce/stock/index.mjs]
+        External: ['@aws-sdk/*']
 
-  # EventBridge Rules for internal communication
-  OrderCreatedRule:
-    Type: AWS::Events::Rule
+  # Saga Orchestrator
+  SagaOrchestratorFunction:
+    Type: AWS::Serverless::Function
     Properties:
-      Name: OrderCreatedRule
-      EventPattern:
-        source:
-          - "orders"
-        detail-type:
-          - "OrderCreated"
-      State: ENABLED
-      Targets:
-        - Arn: !GetAtt PaymentFunction.Arn
-          Id: PaymentTarget
+      CodeUri: .
+      Handler: index.handler
+      Timeout: 30
+      Environment:
+        Variables:
+          SERVICE_TYPE: saga-orchestrator
+          SAGA_STATE_MACHINE_ARN: !Ref SagaStateMachine
+      Events:
+        ExecuteSaga:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /saga/execute
+            Method: POST
+        GetSaga:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /saga/{sagaId}
+            Method: GET
+        ListSagas:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /sagas
+            Method: GET
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SagasTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductsTable
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt SagaStateMachine.Name
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: ['.js=.mjs']
+        Target: es2022
+        EntryPoints: [src/ecommerce/saga-orchestrator/index.mjs]
+        External: ['@aws-sdk/*']
 
-  PaymentProcessedRule:
-    Type: AWS::Events::Rule
+  # Saga de compra orquestrada pelo Step Functions
+  # Definição gerada por scripts/generate-saga-workflow.py
+  SagaStateMachine:
+    Type: AWS::Serverless::StateMachine
     Properties:
-      Name: PaymentProcessedRule
-      EventPattern:
-        source:
-          - "payments"
-        detail-type:
-          - "PaymentProcessed"
-      State: ENABLED
-      Targets:
-        - Arn: !GetAtt StockFunction.Arn
-          Id: StockTarget
+      Name: !Sub '${Environment}-purchase-saga'
+      Type: STANDARD
+      DefinitionUri: src/ecommerce/saga-orchestrator/workflow/saga-workflow.asl.json
+      DefinitionSubstitutions:
+        OrderFunctionArn: !GetAtt OrderFunction.Arn
+        PaymentFunctionArn: !GetAtt PaymentFunction.Arn
+        StockFunctionArn: !GetAtt StockFunction.Arn
+        SagasTableName: !Ref SagasTable
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref OrderFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PaymentFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref StockFunction
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SagasTable
 
-  StockReservedRule:
-    Type: AWS::Events::Rule
+  # EventBridge - eventos de domínio (OrderCreated, PaymentRefunded...) para quem quiser ouvir
+  EventBus:
+    Type: AWS::Events::EventBus
     Properties:
-      Name: StockReservedRule
-      EventPattern:
-        source:
-          - "stock"
-        detail-type:
-          - "StockReserved"
-      State: ENABLED
-      Targets:
-        - Arn: !GetAtt OrderFunction.Arn
-          Id: OrderTarget
+      Name: !Sub '${Environment}-ecommerce-events'
 
-  OrderConfirmedRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: OrderConfirmedRule
-      EventPattern:
-        source:
-          - "orders"
-        detail-type:
-          - "OrderConfirmed"
-      State: ENABLED
-      Targets:
-        - Arn: !GetAtt SagaOrchestratorFunction.Arn
-          Id: SagaTarget
-
-  # SQS Dead-letter Queue
+  # SQS com Dead-letter Queue para eventos de pedidos
   OrderEventsDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub '${Environment}-OrderEventsDlq'
-      VisibilityTimeout: 300
       MessageRetentionPeriod: 1209600
 
   OrderEventsQueue:
@@ -286,7 +358,8 @@ Outputs:
   OrderEventsQueuePolicy:
     Type: AWS::SQS::QueuePolicy
     Properties:
-      QueueUrl: !GetAtt OrderEventsQueue.Arn
+      Queues:
+        - !Ref OrderEventsQueue
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -295,6 +368,18 @@ Outputs:
               Service: events.amazonaws.com
             Action: "sqs:SendMessage"
             Resource: !GetAtt OrderEventsQueue.Arn
+
+  # Todos os eventos de pedidos também vão para a fila (auditoria / reprocessamento)
+  OrderEventsToQueueRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref EventBus
+      EventPattern:
+        source: ['orders']
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt OrderEventsQueue.Arn
+          Id: OrderEventsQueueTarget
 
   # DynamoDB Tables
   ProductsTable:
@@ -325,18 +410,6 @@ Outputs:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: !Sub '${Environment}-Payments'
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: id
-          KeyType: HASH
-
-  StockTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub '${Environment}-Stock'
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: id
@@ -380,12 +453,20 @@ Outputs:
             ProjectionType: ALL
       TimeToLiveSpecification:
         AttributeName: expiresAt
-        Enable: true
+        Enabled: true
 
 Outputs:
   ApiGatewayUrl:
     Description: "API Gateway URL (público)"
-    Value: !Sub "https://${ApiGatewayExternal}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+
+  ApiGatewayId:
+    Description: "API Gateway ID"
+    Value: !Ref ApiGateway
+
+  EventBusName:
+    Description: "EventBridge bus name"
+    Value: !Ref EventBus
 
   ProductsTable:
     Description: "Products DynamoDB Table Name"
@@ -399,18 +480,18 @@ Outputs:
     Description: "Payments DynamoDB Table Name"
     Value: !Ref PaymentsTable
 
-  StockTable:
-    Description: "Stock DynamoDB Table Name"
-    Value: !Ref StockTable
-
   StockReservationsTable:
     Description: "Stock Reservations DynamoDB Table Name"
     Value: !Ref StockReservationsTable
+
+  SagasTable:
+    Description: "Sagas DynamoDB Table Name"
+    Value: !Ref SagasTable
 
   SagaOrchestratorFunction:
     Description: "Saga Orchestrator Lambda Function"
     Value: !Ref SagaOrchestratorFunction
 
-  SagasTable:
-    Description: "Sagas DynamoDB Table Name"
-    Value: !Ref SagasTable
+  SagaStateMachineArn:
+    Description: "Saga State Machine ARN"
+    Value: !Ref SagaStateMachine

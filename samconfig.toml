@@ -8,7 +8,7 @@ capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 disable_rollback = false
 image_repositories = []
-s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket"
+resolve_s3 = true
 s3_prefix = "distributed-ecommerce-system/"
 parameter_overrides = "Environment=dev"
 fail_on_empty_changeset = true

@@ -1,7 +1,17 @@
 import { setupRoutes } from './src/routes/orderRoutes.js';
-import { log, createLogContext } from '../../common/logger.mjs';
+import { log } from '../../common/logger.mjs';
+import { normalizeHttpEvent } from '../../common/http-event.mjs';
+import { isActionInvocation, runAction } from '../../common/actions.mjs';
+import { actions } from './src/actions.js';
 
-export async function handler(event) {
+export async function handler(rawEvent) {
+  // Invocação direta pela saga (Step Functions): { action, input }
+  if (isActionInvocation(rawEvent)) {
+    return runAction(actions, rawEvent);
+  }
+
+  const event = normalizeHttpEvent(rawEvent);
+
   try {
     const { correlationId } = event.headers || {};
 
@@ -12,7 +22,7 @@ export async function handler(event) {
       message: `Incoming request: ${event.httpMethod} ${event.path}`
     });
 
-    const response = setupRoutes(event);
+    const response = await setupRoutes(event);
 
     log({
       event: 'API_RESPONSE',

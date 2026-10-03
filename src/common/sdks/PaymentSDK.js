@@ -1,83 +1,142 @@
-import { DynamoDBClientClass } from '../../common/database.js';
+import { Database } from '../database.mjs';
+import { NotFoundError, InvalidStateError, PaymentDeclinedError, ValidationError } from '../errors.mjs';
+
+// Gateway de pagamento simulado: recusa valores acima do limite.
+// Permite testar a compensação da saga de forma determinística.
+const MAX_APPROVED_AMOUNT = Number(process.env.PAYMENT_MAX_AMOUNT || 10000);
 
 /**
  * SDK Público - Interface uniforme para operações de pagamento
+ *
+ * Status: approved | declined | refunded
  */
 export class PaymentSDK {
-  constructor(eventBridgeClient) {
+  constructor(eventBridgeClient, db = new Database()) {
     this.eventBridgeClient = eventBridgeClient;
+    this.db = db;
   }
 
   /**
    * Processar pagamento
+   * `id` opcional torna a operação idempotente (a saga usa um id derivado do sagaId).
    */
-  async processPayment(paymentData) {
-    const correlationId = paymentData.correlationId || generateCorrelationId();
+  async processPayment({ orderId, amount, correlationId, id }) {
+    if (!orderId || typeof amount !== 'number' || !(amount > 0)) {
+      throw new ValidationError('orderId and a positive amount are required');
+    }
 
+    const approved = amount <= MAX_APPROVED_AMOUNT;
     const payment = {
-      id: generateId(),
-      orderId: paymentData.orderId,
-      amount: paymentData.amount,
-      status: 'pending', // pending, completed, failed, refunded
-      correlationId: correlationId,
+      id: id || generateId(),
+      orderId,
+      amount,
+      status: approved ? 'approved' : 'declined',
+      correlationId: correlationId || generateCorrelationId(),
       transactionId: generateTransactionId(),
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      ...(!approved && { declineReason: `Amount exceeds limit of ${MAX_APPROVED_AMOUNT}` })
     };
 
-    await Database.putItem('Payments', payment);
-    return payment;
+    const created = await this.db.putItemIfNotExists('payments', payment);
+    const result = created ? payment : await this.getPayment(payment.id);
+
+    if (created) {
+      await this.publish(approved ? 'PaymentProcessed' : 'PaymentDeclined', {
+        paymentId: result.id,
+        orderId,
+        amount,
+        correlationId: result.correlationId
+      });
+    }
+
+    if (result.status === 'declined') {
+      throw new PaymentDeclinedError(`Payment declined: ${result.declineReason}`);
+    }
+    return result;
   }
 
   /**
    * Buscar pagamento por ID
    */
   async getPayment(paymentId) {
-    const payment = await Database.getItem('Payments', { id: paymentId });
+    const payment = await this.db.getItem('payments', { id: paymentId });
     if (!payment) {
-      throw new Error('Payment not found');
+      throw new NotFoundError('Payment not found');
     }
     return payment;
   }
 
   /**
-   * Refundar pagamento
+   * Reembolsar pagamento pelo transactionId (API HTTP)
    */
   async refundPayment(transactionId, amount, correlationId) {
     const payment = await this.getPaymentByTransactionId(transactionId);
+    if (!payment) {
+      throw new NotFoundError('Payment not found');
+    }
+    return this.refundPaymentById(payment.id, amount, correlationId);
+  }
 
+  /**
+   * Reembolsar pagamento pelo id (usado pela saga). Reembolsar de novo não é erro.
+   */
+  async refundPaymentById(paymentId, amount, correlationId) {
+    const payment = await this.getPayment(paymentId);
     if (payment.status === 'refunded') {
-      throw new Error('Payment already refunded');
+      return payment;
     }
 
-    payment.status = 'refunded';
-    payment.refundedAt = new Date().toISOString();
-    payment.refundAmount = amount;
-    await Database.putItem('Payments', payment);
+    const refundAmount = amount ?? payment.amount;
+    try {
+      const refunded = await this.db.updateItem(
+        'payments',
+        { id: paymentId },
+        'SET #status = :refunded, refundedAt = :now, refundAmount = :amount',
+        { ':refunded': 'refunded', ':approved': 'approved', ':now': new Date().toISOString(), ':amount': refundAmount },
+        {
+          conditionExpression: '#status = :approved',
+          expressionAttributeNames: { '#status': 'status' },
+          returnValues: 'ALL_NEW'
+        }
+      );
 
-    // Em produção, publicar evento
-    if (this.eventBridgeClient) {
-      await this.eventBridgeClient.publish({
-        Source: 'payments',
-        DetailType: 'PaymentRefunded',
-        Detail: JSON.stringify({
-          paymentId: payment.id,
-          transactionId,
-          amount,
-          correlationId
-        })
+      await this.publish('PaymentRefunded', {
+        paymentId,
+        transactionId: payment.transactionId,
+        amount: refundAmount,
+        correlationId: correlationId || payment.correlationId
       });
-    }
 
-    return payment;
+      return refunded;
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+
+      const current = await this.getPayment(paymentId);
+      if (current.status === 'refunded') return current;
+      throw new InvalidStateError(`Cannot refund payment in status ${current.status}`);
+    }
   }
 
   /**
    * Buscar pagamento por transaction ID
    */
   async getPaymentByTransactionId(transactionId) {
-    const allPayments = await DynamoDBClientClass.queryItems('Payments');
+    const allPayments = await this.db.scanItems('payments');
     return allPayments.find(p => p.transactionId === transactionId);
   }
+
+  async publish(detailType, detail) {
+    if (this.eventBridgeClient) {
+      await this.eventBridgeClient.publish({ Source: 'payments', DetailType: detailType, Detail: detail });
+    }
+  }
+}
+
+/**
+ * Gerar ID único
+ */
+function generateId() {
+  return `pay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
 /**

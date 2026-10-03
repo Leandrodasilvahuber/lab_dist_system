@@ -1,41 +1,36 @@
-import { DynamoDBClientClass } from '../../common/database.js';
+import { Database } from '../database.mjs';
+import { NotFoundError } from '../errors.mjs';
 
 /**
  * SDK Público - Interface uniforme para operações de produto
  * Saga orchestrator usa isso, não importa diretamente do products
  */
 export class ProductSDK {
-  constructor(eventBridgeClient) {
+  constructor(eventBridgeClient, db = new Database()) {
     this.eventBridgeClient = eventBridgeClient;
+    this.db = db;
   }
 
   /**
    * Criar produto
-   * Saga Orchestrator chama via EventBridge
    */
   async createProduct(productData) {
-    const correlationId = generateCorrelationId();
-
-    // Em produção, publicar evento via EventBridge
-    if (this.eventBridgeClient) {
-      await this.eventBridgeClient.publish({
-        Source: 'products',
-        DetailType: 'CreateProduct',
-        Detail: JSON.stringify({
-          ...productData,
-          correlationId
-        })
-      });
-    }
-
-    // Criar no banco local para saga orchestrator
     const product = {
       id: generateId(),
       ...productData,
       createdAt: new Date().toISOString()
     };
 
-    await Database.putItem('Products', product);
+    await this.db.putItem('products', product);
+
+    if (this.eventBridgeClient) {
+      await this.eventBridgeClient.publish({
+        Source: 'products',
+        DetailType: 'ProductCreated',
+        Detail: { productId: product.id, name: product.name, correlationId: generateCorrelationId() }
+      });
+    }
+
     return product;
   }
 
@@ -43,9 +38,9 @@ export class ProductSDK {
    * Buscar produto por ID
    */
   async getProduct(productId) {
-    const product = await Database.getItem('Products', { id: productId });
+    const product = await this.db.getItem('products', { id: productId });
     if (!product) {
-      throw new Error('Product not found');
+      throw new NotFoundError('Product not found');
     }
     return product;
   }
@@ -54,15 +49,15 @@ export class ProductSDK {
    * Listar produtos
    */
   async listProducts(filters = {}) {
-    const allProducts = await DynamoDBClientClass.queryItems('Products');
+    const allProducts = await this.db.scanItems('products');
     return allProducts.filter(product => {
-      if (filters.name && !product.name.toLowerCase().includes(filters.name.toLowerCase())) {
+      if (filters.name && !(product.name || '').toLowerCase().includes(filters.name.toLowerCase())) {
         return false;
       }
-      if (filters.priceMin && product.price < filters.priceMin) {
+      if (filters.priceMin && product.price < Number(filters.priceMin)) {
         return false;
       }
-      if (filters.priceMax && product.price > filters.priceMax) {
+      if (filters.priceMax && product.price > Number(filters.priceMax)) {
         return false;
       }
       return true;
@@ -79,7 +74,7 @@ export class ProductSDK {
       ...updates,
       updatedAt: new Date().toISOString()
     };
-    await Database.putItem('Products', updatedProduct);
+    await this.db.putItem('products', updatedProduct);
     return updatedProduct;
   }
 
@@ -88,7 +83,7 @@ export class ProductSDK {
    */
   async deleteProduct(productId) {
     await this.getProduct(productId); // Verifica se existe
-    await Database.delete('Products', productId);
+    await this.db.deleteItem('products', { id: productId });
     return { success: true };
   }
 }

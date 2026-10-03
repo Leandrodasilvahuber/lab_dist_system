@@ -1,6 +1,17 @@
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
+
+// LOG_LEVEL: info (padrão) | error (só erros) | silent
+const LEVELS = { silent: 0, error: 1, info: 2, debug: 2 };
+
+function shouldLog(isError) {
+  const level = LEVELS[(process.env.LOG_LEVEL || 'info').toLowerCase()] ?? LEVELS.info;
+  return isError ? level >= LEVELS.error : level >= LEVELS.info;
+}
 
 export function log({ event, orderId, correlationId, status, message, data = null, error = null }) {
+  const isError = Boolean(error) || String(status).toLowerCase() === 'error';
+  if (!shouldLog(isError)) return;
+
   const logEntry = {
     timestamp: new Date().toISOString(),
     event,
@@ -12,19 +23,13 @@ export function log({ event, orderId, correlationId, status, message, data = nul
     error: error ? error.message || error : null
   };
 
-  console.log(JSON.stringify(logEntry));
-
-  if (error) {
-    console.error(JSON.stringify({
-      ...logEntry,
-      level: 'error'
-    }));
-  }
+  // Uma linha JSON por evento (formato lido pelo CloudWatch Logs Insights)
+  (isError ? console.error : console.log)(JSON.stringify(logEntry));
 }
 
 export function createLogContext(event, orderId = null, correlationId = null) {
   return {
-    correlationId: correlationId || uuidv4(),
+    correlationId: correlationId || randomUUID(),
     orderId,
     event
   };

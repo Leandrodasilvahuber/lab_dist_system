@@ -1,86 +1,175 @@
-import { DynamoDBClientClass } from '../../common/database.js';
+import { Database } from '../database.mjs';
+import { NotFoundError, InsufficientStockError, InvalidStateError, ValidationError } from '../errors.mjs';
 
 /**
  * SDK Público - Interface uniforme para operações de estoque
+ *
+ * O campo `stock` do produto é a quantidade disponível. Cada reserva debita o
+ * estoque na mesma transação em que é registrada, então várias reservas do
+ * mesmo produto podem coexistir sem risco de vender além do disponível, mesmo
+ * com pedidos simultâneos.
  */
 export class StockSDK {
-  constructor(eventBridgeClient) {
+  constructor(eventBridgeClient, db = new Database()) {
     this.eventBridgeClient = eventBridgeClient;
+    this.db = db;
   }
 
   /**
    * Reservar estoque
+   * `id` opcional torna a operação idempotente (a saga usa um id derivado do sagaId).
    */
-  async reserveStock(stockData) {
-    const correlationId = stockData.correlationId || generateCorrelationId();
-
-    // Verificar disponibilidade
-    const currentStock = await this.getStock(stockData.productId);
-    if (currentStock.available < stockData.quantity) {
-      throw new Error('Insufficient stock');
+  async reserveStock({ productId, quantity, correlationId, id }) {
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new ValidationError('Quantity must be a positive integer');
     }
 
-    // Verificar se já existe reserva ativa
-    const allReservations = await DynamoDBClientClass.queryItems('StockReservations');
-    const activeReservation = allReservations.find(r =>
-      r.productId === stockData.productId &&
-      r.status === 'active' &&
-      !r.expiresAt || new Date(r.expiresAt) > new Date()
-    );
-
-    if (activeReservation) {
-      throw new Error('Stock already reserved for this item');
-    }
-
+    const now = new Date().toISOString();
     const reservation = {
-      id: generateId(),
-      productId: stockData.productId,
-      quantity: stockData.quantity,
+      id: id || generateId(),
+      productId,
+      quantity,
       status: 'active',
-      correlationId: correlationId,
-      reservedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString() // 30 minutos
+      correlationId: correlationId || generateCorrelationId(),
+      reservedAt: now
     };
 
-    await Database.putItem('StockReservations', reservation);
+    try {
+      await this.db.transactWrite([
+        {
+          Put: {
+            table: 'stockReservations',
+            Item: reservation,
+            ConditionExpression: 'attribute_not_exists(id)'
+          }
+        },
+        {
+          Update: {
+            table: 'products',
+            Key: { id: productId },
+            UpdateExpression: 'SET stock = stock - :quantity, updatedAt = :now',
+            ConditionExpression: 'attribute_exists(id) AND stock >= :quantity',
+            ExpressionAttributeValues: { ':quantity': quantity, ':now': now }
+          }
+        }
+      ]);
+    } catch (error) {
+      if (error.name !== 'TransactionCanceledException') throw error;
+      throwIfConflict(error);
 
-    // Em produção, publicar evento
-    if (this.eventBridgeClient) {
-      await this.eventBridgeClient.publish({
-        Source: 'stock',
-        DetailType: 'StockReserved',
-        Detail: JSON.stringify({
-          reservationId: reservation.id,
-          productId: stockData.productId,
-          quantity: stockData.quantity,
-          correlationId
-        })
-      });
+      const [reservationReason, productReason] = (error.CancellationReasons || []).map(r => r?.Code);
+
+      // Reserva com este id já existe: repetição da mesma operação
+      if (reservationReason === 'ConditionalCheckFailed') {
+        return this.getReservation(reservation.id);
+      }
+      if (productReason === 'ConditionalCheckFailed') {
+        const product = await this.db.getItem('products', { id: productId });
+        if (!product) throw new NotFoundError('Product not found');
+        throw new InsufficientStockError(
+          `Insufficient stock: requested ${quantity}, available ${product.stock || 0}`
+        );
+      }
+      throw error;
     }
+
+    await this.publish('StockReserved', {
+      reservationId: reservation.id,
+      productId,
+      quantity,
+      correlationId: reservation.correlationId
+    });
 
     return reservation;
   }
 
   /**
-   * Liberar estoque
+   * Liberar uma reserva e devolver a quantidade ao estoque.
+   * Liberar uma reserva já liberada não é erro (idempotente).
    */
-  async releaseStock(stockData) {
-    const correlationId = stockData.correlationId || generateCorrelationId();
+  async releaseStock({ reservationId, correlationId }) {
+    const reservation = await this.getReservation(reservationId);
 
-    const allReservations = await DynamoDBClientClass.queryItems('StockReservations');
-    const reservation = allReservations.find(r =>
-      r.productId === stockData.productId &&
-      r.status === 'active'
-    );
-
-    if (!reservation) {
-      throw new Error('No active reservation found');
+    if (reservation.status === 'released') {
+      return reservation;
     }
 
-    reservation.status = 'released';
-    reservation.releasedAt = new Date().toISOString();
-    await Database.putItem('StockReservations', reservation);
+    const now = new Date().toISOString();
+    try {
+      await this.db.transactWrite([
+        {
+          Update: {
+            table: 'stockReservations',
+            Key: { id: reservationId },
+            UpdateExpression: 'SET #status = :released, releasedAt = :now',
+            ConditionExpression: '#status = :active',
+            ExpressionAttributeNames: { '#status': 'status' },
+            ExpressionAttributeValues: { ':released': 'released', ':active': 'active', ':now': now }
+          }
+        },
+        {
+          Update: {
+            table: 'products',
+            Key: { id: reservation.productId },
+            UpdateExpression: 'SET stock = stock + :quantity, updatedAt = :now',
+            ConditionExpression: 'attribute_exists(id)',
+            ExpressionAttributeValues: { ':quantity': reservation.quantity, ':now': now }
+          }
+        }
+      ]);
+    } catch (error) {
+      if (error.name !== 'TransactionCanceledException') throw error;
+      throwIfConflict(error);
 
+      // Outra execução liberou a reserva ao mesmo tempo
+      const current = await this.getReservation(reservationId);
+      if (current.status === 'released') return current;
+      throw new InvalidStateError(`Cannot release reservation in status ${current.status}`);
+    }
+
+    const released = { ...reservation, status: 'released', releasedAt: now };
+
+    await this.publish('StockReleased', {
+      reservationId,
+      productId: reservation.productId,
+      quantity: reservation.quantity,
+      correlationId: correlationId || reservation.correlationId
+    });
+
+    return released;
+  }
+
+  /**
+   * Ajustar estoque do produto (delta positivo ou negativo)
+   */
+  async adjustStock(productId, delta) {
+    if (!Number.isInteger(delta) || delta === 0) {
+      throw new ValidationError('delta must be a non-zero integer');
+    }
+
+    try {
+      const attributes = await this.db.updateItem(
+        'products',
+        { id: productId },
+        'SET stock = stock + :delta, updatedAt = :now',
+        { ':delta': delta, ':now': new Date().toISOString(), ':min': Math.max(0, -delta) },
+        { conditionExpression: 'attribute_exists(id) AND stock >= :min' }
+      );
+      return { productId, previousStock: attributes.stock - delta, stock: attributes.stock };
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+
+      const product = await this.db.getItem('products', { id: productId });
+      if (!product) throw new NotFoundError('Product not found');
+      throw new InsufficientStockError('Insufficient stock for adjustment');
+    }
+  }
+
+  async getReservation(reservationId) {
+    const reservation = await this.db.getItem('stockReservations', { id: reservationId });
+    if (!reservation) {
+      throw new NotFoundError('Reservation not found');
+    }
     return reservation;
   }
 
@@ -88,27 +177,19 @@ export class StockSDK {
    * Buscar estoque por ID de produto
    */
   async getStock(productId) {
-    // Obter do product (em produção, stock separado)
-    const product = await Database.getItem('Products', { id: productId });
+    const product = await this.db.getItem('products', { id: productId });
     if (!product) {
-      throw new Error('Product not found');
+      throw new NotFoundError('Product not found');
     }
 
-    // Contar reservas ativas
-    const allReservations = await DynamoDBClientClass.queryItems('StockReservations');
-    const activeReservations = allReservations.filter(r =>
-      r.productId === productId &&
-      r.status === 'active' &&
-      (!r.expiresAt || new Date(r.expiresAt) > new Date())
-    );
-
-    const totalReserved = activeReservations.reduce((sum, r) => sum + r.quantity, 0);
+    const activeReservations = (await this.db.scanItems('stockReservations'))
+      .filter(r => r.productId === productId && r.status === 'active');
 
     return {
       productId: product.id,
-      available: Math.max(0, product.stock - totalReserved),
-      reserved: totalReserved,
-      reservedBy: activeReservations.length
+      available: product.stock || 0,
+      reserved: sumQuantities(activeReservations),
+      activeReservations: activeReservations.length
     };
   }
 
@@ -116,37 +197,50 @@ export class StockSDK {
    * Listar estoque
    */
   async listStock(filters = {}) {
-    const allProducts = await DynamoDBClientClass.queryItems('Products');
-    const allReservations = await DynamoDBClientClass.queryItems('StockReservations');
+    const allProducts = await this.db.scanItems('products');
+    const activeReservations = (await this.db.scanItems('stockReservations'))
+      .filter(r => r.status === 'active');
 
     return allProducts.filter(product => {
       if (filters.productId && product.id !== filters.productId) {
         return false;
       }
-      if (filters.stockMin && product.stock < filters.stockMin) {
+      if (filters.stockMin && product.stock < Number(filters.stockMin)) {
         return false;
       }
-      if (filters.stockMax && product.stock > filters.stockMax) {
+      if (filters.stockMax && product.stock > Number(filters.stockMax)) {
         return false;
       }
       return true;
-    }).map(product => {
-      const activeReservations = allReservations.filter(r =>
-        r.productId === product.id &&
-        r.status === 'active' &&
-        (!r.expiresAt || new Date(r.expiresAt) > new Date())
-      );
-
-      const totalReserved = activeReservations.reduce((sum, r) => sum + r.quantity, 0);
-
-      return {
-        productId: product.id,
-        name: product.name,
-        available: Math.max(0, product.stock - totalReserved),
-        reserved: totalReserved
-      };
-    });
+    }).map(product => ({
+      productId: product.id,
+      name: product.name,
+      available: product.stock || 0,
+      reserved: sumQuantities(activeReservations.filter(r => r.productId === product.id))
+    }));
   }
+
+  async publish(detailType, detail) {
+    if (this.eventBridgeClient) {
+      await this.eventBridgeClient.publish({ Source: 'stock', DetailType: detailType, Detail: detail });
+    }
+  }
+}
+
+/**
+ * Transações concorrentes no mesmo item são canceladas com TransactionConflict.
+ * É uma falha transitória: relança com um nome que o Step Functions repete.
+ */
+function throwIfConflict(error) {
+  if ((error.CancellationReasons || []).some(r => r?.Code === 'TransactionConflict')) {
+    const conflict = new Error('Concurrent update on the same item, retry');
+    conflict.name = 'TransactionConflictException';
+    throw conflict;
+  }
+}
+
+function sumQuantities(reservations) {
+  return reservations.reduce((sum, r) => sum + r.quantity, 0);
 }
 
 /**

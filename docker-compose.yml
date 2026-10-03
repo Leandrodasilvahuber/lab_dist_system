@@ -1,0 +1,15 @@
+services:
+  localstack:
+    # 4.14.0 é a última versão que roda sem conta/token do LocalStack
+    # (as versões por data, como 2026.x e "latest", exigem LOCALSTACK_AUTH_TOKEN).
+    # Ela suporta o runtime nodejs22.x usado no deploy.
+    image: localstack/localstack:4.14.0
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=dynamodb,lambda,stepfunctions,events,sqs,iam,sts,logs
+      - PERSISTENCE=0
+    volumes:
+      - ./localstack-data:/var/lib/localstack
+      # Necessário para o LocalStack executar Lambdas em containers
+      - /var/run/docker.sock:/var/run/docker.sock

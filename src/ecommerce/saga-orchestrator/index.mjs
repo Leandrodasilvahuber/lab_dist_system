@@ -1,7 +1,10 @@
 import { setupRoutes } from './src/routes/sagaRoutes.js';
-import { log, createLogContext } from '../../common/logger.mjs';
+import { log } from '../../common/logger.mjs';
+import { normalizeHttpEvent } from '../../common/http-event.mjs';
 
-export async function handler(event) {
+export async function handler(rawEvent) {
+  const event = normalizeHttpEvent(rawEvent);
+
   try {
     const { correlationId } = event.headers || {};
 
@@ -12,7 +15,7 @@ export async function handler(event) {
       message: `Incoming saga orchestrator request: ${event.httpMethod} ${event.path}`
     });
 
-    const response = setupRoutes(event);
+    const response = await setupRoutes(event);
 
     log({
       event: 'API_RESPONSE',

@@ -1,20 +1,14 @@
 import { OrderController } from '../controllers/OrderController.js';
 
-export function setupRoutes(event, context) {
+export async function setupRoutes(event) {
   const method = event.httpMethod;
   const path = event.path;
-  const pathParameters = event.pathParameters;
-  const queryStringParameters = event.queryStringParameters;
-  const body = event.body ? JSON.parse(event.body) : null;
+  const queryStringParameters = event.queryStringParameters || {};
+  const idMatch = path.match(/^\/orders\/([^/]+)$/);
 
   // GET /orders
   if (method === 'GET' && path === '/orders') {
     return OrderController.getOrders(event, queryStringParameters);
-  }
-
-  // GET /orders/{id}
-  if (method === 'GET' && pathParameters?.id) {
-    return OrderController.getOrders(event, { id: pathParameters.id });
   }
 
   // POST /orders
@@ -30,6 +24,11 @@ export function setupRoutes(event, context) {
   // POST /orders/cancel
   if (method === 'POST' && path === '/orders/cancel') {
     return OrderController.cancelOrder(event);
+  }
+
+  // GET /orders/{id}
+  if (method === 'GET' && idMatch) {
+    return OrderController.getOrders(event, { id: decodeURIComponent(idMatch[1]) });
   }
 
   return {

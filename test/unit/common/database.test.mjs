@@ -1,6 +1,5 @@
-import { describe, it, mock } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import expect from 'expect';
 import Database from '../../../src/common/database.mjs';
 
 describe('Database', () => {
