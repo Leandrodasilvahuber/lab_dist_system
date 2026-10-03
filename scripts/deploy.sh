@@ -20,8 +20,27 @@ if ! aws sts get-caller-identity &> /dev/null; then
     exit 1
 fi
 
-# Chave das rotas administrativas (parâmetro AdminApiKey do template.yaml)
-if [ -z "$ADMIN_API_KEY" ] || [ ${#ADMIN_API_KEY} -lt 16 ]; then
+ENVIRONMENT=dev
+ADMIN_KEY_PARAM="/$ENVIRONMENT/ecommerce/admin-api-key"
+
+# Chave das rotas administrativas: guardada no SSM Parameter Store
+# (SecureString), lida pelo authorizer. Sem ADMIN_API_KEY, mantém a que já existe.
+if [ -n "$ADMIN_API_KEY" ]; then
+    if [ ${#ADMIN_API_KEY} -lt 16 ]; then
+        echo "❌ ADMIN_API_KEY precisa ter no mínimo 16 caracteres:"
+        echo "   export ADMIN_API_KEY=\$(openssl rand -hex 24)"
+        exit 1
+    fi
+    # Passa a chave por arquivo (permissão 600), não pela linha de comando,
+    # onde ficaria visível para outros processos (ps)
+    KEY_FILE=$(umask 077 && mktemp)
+    trap 'rm -f "$KEY_FILE"' EXIT
+    printf '%s' "$ADMIN_API_KEY" > "$KEY_FILE"
+    aws ssm put-parameter --name "$ADMIN_KEY_PARAM" --type SecureString --overwrite \
+        --value "file://$KEY_FILE" > /dev/null || exit 1
+    rm -f "$KEY_FILE"
+    echo "🔑 Chave de admin gravada em $ADMIN_KEY_PARAM"
+elif ! aws ssm get-parameter --name "$ADMIN_KEY_PARAM" > /dev/null 2>&1; then
     echo "❌ Defina ADMIN_API_KEY (mínimo 16 caracteres) com a chave das rotas de admin:"
     echo "   export ADMIN_API_KEY=\$(openssl rand -hex 24)"
     echo "   Guarde a chave: o dashboard e as chamadas de admin usam o header X-Api-Key."
@@ -38,9 +57,8 @@ npm run build || exit 1
 
 echo ""
 echo "🚀 Fazendo deploy na AWS..."
-# --parameter-overrides substitui o do samconfig.toml, por isso repete Environment
 sam deploy --config-file samconfig.toml \
-    --parameter-overrides "Environment=dev" "AdminApiKey=$ADMIN_API_KEY" || exit 1
+    --parameter-overrides "Environment=$ENVIRONMENT" || exit 1
 
 echo ""
 echo "✅ Deployment concluído!"

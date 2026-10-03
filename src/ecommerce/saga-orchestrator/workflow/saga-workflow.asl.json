@@ -1030,9 +1030,10 @@
             "S.$": "$.sagaId"
           }
         },
-        "UpdateExpression": "SET #status = :status, updatedAt = :now",
+        "UpdateExpression": "SET #status = :status, updatedAt = :now REMOVE #error, errorCause",
         "ExpressionAttributeNames": {
-          "#status": "status"
+          "#status": "status",
+          "#error": "error"
         },
         "ExpressionAttributeValues": {
           ":status": {
@@ -1107,8 +1108,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "ResultPath": "$.error",
-          "Next": "MarkCompensationFailed"
+          "ResultPath": "$.compensationError",
+          "Next": "RecordRefundPaymentFailed"
         }
       ],
       "Next": "RecordRefundPayment",
@@ -1139,6 +1140,64 @@
               },
               "at": {
                 "S.$": "$$.State.EnteredTime"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "ReleaseStock"
+        }
+      ],
+      "Next": "ReleaseStock"
+    },
+    "RecordRefundPaymentFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "refundPayment"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "COMPENSATION_FAILED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              },
+              "error": {
+                "S.$": "$.compensationError.Error"
+              },
+              "cause": {
+                "S.$": "States.JsonToString($.compensationError)"
               }
             }
           }
@@ -1205,8 +1264,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "ResultPath": "$.error",
-          "Next": "MarkCompensationFailed"
+          "ResultPath": "$.compensationError",
+          "Next": "RecordReleaseStockFailed"
         }
       ],
       "Next": "RecordReleaseStock",
@@ -1237,6 +1296,64 @@
               },
               "at": {
                 "S.$": "$$.State.EnteredTime"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "CancelOrder"
+        }
+      ],
+      "Next": "CancelOrder"
+    },
+    "RecordReleaseStockFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "releaseStock"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "COMPENSATION_FAILED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              },
+              "error": {
+                "S.$": "$.compensationError.Error"
+              },
+              "cause": {
+                "S.$": "States.JsonToString($.compensationError)"
               }
             }
           }
@@ -1303,8 +1420,8 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "ResultPath": "$.error",
-          "Next": "MarkCompensationFailed"
+          "ResultPath": "$.compensationError",
+          "Next": "RecordCancelOrderFailed"
         }
       ],
       "Next": "RecordCancelOrder",
@@ -1357,10 +1474,79 @@
             "States.ALL"
           ],
           "ResultPath": "$.recordError",
-          "Next": "MarkCompensated"
+          "Next": "CheckCompensations"
         }
       ],
-      "Next": "MarkCompensated"
+      "Next": "CheckCompensations"
+    },
+    "RecordCancelOrderFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "cancelOrder"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "COMPENSATION_FAILED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              },
+              "error": {
+                "S.$": "$.compensationError.Error"
+              },
+              "cause": {
+                "S.$": "States.JsonToString($.compensationError)"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "CheckCompensations"
+        }
+      ],
+      "Next": "CheckCompensations"
+    },
+    "CheckCompensations": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.compensationError",
+          "IsPresent": true,
+          "Next": "MarkCompensationFailed"
+        }
+      ],
+      "Default": "MarkCompensated"
     },
     "MarkCompensated": {
       "Type": "Task",
@@ -1451,7 +1637,7 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "ResultPath": "$.error",
+          "ResultPath": "$.compensationError",
           "Next": "MarkCompensationFailed"
         }
       ],
@@ -1540,10 +1726,10 @@
             "S.$": "$$.State.EnteredTime"
           },
           ":error": {
-            "S.$": "$.error.Error"
+            "S.$": "$.compensationError.Error"
           },
           ":cause": {
-            "S.$": "States.JsonToString($.error)"
+            "S.$": "States.JsonToString($.compensationError)"
           }
         }
       },

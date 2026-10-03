@@ -13,12 +13,6 @@ Parameters:
     Default: dev
     Description: Environment name
 
-  AdminApiKey:
-    Type: String
-    NoEcho: true
-    MinLength: 16
-    Description: Chave exigida no header X-Api-Key pelas rotas administrativas
-
   AllowedOrigin:
     Type: String
     Default: '*'
@@ -71,7 +65,9 @@ Resources:
               Headers: [x-api-key]
               ReauthorizeEvery: 300
 
-  # Authorizer das rotas administrativas: compara X-Api-Key com AdminApiKey
+  # Authorizer das rotas administrativas: compara X-Api-Key com a chave guardada
+  # no SSM Parameter Store (SecureString, criado por scripts/deploy.sh). A chave
+  # não fica no template nem em variável de ambiente.
   AdminAuthorizerFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -81,7 +77,10 @@ Resources:
       Timeout: 5
       Environment:
         Variables:
-          ADMIN_API_KEY: !Ref AdminApiKey
+          ADMIN_API_KEY_PARAM: !Sub '/${Environment}/ecommerce/admin-api-key'
+      Policies:
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub '${Environment}/ecommerce/admin-api-key'
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -330,6 +329,15 @@ Resources:
       Name: !Sub '${Environment}-purchase-saga'
       Type: STANDARD
       DefinitionUri: src/ecommerce/saga-orchestrator/workflow/saga-workflow.asl.json
+      # Erros de cada execução no CloudWatch e trace no X-Ray (investigar COMPENSATION_FAILED)
+      Logging:
+        Level: ERROR
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt SagaStateMachineLogGroup.Arn
+      Tracing:
+        Enabled: true
       DefinitionSubstitutions:
         OrderFunctionArn: !GetAtt OrderFunction.Arn
         PaymentFunctionArn: !GetAtt PaymentFunction.Arn
@@ -344,6 +352,29 @@ Resources:
             FunctionName: !Ref StockFunction
         - DynamoDBCrudPolicy:
             TableName: !Ref SagasTable
+        # Entrega de logs do Step Functions (exige Resource "*") e X-Ray
+        - Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogDelivery
+                - logs:GetLogDelivery
+                - logs:UpdateLogDelivery
+                - logs:DeleteLogDelivery
+                - logs:ListLogDeliveries
+                - logs:PutResourcePolicy
+                - logs:DescribeResourcePolicies
+                - logs:DescribeLogGroups
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+                - xray:GetSamplingRules
+                - xray:GetSamplingTargets
+              Resource: '*'
+
+  SagaStateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/vendedlogs/states/${Environment}-purchase-saga'
+      RetentionInDays: 30
 
   # EventBridge - eventos de domínio (OrderCreated, PaymentRefunded...) para quem quiser ouvir
   EventBus:
@@ -351,7 +382,8 @@ Resources:
     Properties:
       Name: !Sub '${Environment}-ecommerce-events'
 
-  # SQS com Dead-letter Queue para eventos de pedidos
+  # SQS com Dead-letter Queue para eventos de pedidos. Não tem consumidor de
+  # propósito: guarda os eventos por 14 dias para auditoria e reprocessamento
   OrderEventsDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -545,6 +577,14 @@ Outputs:
   EventBusName:
     Description: "EventBridge bus name"
     Value: !Ref EventBus
+
+  OrderEventsQueueUrl:
+    Description: "Fila de auditoria dos eventos de pedidos (sem consumidor)"
+    Value: !Ref OrderEventsQueue
+
+  SagaStateMachineLogGroup:
+    Description: "Logs de erro das execuções da saga"
+    Value: !Ref SagaStateMachineLogGroup
 
   ProductEventsDlqUrl:
     Description: "DLQ dos eventos de produto não entregues ao Stock"

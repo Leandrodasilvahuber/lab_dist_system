@@ -1,6 +1,9 @@
 import { Database } from '../database.mjs';
 import { NotFoundError, ValidationError } from '../errors.mjs';
 import { generateId } from '../ids.mjs';
+import { encodeToken } from '../pagination.mjs';
+import { optionalNumber } from '../validation.mjs';
+import { log } from '../logger.mjs';
 
 /**
  * SDK Público - Interface uniforme para operações de produto
@@ -20,6 +23,9 @@ export class ProductSDK {
    * Criar produto
    * O evento ProductCreated é obrigatório: sem ele o Stock nunca cria o
    * inventário. Se a publicação falhar, o produto é removido e o erro relançado.
+   * Uma falha ambígua (ex.: timeout) pode ter entregue o evento mesmo assim,
+   * então também é publicado ProductDeleted, para o Stock não manter um
+   * inventário órfão.
    */
   async createProduct({ initialStock = 0, ...productData }) {
     const now = new Date().toISOString();
@@ -40,7 +46,15 @@ export class ProductSDK {
         correlationId: generateId('corr')
       }, { required: true });
     } catch (error) {
-      await this.db.deleteItem('products', { id: product.id });
+      // O erro original é o que importa para quem chamou; falhas do rollback só vão para o log
+      try {
+        await this.db.deleteItem('products', { id: product.id });
+      } catch (rollbackError) {
+        log({ event: 'PRODUCT_ROLLBACK_FAILED', status: 'error', message: `Failed to delete product ${product.id}`, error: rollbackError });
+      } finally {
+        await this.publish('ProductDeleted', { productId: product.id, correlationId: generateId('corr') })
+          .catch(publishError => log({ event: 'PRODUCT_ROLLBACK_FAILED', status: 'error', message: `Failed to publish ProductDeleted for ${product.id}`, error: publishError }));
+      }
       throw error;
     }
 
@@ -59,22 +73,28 @@ export class ProductSDK {
   }
 
   /**
-   * Listar produtos
+   * Listar produtos, uma página por vez (`limit`, `startKey`).
+   * Os filtros são aplicados à página lida, que pode vir com menos de `limit`
+   * itens; a listagem termina quando `nextToken` não vem.
    */
-  async listProducts(filters = {}) {
-    const allProducts = await this.db.scanItems('products');
-    return allProducts.filter(product => {
-      if (filters.name && !(product.name || '').toLowerCase().includes(filters.name.toLowerCase())) {
+  async listProducts(filters = {}, { limit, startKey } = {}) {
+    const priceMin = optionalNumber(filters.priceMin, 'priceMin');
+    const priceMax = optionalNumber(filters.priceMax, 'priceMax');
+
+    const { items, lastKey } = await this.db.scanPage('products', { limit, startKey });
+    const products = items.filter(product => {
+      if (filters.name && !(product.name || '').toLowerCase().includes(String(filters.name).toLowerCase())) {
         return false;
       }
-      if (filters.priceMin && product.price < Number(filters.priceMin)) {
+      if (priceMin !== undefined && product.price < priceMin) {
         return false;
       }
-      if (filters.priceMax && product.price > Number(filters.priceMax)) {
+      if (priceMax !== undefined && product.price > priceMax) {
         return false;
       }
       return true;
     });
+    return { products, nextToken: encodeToken(lastKey) };
   }
 
   /**

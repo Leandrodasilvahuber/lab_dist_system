@@ -83,7 +83,7 @@ Lambda) são repetidas com backoff; erros de negócio (`InsufficientStock`,
 ```bash
 # 1. Inicia a compra: responde na hora com 202
 curl -X POST $API/saga/execute \
-  -H 'Idempotency-Key: checkout-123' \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"productId": "apple", "quantity": 2}'
 # {"sagaId":"saga_3c1f...","orderId":"order_saga_3c1f...","status":"RUNNING","statusUrl":"/saga/saga_3c1f..."}
 
@@ -96,31 +96,42 @@ O header `Idempotency-Key` (opcional) evita compras duplicadas: repetir a
 requisição com a mesma chave e o mesmo pedido devolve a saga existente (200) em
 vez de criar outra. A mesma chave com outro pedido responde `409`. Se a saga
 falhou ao iniciar (Step Functions indisponível), repetir com a mesma chave a
-inicia de novo. O `sagaId` é `saga_` + hash SHA-256 da chave.
+inicia de novo. O `sagaId` é `saga_` + hash SHA-256 da chave. A chave precisa
+ter de 16 a 255 caracteres (`400` fora disso): use um UUID por compra, porque
+quem conhece a chave consegue calcular o `sagaId` e consultar `GET /saga/{id}`.
 
 **Status da saga:** `RUNNING` → `COMPLETED` | `COMPENSATING` → `COMPENSATED` |
-`FAILED` (falhou no primeiro passo) | `COMPENSATION_FAILED` (exige intervenção manual).
+`FAILED` (falhou no primeiro passo) | `COMPENSATION_FAILED` (alguma compensação
+falhou mesmo após as tentativas; as demais rodaram mesmo assim. Exige intervenção manual).
+Os erros de cada execução ficam no log group da state machine (output
+`SagaStateMachineLogGroup`) e o trace no X-Ray.
 
 ## API
 
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/health` | Health check |
-| GET | `/products` | Lista produtos (`?name=&priceMin=&priceMax=`) |
+| GET | `/products` | Lista produtos, paginado (`?name=&priceMin=&priceMax=&limit=&nextToken=`) |
 | POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
 | GET | `/orders` 🔑 | Lista pedidos (`?status=&productId=`) |
 | GET | `/orders/{id}` | Busca pedido |
-| GET | `/stock` | Estoque de todos os produtos |
+| GET | `/stock` | Estoque dos produtos, paginado (`?productId=&stockMin=&stockMax=&limit=&nextToken=`) |
 | GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento) |
 | POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir) |
 | **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` → 202 |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
 | GET | `/sagas` 🔑 | Lista as compras (`?status=`) |
 
-🔑 Rota administrativa: exige o header `X-Api-Key` com a chave do parâmetro
-`AdminApiKey` do stack (authorizer Lambda do HttpApi). As demais rotas são
-públicas; o stage tem throttling (100 req/s, rajada de 50).
+🔑 Rota administrativa: exige o header `X-Api-Key` com a chave de admin, guardada
+no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) e
+conferida por um authorizer Lambda do HttpApi. As demais rotas são públicas; o
+stage tem throttling (100 req/s, rajada de 50).
+
+**Paginação:** `GET /products` e `GET /stock` devolvem até `limit` itens (padrão
+50, máximo 100) e um `nextToken` quando há mais; repita a chamada com
+`?nextToken=<valor>` até ele não vir. Os filtros valem para cada página, que pode
+vir com menos de `limit` itens. Filtro numérico inválido (`priceMin=abc`) responde `400`.
 
 ### Exposição
 
@@ -166,7 +177,7 @@ src/
 │   ├── http-event.mjs      # Normaliza eventos do HttpApi (payload 2.0)
 │   ├── actions.mjs         # Despacho de ações ({ action, input }) e eventos do EventBridge
 │   ├── response.mjs        # Respostas HTTP
-│   ├── logger.mjs          # Logs JSON (LOG_LEVEL = info | error | silent)
+│   ├── logger.mjs          # Logs JSON (LOG_LEVEL = debug | info | error | silent)
 │   └── sdks/               # ProductSDK, OrderSDK, PaymentSDK, StockSDK
 ├── ecommerce/
 │   ├── products/ orders/ payments/ stock/
@@ -229,7 +240,9 @@ npm run local-server                         # abra http://localhost:3001
 ```
 
 Localmente as rotas de admin ficam abertas, a menos que `ADMIN_API_KEY` esteja
-definida ao subir o `local-server`.
+definida ao subir o `local-server`. Por isso ele escuta só em `127.0.0.1`; para
+expor na rede, use `HOST=0.0.0.0` junto com `ADMIN_API_KEY` (sem a chave, o
+servidor se recusa a subir).
 
 Para usar o dashboard com a API publicada na AWS, abra
 `http://localhost:3001/?api=<ApiGatewayUrl>`.

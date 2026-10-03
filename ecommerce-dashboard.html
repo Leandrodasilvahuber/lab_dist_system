@@ -449,6 +449,7 @@
         .step.COMPLETED { background: #d4edda; color: #155724; }
         .step.FAILED { background: #f8d7da; color: #721c24; }
         .step.COMPENSATED { background: #fff3cd; color: #856404; }
+        .step.COMPENSATION_FAILED { background: #f8d7da; color: #721c24; font-weight: bold; }
         .step.RUNNING { background: #cfe2ff; color: #084298; animation: pulse 1s infinite alternate; }
 
         @keyframes pulse {
@@ -713,6 +714,19 @@
             return body;
         }
 
+        // Listagens paginadas (GET /products, GET /stock): segue o nextToken até o fim
+        async function apiAll(path, key) {
+            const items = [];
+            let nextToken;
+            do {
+                const query = nextToken ? `?limit=100&nextToken=${encodeURIComponent(nextToken)}` : '?limit=100';
+                const page = await api(path + query);
+                items.push(...(page[key] || []));
+                nextToken = page.nextToken;
+            } while (nextToken);
+            return { [key]: items };
+        }
+
         async function updateHealthStatus() {
             const dot = document.getElementById('connectionDot');
             const status = document.getElementById('connectionStatus');
@@ -759,8 +773,8 @@
             try {
                 // Catálogo (Products) e estoque (Stock) vêm de serviços diferentes
                 const [catalog, inventory] = await Promise.all([
-                    api('/products'),
-                    api('/stock').catch(() => ({ stock: [] }))
+                    apiAll('/products', 'products'),
+                    apiAll('/stock', 'stock').catch(() => ({ stock: [] }))
                 ]);
                 const available = new Map(inventory.stock.map(item => [item.productId, item.available]));
                 products = catalog.products.map(p => ({ ...p, stock: available.get(p.id) }));
@@ -908,7 +922,7 @@
             const compensations = COMPENSATIONS.filter(name => steps[name]);
             const compensationHtml = compensations.length || saga.status === 'COMPENSATING'
                 ? `<div class="compensation-label">Compensação:</div>` + compensations.map(name =>
-                    `<span class="step ${steps[name].status}">${STEP_LABELS[name]}</span>`).join('<span class="arrow">→</span>')
+                    `<span class="step ${escapeHtml(steps[name].status)}" title="${escapeHtml(steps[name].error?.message || '')}">${STEP_LABELS[name]}</span>`).join('<span class="arrow">→</span>')
                 : '';
 
             const error = saga.error?.message
@@ -931,7 +945,7 @@
         async function fetchStock() {
             const list = document.getElementById('stockList');
             try {
-                const { stock } = await api('/stock');
+                const { stock } = await apiAll('/stock', 'stock');
                 stock.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
                 list.innerHTML = stock.length ? stock.map(item => `
                     <li class="stock-item">
@@ -972,7 +986,7 @@
             const content = document.getElementById('summaryContent');
             try {
                 const [{ products: all }, { stock }, { orders }, { sagas }] = await Promise.all([
-                    api('/products'), api('/stock'), api('/orders'), api('/sagas')
+                    apiAll('/products', 'products'), apiAll('/stock', 'stock'), api('/orders'), api('/sagas')
                 ]);
                 const totalStock = stock.reduce((sum, item) => sum + (item.available || 0), 0);
                 const confirmed = orders.filter(o => o.status === 'confirmed');

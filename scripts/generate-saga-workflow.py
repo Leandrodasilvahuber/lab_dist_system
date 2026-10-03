@@ -14,6 +14,11 @@ Functions (timeout, erro de rede) não garante que o passo não gravou nada.
 As compensações são idempotentes e tratam "nunca foi gravado" como nada a
 desfazer (gravando um registro anulado para barrar uma escrita atrasada).
 
+Uma compensação que falha (mesmo após as tentativas) é registrada e a cadeia
+segue para as próximas: cada uma desfaz um serviço diferente, então um
+reembolso que falhou não deve deixar o estoque preso. No fim, se alguma
+falhou, a saga termina em COMPENSATION_FAILED (intervenção manual).
+
 Cada passo é registrado na tabela de sagas (steps.<nome>) via integração
 direta do Step Functions com o DynamoDB, sem Lambda extra.
 
@@ -115,27 +120,30 @@ def update_saga(update_expression, names, values, next_state):
     }
 
 
-def record_step(step_name, status, next_state, with_error=False):
+def record_step(step_name, status, next_state, error_path=None):
     step_value = {'status': {'S': status}, 'at': {'S.$': '$$.State.EnteredTime'}}
     values = {':now': {'S.$': '$$.State.EnteredTime'}}
     expression = 'SET steps.#step = :step, updatedAt = :now'
-    if with_error:
-        step_value['error'] = {'S.$': '$.error.Error'}
-        step_value['cause'] = {'S.$': 'States.JsonToString($.error)'}
+    if error_path:
+        step_value['error'] = {'S.$': f'{error_path}.Error'}
+        step_value['cause'] = {'S.$': f'States.JsonToString({error_path})'}
     values[':step'] = {'M': step_value}
     return update_saga(expression, {'#step': step_name}, values, next_state)
 
 
-def set_status(status, next_state, failed_step=None):
+def set_status(status, next_state, failed_step=None, remove_error=False):
     values = {':status': {'S': status}, ':now': {'S.$': '$$.State.EnteredTime'}}
     expression = 'SET #status = :status, updatedAt = :now'
+    if remove_error:
+        # Erro deixado por uma tentativa de início dada como falha (StartExecutionFailed)
+        expression += ' REMOVE #error, errorCause'
     if failed_step:
         values[':failedStep'] = {'S': failed_step}
         values[':error'] = {'S.$': '$.error.Error'}
         values[':cause'] = {'S.$': 'States.JsonToString($.error)'}
         expression += ', failedStep = :failedStep, #error = :error, errorCause = :cause'
     names = {'#status': 'status'}
-    if failed_step:
+    if failed_step or remove_error:
         names['#error'] = 'error'
     return update_saga(expression, names, values, next_state)
 
@@ -157,29 +165,39 @@ for i, (state, service, action, payload, selector, result_path) in enumerate(FOR
 
     entry = COMPENSATION_ENTRY[state]
     if entry:
-        states[on_fail] = record_step(camel(state), 'FAILED', f'MarkCompensating{state}', with_error=True)
+        states[on_fail] = record_step(camel(state), 'FAILED', f'MarkCompensating{state}', error_path='$.error')
         states[f'MarkCompensating{state}'] = set_status('COMPENSATING', entry, failed_step=camel(state))
     else:
-        states[on_fail] = record_step(camel(state), 'FAILED', 'CleanupOrder', with_error=True)
+        states[on_fail] = record_step(camel(state), 'FAILED', 'CleanupOrder', error_path='$.error')
 
-states['MarkCompleted'] = set_status('COMPLETED', 'SagaCompleted')
+states['MarkCompleted'] = set_status('COMPLETED', 'SagaCompleted', remove_error=True)
 states['SagaCompleted'] = {'Type': 'Succeed'}
 
-# Cadeia de compensação (compartilhada; cada falha entra no ponto certo)
+# Cadeia de compensação (compartilhada; cada falha entra no ponto certo).
+# A falha de uma compensação vai para $.compensationError e a cadeia continua.
 for i, (state, service, action, payload) in enumerate(COMPENSATIONS):
     record = f'Record{state}'
-    next_comp = COMPENSATIONS[i + 1][0] if i + 1 < len(COMPENSATIONS) else 'MarkCompensated'
-    task = lambda_task(service, action, payload, record, 5, 'MarkCompensationFailed')
+    record_failed = f'Record{state}Failed'
+    next_comp = COMPENSATIONS[i + 1][0] if i + 1 < len(COMPENSATIONS) else 'CheckCompensations'
+    task = lambda_task(service, action, payload, record, 5, record_failed)
+    task['Catch'][0]['ResultPath'] = '$.compensationError'
     task['ResultPath'] = None
     states[state] = task
     states[record] = record_step(camel(state), 'COMPENSATED', next_comp)
+    states[record_failed] = record_step(camel(state), 'COMPENSATION_FAILED', next_comp, error_path='$.compensationError')
 
+states['CheckCompensations'] = {
+    'Type': 'Choice',
+    'Choices': [{'Variable': '$.compensationError', 'IsPresent': True, 'Next': 'MarkCompensationFailed'}],
+    'Default': 'MarkCompensated'
+}
 states['MarkCompensated'] = set_status('COMPENSATED', 'SagaCompensated')
 states['SagaCompensated'] = {'Type': 'Fail', 'Error': 'SagaCompensated', 'Cause': 'A step failed and all completed steps were compensated'}
 
 # Falha no primeiro passo: o pedido pode ter sido gravado mesmo assim
 # (ex.: timeout depois da escrita). Cancela, se existir, e termina em FAILED.
 cleanup = lambda_task('orders', 'cancelOrder', COMPENSATIONS[-1][3], 'MarkFailed', 5, 'MarkCompensationFailed')
+cleanup['Catch'][0]['ResultPath'] = '$.compensationError'
 cleanup['ResultPath'] = None
 states['CleanupOrder'] = cleanup
 
@@ -192,12 +210,13 @@ states['MarkFailed'] = update_saga(
     {'#status': 'status', '#error': 'error'}, failed_values, 'SagaFailed')
 states['SagaFailed'] = {'Type': 'Fail', 'Error': 'SagaFailed', 'Cause': 'The first step failed; the order was cleaned up'}
 
-# Compensação falhou mesmo após as tentativas: exige intervenção manual
+# Alguma compensação falhou mesmo após as tentativas: exige intervenção manual.
+# Guarda a última falha; cada passo tem a sua em steps.<nome>.
 states['MarkCompensationFailed'] = update_saga(
     'SET #status = :status, updatedAt = :now, compensationError = :error, compensationCause = :cause',
     {'#status': 'status'},
     {':status': {'S': 'COMPENSATION_FAILED'}, ':now': {'S.$': '$$.State.EnteredTime'},
-     ':error': {'S.$': '$.error.Error'}, ':cause': {'S.$': 'States.JsonToString($.error)'}},
+     ':error': {'S.$': '$.compensationError.Error'}, ':cause': {'S.$': 'States.JsonToString($.compensationError)'}},
     'CompensationFailed')
 states['CompensationFailed'] = {'Type': 'Fail', 'Error': 'CompensationFailed', 'Cause': 'Compensation failed; manual intervention required'}
 

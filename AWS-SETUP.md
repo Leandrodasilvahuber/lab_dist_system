@@ -19,7 +19,16 @@ export ADMIN_API_KEY=$(openssl rand -hex 24)   # guarde: é a chave das rotas de
 npm run deploy       # scripts/deploy.sh: sam build + sam deploy
 ```
 
-`ADMIN_API_KEY` vira o parâmetro `AdminApiKey` do stack. As rotas
+O `deploy.sh` grava `ADMIN_API_KEY` no SSM Parameter Store como SecureString
+(`/dev/ecommerce/admin-api-key`), passando o valor por arquivo temporário, e não
+pela linha de comando. O authorizer lê a chave de lá, com cache de 1 minuto.
+Nos deploys seguintes `ADMIN_API_KEY` é opcional: sem ela, a chave atual é
+mantida. Para trocar a chave sem redeploy:
+`aws ssm put-parameter --name /dev/ecommerce/admin-api-key --type SecureString --overwrite --value file://chave.txt`.
+A chave antiga ainda é aceita por até ~6 minutos depois da troca: 1 minuto de
+cache no authorizer mais os 5 minutos em que o HttpApi guarda a decisão
+(`ReauthorizeEvery: 300` no template).
+As rotas
 `POST /products`, `POST /stock/{id}/adjust`, `GET /orders` e `GET /sagas` exigem
 o header `X-Api-Key` com essa chave. Para restringir o CORS a uma origem, passe
 também `AllowedOrigin=https://...` em `--parameter-overrides`.
@@ -72,7 +81,7 @@ curl $API/health
 curl $API/products
 
 # Compra com sucesso
-curl -X POST $API/saga/execute -H 'Idempotency-Key: compra-1' \
+curl -X POST $API/saga/execute -H "Idempotency-Key: $(uuidgen)" \
   -d '{"productId": "apple", "quantity": 2}'
 curl $API/saga/<sagaId da resposta>
 

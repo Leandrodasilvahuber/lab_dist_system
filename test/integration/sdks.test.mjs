@@ -5,7 +5,8 @@
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
-import { DynamoDBClient, CreateTableCommand, DeleteTableCommand, ListTablesCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, DeleteTableCommand, ListTablesCommand } from '@aws-sdk/client-dynamodb';
+import { ensureTable, logicalName } from '../../scripts/lib/tables.mjs';
 
 const endpoint = process.env.DYNAMODB_ENDPOINT || 'http://localhost:4566';
 const prefix = `it-${Date.now()}`;
@@ -31,6 +32,7 @@ const available = await client.send(new ListTablesCommand({})).then(() => true, 
 // Import depois de configurar as variáveis (database.mjs lê no carregamento)
 const { ProductSDK, OrderSDK, PaymentSDK, StockSDK } = await import('../../src/common/sdks/index.mjs');
 const { InsufficientStockError, InvalidStateError, PaymentDeclinedError, NotFoundError, ValidationError } = await import('../../src/common/errors.mjs');
+const { parsePagination } = await import('../../src/common/pagination.mjs');
 
 describe('SDKs (DynamoDB)', { skip: !available && `DynamoDB indisponível em ${endpoint}` }, () => {
   const stock = new StockSDK(null);
@@ -48,13 +50,9 @@ describe('SDKs (DynamoDB)', { skip: !available && `DynamoDB indisponível em ${e
   const stockOf = async productId => (await stock.getStock(productId)).available;
 
   before(async () => {
-    for (const TableName of Object.values(TABLES)) {
-      await client.send(new CreateTableCommand({
-        TableName,
-        BillingMode: 'PAY_PER_REQUEST',
-        AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' }],
-        KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' }]
-      }));
+    // Mesmos índices do template.yaml (ex.: StatusIndex das reservas)
+    for (const [envKey, TableName] of Object.entries(TABLES)) {
+      await ensureTable(client, logicalName(envKey), TableName);
     }
   });
 
@@ -145,6 +143,60 @@ describe('SDKs (DynamoDB)', { skip: !available && `DynamoDB indisponível em ${e
       assert.strictEqual((await stock.getStock('sem-evento')).name, 'W');
       await assert.rejects(stock.adjustStock('sem-evento-2', -1), NotFoundError);
     });
+
+    it('produto excluído: inventário marcado, ProductCreated atrasado não o recria', async () => {
+      const p = await products.createProduct({ name: 'Del', price: 10, initialStock: 5 });
+      await stock.removeInventory({ productId: p.id });
+      await stock.initializeStock({ productId: p.id, name: 'Del', initialStock: 5 });
+
+      await assert.rejects(stock.getStock(p.id), NotFoundError);
+      await assert.rejects(stock.reserveStock({ productId: p.id, quantity: 1 }), NotFoundError);
+      await assert.rejects(stock.adjustStock(p.id, 3), NotFoundError);
+      assert.ok(!(await stock.listStock({ productId: p.id })).stock.length);
+    });
+
+    it('reserva de produto excluído durante a compra é liberada sem inventário', async () => {
+      const p = await products.createProduct({ name: 'Del2', price: 10, initialStock: 5 });
+      const r = await stock.reserveStock({ productId: p.id, quantity: 2 });
+      await stock.removeInventory({ productId: p.id });
+
+      const released = await stock.releaseStock({ reservationId: r.id });
+      assert.strictEqual(released.status, 'released');
+      assert.strictEqual(released.inventoryMissing, true);
+      assert.strictEqual((await stock.releaseStock({ reservationId: r.id })).status, 'released');
+    });
+
+    it('listagens paginadas percorrem tudo pelo nextToken', async () => {
+      for (const name of ['Pag1', 'Pag2', 'Pag3']) {
+        await products.createProduct({ name, price: 1, initialStock: 1 });
+      }
+      // Mesmo caminho do controller: o token volta pela query string
+      const seen = [];
+      let nextToken;
+      let pages = 0;
+      do {
+        const page = await products.listProducts({ name: 'Pag' }, parsePagination({ limit: '2', nextToken }));
+        seen.push(...page.products.map(item => item.name));
+        nextToken = page.nextToken;
+        pages++;
+      } while (nextToken);
+      assert.deepStrictEqual(seen.sort(), ['Pag1', 'Pag2', 'Pag3']);
+      assert.ok(pages > 1);
+    });
+
+    it('cursor com atributos extras é aceito só pela chave (não quebra o scan)', async () => {
+      const forged = Buffer.from(JSON.stringify({ id: 'prod_x', price: 1 })).toString('base64url');
+      const page = await products.listProducts({}, parsePagination({ nextToken: forged }));
+      assert.ok(Array.isArray(page.products));
+    });
+
+    it('filtro por productId lê o item direto, numa página só', async () => {
+      const p = await products.createProduct({ name: 'Direto', price: 1, initialStock: 7 });
+      const page = await stock.listStock({ productId: p.id }, { limit: 1 });
+      assert.deepStrictEqual(page.stock.map(item => [item.productId, item.available]), [[p.id, 7]]);
+      assert.strictEqual(page.nextToken, undefined);
+      assert.deepStrictEqual((await stock.listStock({ productId: 'nao-existe' }, { limit: 1 })).stock, []);
+    });
   });
 
   describe('OrderSDK', () => {
@@ -163,6 +215,19 @@ describe('SDKs (DynamoDB)', { skip: !available && `DynamoDB indisponível em ${e
       const a = await orders.createOrder({ id: 'order-fixo', productId: 'p-h', quantity: 1, unitPrice: 1 });
       const b = await orders.createOrder({ id: 'order-fixo', productId: 'p-h', quantity: 1, unitPrice: 1 });
       assert.strictEqual(a.createdAt, b.createdAt);
+    });
+
+    it('pedido nunca criado vira voided e barra o CreateOrder atrasado', async () => {
+      assert.strictEqual((await orders.cancelOrder('order-voided')).status, 'voided');
+      await assert.rejects(orders.createOrder({ id: 'order-voided', productId: 'p', quantity: 1, unitPrice: 1 }), InvalidStateError);
+      assert.ok(!(await orders.listOrders()).some(o => o.id === 'order-voided'));
+      await assert.rejects(orders.getOrder('order-voided'), NotFoundError);
+      // Cancelar de novo continua idempotente
+      assert.strictEqual((await orders.cancelOrder('order-voided')).status, 'voided');
+    });
+
+    it('total arredondado em centavos', async () => {
+      assert.strictEqual((await orders.createOrder({ productId: 'p-c', quantity: 3, unitPrice: 19.99 })).total, 59.97);
     });
 
     it('exige unitPrice (vem da saga, Orders não lê produtos)', async () => {

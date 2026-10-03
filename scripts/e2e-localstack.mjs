@@ -4,8 +4,9 @@
  *
  * Publica as funções geradas pelo `sam build` e a state machine real
  * (workflow/saga-workflow.asl.json) e executa cenários de compra:
- * sucesso, pagamento recusado, estoque insuficiente, idempotência, concorrência
- * e compensação de um passo que nunca chegou a gravar.
+ * sucesso, pagamento recusado, compensação que falha (COMPENSATION_FAILED, com
+ * as compensações seguintes rodando mesmo assim), estoque insuficiente,
+ * idempotência, concorrência e compensação de um passo que nunca chegou a gravar.
  *
  * Pré-requisitos:
  *   npm run localstack:start
@@ -110,6 +111,28 @@ check('falhou no pagamento, depois de reservar', s.failedStep === 'processPaymen
 check('estoque liberado e pedido cancelado', s.steps.releaseStock?.status === 'COMPENSATED' && s.steps.cancelOrder?.status === 'COMPENSATED');
 check('pedido cancelado', await orderStatus(s.orderId) === 'cancelled');
 check('estoque devolvido (3)', await productStock(caro.id) === 3);
+
+console.log('\n2b) Compensação que falha não impede as seguintes');
+// Reserva gravada antes, com status inválido: reserveStock devolve a existente
+// e releaseStock falha com InvalidState (erro de negócio, sem retry). O
+// pagamento recusado inicia a compensação; cancelOrder ainda precisa rodar.
+{
+  const { sagaIdFromKey } = await import(`${ROOT}/src/ecommerce/saga-orchestrator/src/services/SagaService.js`);
+  const { DynamoDBDocumentClient, PutCommand } = await import('@aws-sdk/lib-dynamodb');
+  const key = `compensation-failed-${Date.now()}`;
+  await DynamoDBDocumentClient.from(aws.D).send(new PutCommand({
+    TableName: T.STOCK_RESERVATIONS_TABLE,
+    Item: { id: `res_${sagaIdFromKey(key)}`, productId: caro.id, quantity: 1, status: 'bogus' }
+  }));
+
+  r = await call(saga, 'POST', '/saga/execute', { productId: caro.id, quantity: 1 }, { 'Idempotency-Key': key });
+  s = await waitSaga(r.body.sagaId);
+  console.log(`  final: ${s.status} (${s.compensationError?.type}) | ${steps(s)}`);
+  check('saga COMPENSATION_FAILED', s.status === 'COMPENSATION_FAILED' && s.compensationError?.type === 'InvalidState');
+  check('releaseStock falhou e ficou registrado', s.steps.releaseStock?.status === 'COMPENSATION_FAILED');
+  check('cancelOrder rodou mesmo assim', s.steps.cancelOrder?.status === 'COMPENSATED' && await orderStatus(s.orderId) === 'cancelled');
+  check('estoque intacto (3)', await productStock(caro.id) === 3);
+}
 
 console.log('\n3) Estoque insuficiente (pede 50, tem 8)');
 r = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 50 });

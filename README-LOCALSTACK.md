@@ -69,7 +69,8 @@ seguintes são rápidas.
 | `SAGA_STATE_MACHINE_ARN` | State machine da saga | — |
 | `EVENT_BUS_NAME` | Barramento de eventos (sem ele, os eventos vão para o log e para assinantes locais, ex.: `ProductCreated` → Stock) | — |
 | `PAYMENT_MAX_AMOUNT` | Valor máximo aprovado pelo pagamento simulado | `10000` |
-| `LOG_LEVEL` | `info`, `error` ou `silent` | `info` |
+| `LOG_LEVEL` | `debug`, `info`, `error` ou `silent` | `info` |
+| `HOST`, `PORT` | Endereço do `local-server` (`HOST=0.0.0.0` exige `ADMIN_API_KEY`) | `127.0.0.1`, `3001` |
 | `LOCALSTACK_ENDPOINT` | Endpoint usado pelo `test:e2e` | `http://localhost:4566` |
 
 O arquivo `.env.test` tem os valores para o LocalStack:

@@ -5,6 +5,12 @@ import { toNumber } from '../../../../common/validation.mjs';
 
 const sagaService = new SagaService();
 
+// O sagaId é derivado da chave (sem namespace por cliente) e GET /saga/{id} é
+// público: uma chave curta ou previsível deixaria terceiros calcularem o id.
+// Use um UUID (crypto.randomUUID()) por compra.
+const MIN_IDEMPOTENCY_KEY_LENGTH = 16;
+const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
+
 export class SagaOrchestratorController {
   /**
    * POST /saga/execute
@@ -16,6 +22,12 @@ export class SagaOrchestratorController {
       const { correlationId } = event.headers || {};
       const idempotencyKey = event.headers?.['idempotency-key'] || event.headers?.['x-idempotency-key'];
       const { productId, quantity } = parseBody(event);
+
+      if (idempotencyKey !== undefined &&
+          (idempotencyKey.length < MIN_IDEMPOTENCY_KEY_LENGTH || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH)) {
+        return errorResponse(
+          `Idempotency-Key must have between ${MIN_IDEMPOTENCY_KEY_LENGTH} and ${MAX_IDEMPOTENCY_KEY_LENGTH} characters (use a UUID)`, 400);
+      }
 
       if (typeof productId !== 'string' || !productId || quantity === undefined) {
         return errorResponse('Missing required fields: productId, quantity', 400);

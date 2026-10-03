@@ -121,10 +121,13 @@ export class SagaService {
   /**
    * Inicia a execução no Step Functions. Se falhar, marca a saga como FAILED
    * (com START_FAILED, para permitir nova tentativa) e relança o erro.
+   * Depois que a execução começou, uma falha ao gravar o executionArn só é
+   * registrada no log: a saga está rodando e não pode ser dada como falha.
    */
   async launch(saga, executionName) {
+    let executionArn;
     try {
-      const executionArn = await this.stepFunctions.startExecution(executionName, {
+      executionArn = await this.stepFunctions.startExecution(executionName, {
         sagaId: saga.id,
         productId: saga.productId,
         quantity: saga.quantity,
@@ -132,13 +135,17 @@ export class SagaService {
         correlationId: saga.correlationId,
         ids: { orderId: saga.orderId, paymentId: saga.paymentId, reservationId: saga.reservationId }
       });
-
-      await this.db.updateItem('sagas', { id: saga.id }, 'SET executionArn = :arn', { ':arn': executionArn });
-      saga.executionArn = executionArn;
     } catch (error) {
       log({ event: 'SAGA_START_FAILED', correlationId: saga.correlationId, status: 'error', message: `Failed to start saga ${saga.id}`, error });
       await this.markStartFailed(saga);
       throw error;
+    }
+
+    saga.executionArn = executionArn;
+    try {
+      await this.db.updateItem('sagas', { id: saga.id }, 'SET executionArn = :arn', { ':arn': executionArn });
+    } catch (error) {
+      log({ event: 'SAGA_ARN_NOT_RECORDED', correlationId: saga.correlationId, status: 'error', message: `Saga ${saga.id} started but executionArn was not recorded`, error });
     }
   }
 

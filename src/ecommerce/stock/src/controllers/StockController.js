@@ -2,12 +2,13 @@ import { StockSDK } from '../../../../common/sdks/index.mjs';
 import { eventBus } from '../../../../common/event-bus.mjs';
 import { successResponse, errorResponse, parseBody, sdkErrorResponse } from '../../../../common/response.mjs';
 import { toNumber } from '../../../../common/validation.mjs';
+import { parsePagination } from '../../../../common/pagination.mjs';
 
 const stockSDK = new StockSDK(eventBus);
 
 export class StockController {
   /**
-   * GET /stock e GET /stock/{productId}
+   * GET /stock (paginado: ?limit=&nextToken=) e GET /stock/{productId}
    */
   static async getStock(event, params = {}) {
     try {
@@ -16,8 +17,8 @@ export class StockController {
         return successResponse(stock);
       }
 
-      const stock = await stockSDK.listStock(params);
-      return successResponse({ stock });
+      const page = await stockSDK.listStock(params, parsePagination(params));
+      return successResponse(page);
     } catch (error) {
       return sdkErrorResponse(error, 'Failed to get stock');
     }

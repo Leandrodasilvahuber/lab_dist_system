@@ -1,6 +1,8 @@
 import { Database } from '../database.mjs';
 import { NotFoundError, InsufficientStockError, InvalidStateError, ValidationError } from '../errors.mjs';
 import { generateId } from '../ids.mjs';
+import { encodeToken } from '../pagination.mjs';
+import { optionalNumber } from '../validation.mjs';
 
 // GSI da tabela de reservas (status, productId): consulta as reservas ativas
 // sem varrer a tabela. Depois do commit, só as compras em andamento ficam ativas.
@@ -19,7 +21,12 @@ const STATUS_INDEX = 'StatusIndex';
  *
  * O inventário nasce do evento ProductCreated (initializeStock), publicado
  * pelo serviço de Products, e é removido com ProductDeleted (removeInventory).
+ * A remoção deixa um registro `deleted`: o EventBridge não garante a ordem
+ * de entrega, e um ProductCreated que chegue depois não recria o inventário.
  */
+
+// Inventário existente e não removido (ver removeInventory)
+const INVENTORY_LIVE = 'attribute_exists(id) AND attribute_not_exists(deleted)';
 export class StockSDK {
   constructor(eventBridgeClient, db = new Database()) {
     this.eventBridgeClient = eventBridgeClient;
@@ -81,7 +88,7 @@ export class StockSDK {
             table: 'inventory',
             Key: { id: productId },
             UpdateExpression: 'SET stock = stock - :quantity, updatedAt = :now',
-            ConditionExpression: 'attribute_exists(id) AND stock >= :quantity',
+            ConditionExpression: `${INVENTORY_LIVE} AND stock >= :quantity`,
             ExpressionAttributeValues: { ':quantity': quantity, ':now': now }
           }
         }
@@ -103,7 +110,7 @@ export class StockSDK {
       }
       if (productReason === 'ConditionalCheckFailed') {
         const inventory = await this.db.getItem('inventory', { id: productId });
-        if (!inventory) throw new NotFoundError('Inventory not found for product');
+        if (!isLive(inventory)) throw new NotFoundError('Inventory not found for product');
         throw new InsufficientStockError(
           `Insufficient stock: requested ${quantity}, available ${inventory.stock || 0}`
         );
@@ -167,6 +174,8 @@ export class StockSDK {
    * Idempotente: liberar de novo não é erro. Se a reserva não existe (o
    * ReserveStock falhou antes de gravar), grava um registro `released` para que
    * uma reserva atrasada com o mesmo id não debite o estoque depois.
+   * Se o produto foi excluído durante a compra, a reserva é liberada sem
+   * devolver estoque (não há mais inventário para onde devolver).
    */
   async releaseStock({ reservationId, correlationId }) {
     const reservation = await this.db.getItem('stockReservations', { id: reservationId });
@@ -202,7 +211,7 @@ export class StockSDK {
             table: 'inventory',
             Key: { id: reservation.productId },
             UpdateExpression: 'SET stock = stock + :quantity, updatedAt = :now',
-            ConditionExpression: 'attribute_exists(id)',
+            ConditionExpression: INVENTORY_LIVE,
             ExpressionAttributeValues: { ':quantity': reservation.quantity, ':now': now }
           }
         }
@@ -211,9 +220,9 @@ export class StockSDK {
       if (error.name !== 'TransactionCanceledException') throw error;
       throwIfConflict(error);
 
-      const [, inventoryReason] = (error.CancellationReasons || []).map(r => r?.Code);
-      if (inventoryReason === 'ConditionalCheckFailed') {
-        throw new NotFoundError('Inventory not found for product');
+      const [reservationReason, inventoryReason] = (error.CancellationReasons || []).map(r => r?.Code);
+      if (reservationReason !== 'ConditionalCheckFailed' && inventoryReason === 'ConditionalCheckFailed') {
+        return this.releaseWithoutInventory(reservation, correlationId, now);
       }
 
       // Outra execução liberou a reserva ao mesmo tempo
@@ -232,6 +241,38 @@ export class StockSDK {
     });
 
     return released;
+  }
+
+  /**
+   * Libera a reserva de um produto que foi excluído (inventário removido).
+   */
+  async releaseWithoutInventory(reservation, correlationId, now) {
+    try {
+      const released = await this.db.updateItem(
+        'stockReservations',
+        { id: reservation.id },
+        'SET #status = :released, releasedAt = :now, inventoryMissing = :true',
+        { ':released': 'released', ':active': 'active', ':committed': 'committed', ':now': now, ':true': true },
+        {
+          conditionExpression: '#status IN (:active, :committed)',
+          expressionAttributeNames: { '#status': 'status' },
+          returnValues: 'ALL_NEW'
+        }
+      );
+      await this.publish('StockReleased', {
+        reservationId: reservation.id,
+        productId: reservation.productId,
+        quantity: reservation.quantity,
+        inventoryMissing: true,
+        correlationId: correlationId || reservation.correlationId
+      });
+      return released;
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+      const current = await this.getReservation(reservation.id);
+      if (current.status === 'released') return current;
+      throw new InvalidStateError(`Cannot release reservation in status ${current.status}`);
+    }
   }
 
   /**
@@ -260,7 +301,7 @@ export class StockSDK {
           ...(name && { ':name': name })
         },
         {
-          conditionExpression: '(attribute_not_exists(stock) AND :min = :zero) OR stock >= :min',
+          conditionExpression: 'attribute_not_exists(deleted) AND ((attribute_not_exists(stock) AND :min = :zero) OR stock >= :min)',
           ...(name && { expressionAttributeNames: { '#name': 'name' } })
         }
       );
@@ -269,7 +310,7 @@ export class StockSDK {
       if (error.name !== 'ConditionalCheckFailedException') throw error;
 
       const inventory = await this.db.getItem('inventory', { id: productId });
-      if (!inventory) throw new NotFoundError('Inventory not found for product');
+      if (!isLive(inventory)) throw new NotFoundError('Inventory not found for product');
       throw new InsufficientStockError('Insufficient stock for adjustment');
     }
   }
@@ -287,7 +328,7 @@ export class StockSDK {
    */
   async getStock(productId) {
     const inventory = await this.db.getItem('inventory', { id: productId });
-    if (!inventory) {
+    if (!isLive(inventory)) {
       throw new NotFoundError('Inventory not found for product');
     }
 
@@ -303,20 +344,32 @@ export class StockSDK {
   }
 
   /**
-   * Listar estoque
+   * Listar estoque, uma página por vez (`limit`, `startKey`).
+   * Como em listProducts, os filtros valem para a página lida (exceto
+   * `productId`, que lê o item direto e devolve uma única página).
    */
-  async listStock(filters = {}) {
-    const allItems = await this.db.scanItems('inventory');
-    const activeReservations = await this.activeReservations();
+  async listStock(filters = {}, { limit, startKey } = {}) {
+    const stockMin = optionalNumber(filters.stockMin, 'stockMin');
+    const stockMax = optionalNumber(filters.stockMax, 'stockMax');
 
-    return allItems.filter(item => {
+    // Com productId, lê direto pela chave: um scan paginado poderia devolver
+    // várias páginas vazias antes de chegar ao produto
+    const { items, lastKey } = filters.productId
+      ? { items: [await this.db.getItem('inventory', { id: filters.productId })].filter(Boolean) }
+      : await this.db.scanPage('inventory', { limit, startKey });
+    const activeReservations = await this.activeReservations(filters.productId);
+
+    const stock = items.filter(item => {
+      if (!isLive(item)) {
+        return false;
+      }
       if (filters.productId && item.id !== filters.productId) {
         return false;
       }
-      if (filters.stockMin && item.stock < Number(filters.stockMin)) {
+      if (stockMin !== undefined && item.stock < stockMin) {
         return false;
       }
-      if (filters.stockMax && item.stock > Number(filters.stockMax)) {
+      if (stockMax !== undefined && item.stock > stockMax) {
         return false;
       }
       return true;
@@ -326,17 +379,21 @@ export class StockSDK {
       available: item.stock || 0,
       reserved: sumQuantities(activeReservations.filter(r => r.productId === item.id))
     }));
+    return { stock, nextToken: encodeToken(lastKey) };
   }
 
   /**
    * Remover o inventário de um produto excluído (evento ProductDeleted).
+   * Grava um registro `deleted` em vez de apagar a linha, para que um
+   * ProductCreated entregue depois (fora de ordem) não recrie o inventário.
    * Idempotente: remover de novo não é erro.
    */
   async removeInventory({ productId }) {
     if (!productId) {
       throw new ValidationError('productId is required');
     }
-    await this.db.deleteItem('inventory', { id: productId });
+    const now = new Date().toISOString();
+    await this.db.putItem('inventory', { id: productId, deleted: true, stock: 0, deletedAt: now, updatedAt: now });
     return { productId, removed: true };
   }
 
@@ -370,6 +427,10 @@ function throwIfConflict(error) {
     conflict.name = 'TransactionConflictException';
     throw conflict;
   }
+}
+
+function isLive(inventory) {
+  return Boolean(inventory) && !inventory.deleted;
 }
 
 function sumQuantities(reservations) {

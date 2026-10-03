@@ -134,6 +134,19 @@ async function scanItems(tableType) {
   return items;
 }
 
+/**
+ * Uma página do scan: até `limit` itens a partir do cursor `startKey`.
+ * `lastKey` é o cursor da próxima página (undefined na última).
+ */
+async function scanPage(tableType, { limit, startKey } = {}) {
+  const result = await docClient.send(new ScanCommand({
+    TableName: getTable(tableType),
+    ...(limit && { Limit: limit }),
+    ...(startKey && { ExclusiveStartKey: startKey })
+  }));
+  return { items: result.Items || [], lastKey: result.LastEvaluatedKey };
+}
+
 async function deleteItem(tableType, key, options = {}) {
   await docClient.send(new DeleteCommand({
     TableName: getTable(tableType),
@@ -176,6 +189,10 @@ export class Database {
     return scanItems(tableType);
   }
 
+  async scanPage(tableType, options) {
+    return scanPage(tableType, options);
+  }
+
   async deleteItem(tableType, key, options) {
     return deleteItem(tableType, key, options);
   }
@@ -183,5 +200,5 @@ export class Database {
 
 export { docClient, tables };
 export default Database;
-export { putItem, putItemIfNotExists, getItem, queryItems, updateItem, transactWrite, scanItems, deleteItem };
+export { putItem, putItemIfNotExists, getItem, queryItems, updateItem, transactWrite, scanItems, scanPage, deleteItem };
 export { getTable };

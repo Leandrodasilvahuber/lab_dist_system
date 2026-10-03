@@ -87,9 +87,10 @@ describe('compensações da saga', () => {
     assert.strictEqual(again.status, 'active');
   });
 
-  it('cancelar pedido que nunca foi criado não é erro', async () => {
+  it('cancelar pedido nunca criado anula o id e barra o CreateOrder atrasado', async () => {
     const orders = new OrderSDK(null, db);
-    assert.deepStrictEqual(await orders.cancelOrder('order_x'), { id: 'order_x', status: 'not_created' });
+    assert.strictEqual((await orders.cancelOrder('order_x')).status, 'voided');
+    await assert.rejects(orders.createOrder({ id: 'order_x', productId: 'p1', quantity: 1, unitPrice: 5 }), InvalidStateError);
   });
 });
 
@@ -137,8 +138,34 @@ describe('ProductSDK.createProduct', () => {
 
   it('desfaz o produto se ProductCreated não puder ser publicado', async () => {
     const db = new MapDb();
-    const bus = { publish: async (_event, options) => { assert.deepStrictEqual(options, { required: true }); throw new Error('EventBridge fora'); } };
+    const published = [];
+    const bus = {
+      publish: async (event, options) => {
+        published.push(event.DetailType);
+        if (event.DetailType === 'ProductCreated') {
+          assert.deepStrictEqual(options, { required: true });
+          throw new Error('EventBridge fora');
+        }
+      }
+    };
     await assert.rejects(new ProductSDK(bus, db).createProduct({ name: 'X', price: 1, initialStock: 3 }), /EventBridge fora/);
     assert.strictEqual(db.table('products').size, 0);
+    // O evento pode ter sido entregue apesar do erro: o Stock remove o inventário órfão
+    assert.deepStrictEqual(published, ['ProductCreated', 'ProductDeleted']);
+  });
+
+  it('rollback que falha ainda publica ProductDeleted e relança o erro original', async () => {
+    const db = new MapDb();
+    db.deleteItem = async () => { throw new Error('DynamoDB fora'); };
+    const published = [];
+    const bus = {
+      publish: async event => {
+        published.push(event.DetailType);
+        if (event.DetailType === 'ProductCreated') throw new Error('EventBridge fora');
+        throw new Error('ProductDeleted também falhou');
+      }
+    };
+    await assert.rejects(new ProductSDK(bus, db).createProduct({ name: 'X', price: 1 }), /EventBridge fora/);
+    assert.deepStrictEqual(published, ['ProductCreated', 'ProductDeleted']);
   });
 });

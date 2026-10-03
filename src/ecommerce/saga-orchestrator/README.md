@@ -53,13 +53,17 @@ erro de rede) não garante que o passo não gravou nada:
 | `confirmOrder` | `refundPayment`, `releaseStock`, `cancelOrder` → `COMPENSATED` |
 
 As compensações tratam o que nunca foi gravado como nada a desfazer:
-`cancelOrder` ignora pedido inexistente; `refundPayment` ignora pagamento
-recusado e grava `voided` se o pagamento não existe; `releaseStock` grava a
-reserva como `released` se ela não existe. Os registros anulados barram um
-`processPayment`/`reserveStock` atrasado com o mesmo id (`InvalidState`).
+`cancelOrder` grava `voided` se o pedido não existe; `refundPayment` ignora
+pagamento recusado e grava `voided` se o pagamento não existe; `releaseStock`
+grava a reserva como `released` se ela não existe. Os registros anulados barram
+um `createOrder`/`processPayment`/`reserveStock` atrasado com o mesmo id
+(`InvalidState`). Se o produto foi excluído durante a compra, `releaseStock`
+libera a reserva sem devolver estoque (`inventoryMissing: true`).
 
-Se uma compensação falhar mesmo após as tentativas, a saga termina em
-`COMPENSATION_FAILED` e precisa de intervenção manual.
+Se uma compensação falhar mesmo após as tentativas, ela é registrada como
+`COMPENSATION_FAILED` em `steps.<nome>` e as próximas rodam mesmo assim (cada uma
+desfaz um serviço diferente). No fim, a saga termina em `COMPENSATION_FAILED` e
+precisa de intervenção manual.
 
 ## Garantias
 
@@ -79,7 +83,9 @@ Se uma compensação falhar mesmo após as tentativas, a saga termina em
 - **Idempotency-Key:** o cliente pode mandar o header `Idempotency-Key`; a mesma
   chave sempre corresponde à mesma saga (`saga_` + SHA-256 da chave). A mesma
   chave com outro pedido responde `409`; uma saga que falhou ao iniciar é
-  iniciada de novo (execução `<sagaId>-<tentativa>`).
+  iniciada de novo (execução `<sagaId>-<tentativa>`). Só uma falha do
+  `StartExecution` conta como falha ao iniciar: se a execução começou e só a
+  gravação do `executionArn` falhou, a saga segue rodando.
 
 ## Registro da saga (tabela Sagas)
 

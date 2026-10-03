@@ -1,7 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { isAdminRoute, isValidApiKey } from '../../../src/common/auth.mjs';
-import { handler as authorizer } from '../../../src/layers/api-gateway-layer/src/auth/adminAuthorizer.js';
+import { createHandler, createKeyProvider, CACHE_TTL_MS } from '../../../src/layers/api-gateway-layer/src/auth/adminAuthorizer.js';
+
+process.env.LOG_LEVEL = 'silent';
 
 describe('rotas de admin', () => {
   it('protege escrita e listagens completas', () => {
@@ -42,9 +44,48 @@ describe('X-Api-Key', () => {
   });
 
   it('authorizer do HttpApi responde no formato simples', async () => {
-    process.env.ADMIN_API_KEY = key;
+    const authorizer = createHandler(async () => key);
     assert.deepStrictEqual(await authorizer({ headers: { 'x-api-key': key } }), { isAuthorized: true });
     assert.deepStrictEqual(await authorizer({ headers: {} }), { isAuthorized: false });
-    delete process.env.ADMIN_API_KEY;
+  });
+
+  it('authorizer nega se a chave não puder ser lida do SSM', async () => {
+    const authorizer = createHandler(async () => { throw new Error('SSM fora'); });
+    assert.deepStrictEqual(await authorizer({ headers: { 'x-api-key': key } }), { isAuthorized: false });
+  });
+});
+
+describe('chave de admin no SSM', () => {
+  const key = 'chave-de-teste-bem-longa';
+
+  function fakeSsm() {
+    const calls = [];
+    return {
+      calls,
+      send: async command => { calls.push(command.input); return { Parameter: { Value: key } }; }
+    };
+  }
+
+  it('lê o SecureString descriptografado e guarda em cache', async () => {
+    const client = fakeSsm();
+    const getKey = createKeyProvider({ parameterName: '/dev/ecommerce/admin-api-key', client, now: () => 0 });
+    assert.strictEqual(await getKey(), key);
+    assert.strictEqual(await getKey(), key);
+    assert.deepStrictEqual(client.calls, [{ Name: '/dev/ecommerce/admin-api-key', WithDecryption: true }]);
+  });
+
+  it('relê depois que o cache expira', async () => {
+    const client = fakeSsm();
+    let time = 0;
+    const getKey = createKeyProvider({ parameterName: '/p', client, now: () => time });
+    await getKey();
+    time = CACHE_TTL_MS + 1;
+    await getKey();
+    assert.strictEqual(client.calls.length, 2);
+  });
+
+  it('sem o nome do parâmetro configurado, falha (e o authorizer nega)', async () => {
+    const getKey = createKeyProvider({ parameterName: undefined, client: fakeSsm() });
+    await assert.rejects(getKey(), /ADMIN_API_KEY_PARAM/);
   });
 });

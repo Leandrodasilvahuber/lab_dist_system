@@ -14,6 +14,9 @@
  *
  * Com ADMIN_API_KEY definida, as rotas administrativas (src/common/auth.mjs)
  * exigem o header X-Api-Key, como o authorizer do HttpApi faz na AWS.
+ *
+ * Escuta só em 127.0.0.1 (as rotas de admin podem estar abertas). Para expor
+ * na rede local, defina HOST=0.0.0.0 junto com ADMIN_API_KEY.
  */
 import http from 'node:http';
 import fs from 'node:fs';
@@ -24,6 +27,7 @@ import { isAdminRoute, isValidApiKey } from './src/common/auth.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3001);
+const HOST = process.env.HOST || '127.0.0.1';
 const STATE_MACHINE_NAME = 'local-purchase-saga';
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
 
@@ -73,7 +77,7 @@ function routeFor(pathname) {
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key, Idempotency-Key, X-Correlation-Id'
+  'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key, Idempotency-Key, X-Idempotency-Key, X-Correlation-Id'
 };
 
 function readBody(req) {
@@ -138,8 +142,13 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`🛒 Dashboard em http://localhost:${PORT}`);
+if (!ADMIN_API_KEY && !['127.0.0.1', 'localhost', '::1'].includes(HOST)) {
+  console.error(`❌ HOST=${HOST} expõe o servidor na rede: defina ADMIN_API_KEY para proteger as rotas de admin.`);
+  process.exit(1);
+}
+
+server.listen(PORT, HOST, () => {
+  console.log(`🛒 Dashboard em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   console.log(`   LocalStack: ${process.env.AWS_ENDPOINT}`);
   console.log(process.env.SAGA_STATE_MACHINE_ARN
     ? `   Saga: ${process.env.SAGA_STATE_MACHINE_ARN}`

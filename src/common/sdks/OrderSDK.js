@@ -1,11 +1,14 @@
 import { Database } from '../database.mjs';
 import { NotFoundError, InvalidStateError, ValidationError } from '../errors.mjs';
 import { generateId } from '../ids.mjs';
+import { roundMoney } from '../validation.mjs';
 
 /**
  * SDK Público - Interface uniforme para operações de pedido
  *
  * Status: pending -> confirmed | cancelled (confirmed também pode ser cancelado)
+ * `voided` marca um pedido que a saga anulou antes de ele ser gravado
+ * (compensação de um CreateOrder que falhou sem resposta).
  */
 export class OrderSDK {
   constructor(eventBridgeClient, db = new Database()) {
@@ -32,7 +35,7 @@ export class OrderSDK {
       productId,
       quantity,
       unitPrice,
-      total: unitPrice * quantity,
+      total: roundMoney(unitPrice * quantity),
       status: 'pending',
       correlationId: correlationId || generateId('corr'),
       createdAt: now,
@@ -41,7 +44,12 @@ export class OrderSDK {
 
     const created = await this.db.putItemIfNotExists('orders', order);
     if (!created) {
-      return this.getOrder(order.id);
+      // Leitura direta: getOrder esconde os registros `voided`
+      const existing = await this.db.getItem('orders', { id: order.id });
+      if (!existing || existing.status === 'voided') {
+        throw new InvalidStateError('Order was voided by the saga compensation');
+      }
+      return existing;
     }
 
     await this.publish('OrderCreated', {
@@ -56,11 +64,12 @@ export class OrderSDK {
   }
 
   /**
-   * Buscar pedido por ID
+   * Buscar pedido por ID. Um registro `voided` não é um pedido de fato
+   * (só barra um CreateOrder atrasado), então responde como inexistente.
    */
   async getOrder(orderId) {
     const order = await this.db.getItem('orders', { id: orderId });
-    if (!order) {
+    if (!order || order.status === 'voided') {
       throw new NotFoundError('Order not found');
     }
     return order;
@@ -80,12 +89,21 @@ export class OrderSDK {
   /**
    * Cancelar pedido (pending/confirmed -> cancelled). Cancelar de novo não é erro.
    * Usado como compensação da saga, inclusive quando o próprio CreateOrder
-   * falhou: se o pedido nunca foi gravado, não há o que cancelar.
+   * falhou: se o pedido nunca foi gravado, grava um registro `voided`, para
+   * que um CreateOrder atrasado com o mesmo id não crie o pedido depois.
    */
   async cancelOrder(orderId, correlationId) {
     const existing = await this.db.getItem('orders', { id: orderId });
     if (!existing) {
-      return { id: orderId, status: 'not_created' };
+      const voided = { id: orderId, status: 'voided', voidedAt: new Date().toISOString(), correlationId };
+      if (await this.db.putItemIfNotExists('orders', voided)) {
+        return voided;
+      }
+      // O pedido foi gravado entre a leitura e a anulação: cancela normalmente
+      return this.cancelOrder(orderId, correlationId);
+    }
+    if (existing.status === 'voided') {
+      return existing;
     }
 
     const order = await this.transition(orderId, ['pending', 'confirmed'], 'cancelled');
@@ -130,11 +148,14 @@ export class OrderSDK {
   }
 
   /**
-   * Listar pedidos
+   * Listar pedidos (sem os registros `voided`, que não são pedidos de fato)
    */
   async listOrders(filters = {}) {
     const allOrders = await this.db.scanItems('orders');
     return allOrders.filter(order => {
+      if (order.status === 'voided') {
+        return false;
+      }
       if (filters.status && order.status !== filters.status) {
         return false;
       }

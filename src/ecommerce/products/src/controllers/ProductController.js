@@ -2,12 +2,13 @@ import { ProductSDK } from '../../../../common/sdks/index.mjs';
 import { eventBus } from '../../../../common/event-bus.mjs';
 import { successResponse, errorResponse, parseBody, sdkErrorResponse } from '../../../../common/response.mjs';
 import { toNumber } from '../../../../common/validation.mjs';
+import { parsePagination } from '../../../../common/pagination.mjs';
 
 const productSDK = new ProductSDK(eventBus);
 
 export class ProductController {
   /**
-   * GET /products e GET /products/{id}
+   * GET /products (paginado: ?limit=&nextToken=) e GET /products/{id}
    */
   static async getProducts(event, params = {}) {
     try {
@@ -16,8 +17,8 @@ export class ProductController {
         return successResponse(product);
       }
 
-      const products = await productSDK.listProducts(params);
-      return successResponse({ products });
+      const page = await productSDK.listProducts(params, parsePagination(params));
+      return successResponse(page);
     } catch (error) {
       return sdkErrorResponse(error, 'Failed to get products');
     }

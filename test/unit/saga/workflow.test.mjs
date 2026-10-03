@@ -8,20 +8,33 @@ const definition = JSON.parse(fs.readFileSync(
 const states = definition.States;
 
 /**
- * Segue o fluxo a partir de um estado, simulando falha em `failAt`,
- * e devolve as ações de Lambda executadas em ordem.
+ * Segue o fluxo a partir de um estado, simulando falha nas ações de `failAt`
+ * (uma ação ou uma lista), e devolve as ações de Lambda executadas em ordem.
  */
 function simulate(failAt) {
+  const failing = [].concat(failAt ?? []);
   const actions = [];
+  const data = {};
   let name = definition.StartAt;
   for (let i = 0; i < 100 && name; i++) {
     const state = states[name];
     if (state.Type === 'Succeed' || state.Type === 'Fail') return { actions, end: name };
 
+    if (state.Type === 'Choice') {
+      const match = state.Choices.find(c => (c.Variable.slice(2) in data) === c.IsPresent);
+      name = match ? match.Next : state.Default;
+      continue;
+    }
+
     const action = state.Parameters?.Payload?.action;
     if (action) actions.push(action);
 
-    name = action && action === failAt ? state.Catch[0].Next : state.Next;
+    if (action && failing.includes(action)) {
+      data[state.Catch[0].ResultPath.slice(2)] = { Error: 'Simulated' };
+      name = state.Catch[0].Next;
+    } else {
+      name = state.Next;
+    }
   }
   throw new Error('fluxo não terminou');
 }
@@ -29,7 +42,8 @@ function simulate(failAt) {
 describe('saga-workflow.asl.json', () => {
   it('todas as transições apontam para estados existentes', () => {
     for (const [name, state] of Object.entries(states)) {
-      for (const next of [state.Next, ...(state.Catch || []).map(c => c.Next)].filter(Boolean)) {
+      const targets = [state.Next, state.Default, ...(state.Catch || []).map(c => c.Next), ...(state.Choices || []).map(c => c.Next)];
+      for (const next of targets.filter(Boolean)) {
         assert.ok(states[next], `${name} -> ${next} não existe`);
       }
     }
@@ -85,10 +99,20 @@ describe('saga-workflow.asl.json', () => {
     assert.strictEqual(states.CreateOrder.Parameters.Payload.input['unitPrice.$'], '$.unitPrice');
   });
 
-  it('falha na compensação leva a COMPENSATION_FAILED', () => {
-    for (const action of ['releaseStock', 'refundPayment', 'cancelOrder']) {
-      const state = Object.values(states).find(s => s.Parameters?.Payload?.action === action);
-      assert.strictEqual(state.Catch[0].Next, 'MarkCompensationFailed');
+  it('falha numa compensação não impede as seguintes e leva a COMPENSATION_FAILED', () => {
+    for (const failed of ['refundPayment', 'releaseStock', 'cancelOrder']) {
+      const { actions, end } = simulate(['processPayment', failed]);
+      assert.deepStrictEqual(actions.slice(actions.indexOf('processPayment') + 1), ['refundPayment', 'releaseStock', 'cancelOrder']);
+      assert.strictEqual(end, 'CompensationFailed', `falha em ${failed}`);
     }
+  });
+
+  it('falha na limpeza do pedido (primeiro passo) leva a COMPENSATION_FAILED', () => {
+    // createOrder e cancelOrder falham: a limpeza não conseguiu cancelar
+    assert.strictEqual(simulate(['createOrder', 'cancelOrder']).end, 'CompensationFailed');
+  });
+
+  it('a saga concluída remove o erro de uma tentativa de início dada como falha', () => {
+    assert.match(states.MarkCompleted.Parameters.UpdateExpression, /REMOVE #error/);
   });
 });
