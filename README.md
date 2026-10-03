@@ -27,6 +27,11 @@ compensação automática.
                                        └─────────┴─────────┴──── Step Functions ──▶ tabela Sagas
                                                                  (saga de compra)    (progresso)
 
+  Comunicação entre serviços (ninguém lê a tabela de outro):
+    SagaOrchestrator ──getProduct (Lambda invoke, síncrono)──▶ Products   preço + 404 imediato
+    Products ──ProductCreated (EventBridge, assíncrono)──▶ Stock          cria o inventário inicial
+
+  Tabelas por serviço: Products │ Orders │ Payments │ Inventory + StockReservations │ Sagas
   Cada serviço publica eventos de domínio (OrderCreated, PaymentRefunded...) no EventBridge.
 ```
 
@@ -105,6 +110,21 @@ requisição com a mesma chave devolve a saga existente (200) em vez de criar ou
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
 | GET | `/sagas` | Lista as compras (`?status=`) |
 
+### Exposição
+
+- **Só o API Gateway é público.** Nenhuma Lambda tem Function URL; elas recebem
+  HTTP apenas pelas rotas acima.
+- **Invocações internas** (exigem permissão IAM, inacessíveis pela internet):
+  Step Functions → Orders/Payments/Stock (`{ action, input }`), Saga → Products
+  (`getProduct`), EventBridge → Stock (`ProductCreated`) e → SQS. Um request HTTP
+  nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
+- **O dashboard usa só** `/health`, `GET/POST /products`, `GET /stock`,
+  `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`.
+- ⚠️ **A API não tem autenticação.** As rotas operacionais (`/orders/confirm|cancel`,
+  `/payments`, `/payments/refund`, `/stock/{id}/reserve|release|adjust`) ficam
+  públicas para testes manuais; a saga não depende delas. Antes de expor de verdade,
+  remova-as do `template.yaml` ou proteja com um authorizer (JWT/IAM).
+
 Erros de negócio: `400` validação, `402` pagamento recusado, `404` não
 encontrado, `409` estado inválido ou estoque insuficiente.
 
@@ -125,19 +145,19 @@ src/
 ├── common/
 │   ├── database.mjs        # DynamoDB (nomes de tabela via env, transações)
 │   ├── errors.mjs          # Erros de negócio (viram errorType na Lambda)
-│   ├── event-bus.mjs       # Publicação de eventos de domínio no EventBridge
+│   ├── event-bus.mjs       # Eventos de domínio no EventBridge (ou assinantes locais)
 │   ├── http-event.mjs      # Normaliza eventos do HttpApi (payload 2.0)
-│   ├── actions.mjs         # Despacho das ações invocadas pela saga
+│   ├── actions.mjs         # Despacho de ações ({ action, input }) e eventos do EventBridge
 │   ├── response.mjs        # Respostas HTTP
 │   ├── logger.mjs          # Logs JSON (LOG_LEVEL = info | error | silent)
 │   └── sdks/               # ProductSDK, OrderSDK, PaymentSDK, StockSDK
 ├── ecommerce/
 │   ├── products/ orders/ payments/ stock/
-│   │   ├── index.mjs       # Handler: HTTP ou ação da saga
+│   │   ├── index.mjs       # Handler: HTTP, ação ou evento de domínio
 │   │   └── src/            # routes, controllers, actions
 │   └── saga-orchestrator/
 │       ├── index.mjs
-│       ├── src/            # routes, controller, SagaService, StepFunctionsClient
+│       ├── src/            # routes, controller, SagaService, ProductClient, StepFunctionsClient
 │       └── workflow/saga-workflow.asl.json   # gerado por scripts/generate-saga-workflow.py
 └── layers/api-gateway-layer/   # /health e fallback 404
 
@@ -198,5 +218,10 @@ Para usar o dashboard com a API publicada na AWS, abra
 
 - Eventos de domínio são publicados depois da escrita no banco, sem *outbox*
   transacional: se a publicação falhar, o evento se perde (fica registrado no log).
+  Para `ProductCreated` isso deixa o produto sem inventário; recupere com
+  `POST /stock/{id}/adjust { delta, name }`.
+- O inventário é criado de forma assíncrona: logo após `POST /products`, o estoque
+  pode levar um instante para aparecer em `/stock` (consistência eventual).
+- A saga depende de forma síncrona do serviço de Products ao iniciar a compra.
 - Listagens usam `Scan` (adequado para o laboratório, não para volume grande).
 - Não há autenticação na API.

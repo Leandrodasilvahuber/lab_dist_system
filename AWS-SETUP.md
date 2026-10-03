@@ -22,7 +22,7 @@ O `sam deploy` mostra o changeset e pede confirmação antes de criar os recurso
 (`confirm_changeset = true` no `samconfig.toml`). O bucket S3 dos artefatos é
 criado e gerenciado pelo SAM (`resolve_s3 = true`).
 
-Depois do deploy, popule os produtos (as tabelas já foram criadas pelo stack):
+Depois do deploy, popule o catálogo e o estoque (as tabelas já foram criadas pelo stack):
 
 ```bash
 npm run seed -- --stage dev
@@ -37,12 +37,22 @@ npm run seed -- --stage dev
 | `SagaOrchestratorFunction` | `/saga/execute`, `/saga/{id}`, `/sagas` |
 | `SagaStateMachine` (`dev-purchase-saga`) | Saga de compra (Step Functions Standard) |
 | `GatewayFunction` | `/health` e 404 com a lista de endpoints |
-| Tabelas `dev-Products`, `dev-Orders`, `dev-Payments`, `dev-StockReservations`, `dev-Sagas` | DynamoDB on-demand |
+| Tabelas `dev-Products`, `dev-Orders`, `dev-Payments`, `dev-Inventory`, `dev-StockReservations`, `dev-Sagas` | DynamoDB on-demand, uma ou mais por serviço |
 | `EventBus` (`dev-ecommerce-events`) | Eventos de domínio dos serviços |
+| `ProductCreatedToStockRule` | Entrega `ProductCreated` à `StockFunction`, que cria o inventário inicial |
 | `OrderEventsQueue` + `OrderEventsDlq` | Recebe os eventos `source: orders` (auditoria) |
 
-Cada função recebe só as permissões de que precisa: por exemplo, a state machine
-pode invocar apenas as três Lambdas dos passos e escrever na tabela de sagas.
+Cada função recebe só as permissões de que precisa, e cada serviço acessa apenas
+as próprias tabelas:
+
+| Função | Tabelas | Outros acessos |
+|---|---|---|
+| `ProductFunction` | `Products` | publica eventos |
+| `OrderFunction` | `Orders` | publica eventos |
+| `PaymentFunction` | `Payments` | publica eventos |
+| `StockFunction` | `Inventory`, `StockReservations` | publica eventos; recebe `ProductCreated` |
+| `SagaOrchestratorFunction` | `Sagas` | invoca `ProductFunction` (preço/validação); inicia a state machine |
+| `SagaStateMachine` | `Sagas` | invoca as três Lambdas dos passos |
 
 ## Testando
 
