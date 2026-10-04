@@ -130,8 +130,8 @@ describe('sagaIdFromExecution', () => {
 describe('GET /metrics/sagas', () => {
   const event = { requestContext: { http: { method: 'GET' } }, rawPath: '/metrics/sagas', headers: {} };
 
-  it('é rota de admin', () => {
-    assert.ok(isAdminRoute('GET', '/metrics/sagas'));
+  it('é rota pública', () => {
+    assert.ok(!isAdminRoute('GET', '/metrics/sagas'));
   });
 
   it('devolve as métricas', async () => {

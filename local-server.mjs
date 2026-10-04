@@ -37,7 +37,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SFNClient, ListStateMachinesCommand } from '@aws-sdk/client-sfn';
 import { isAdminRoute, isValidApiKey, isValidApiKeyHash } from './src/common/auth.mjs';
-import { createLogBuffer } from './src/common/log-query.mjs';
+import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
+import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
+import { createLogBuffer, parseLogLine, isTraceId } from './src/common/log-query.mjs';
+import { createEmfAgent } from './scripts/lib/emf-agent.mjs';
 import { CORS_HEADERS } from './src/common/response.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -94,12 +97,25 @@ eventBus.subscribe('products', 'ProductCreated', handlers.stock);
 eventBus.subscribe('products', 'ProductDeleted', handlers.stock);
 
 // Sem CloudWatch Logs aqui: os handlers rodam neste processo, então as linhas
-// warn/error do logger ficam num buffer em memória servido em GET /logs
-const logBuffer = createLogBuffer(500);
+// do logger ficam num buffer em memória servido em GET /logs e GET /trace/{id}.
+// Os passos da saga rodam nas Lambdas local-* do LocalStack: o agente EMF lê os
+// log groups delas para o mesmo buffer e, como o LocalStack não extrai Embedded
+// Metric Format, publica as métricas das linhas (_aws) com PutMetricData.
+const logBuffer = createLogBuffer(2000);
+const awsConfig = { region: process.env.AWS_REGION, endpoint: process.env.AWS_ENDPOINT };
+const emfAgent = createEmfAgent({
+  cloudwatch: new CloudWatchClient(awsConfig),
+  logs: new CloudWatchLogsClient(awsConfig),
+  onEntry: entry => logBuffer.capture(entry)
+});
 for (const method of ['log', 'warn', 'error']) {
   const original = console[method].bind(console);
   console[method] = (first, ...rest) => {
-    logBuffer.capture(first);
+    const entry = parseLogLine(first);
+    if (entry) {
+      logBuffer.capture(entry);
+      emfAgent.capture(entry);
+    }
     original(first, ...rest);
   };
 }
@@ -234,6 +250,15 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { 'Content-Type': 'application/json' }, JSON.stringify({ logs }));
   }
 
+  const traceMatch = req.method === 'GET' && url.pathname.match(/^\/trace\/([^/]+)$/);
+  if (traceMatch) {
+    const correlationId = traceMatch[1];
+    if (!isTraceId(correlationId)) {
+      return send(res, 400, { 'Content-Type': 'application/json' }, JSON.stringify({ error: 'Invalid correlationId' }));
+    }
+    return send(res, 200, { 'Content-Type': 'application/json' }, JSON.stringify({ correlationId, logs: logBuffer.trace(correlationId) }));
+  }
+
   if (routeFor(url.pathname) === 'saga' && !process.env.SAGA_STATE_MACHINE_ARN && req.method === 'POST') {
     return send(res, 503, { 'Content-Type': 'application/json' }, JSON.stringify({
       error: `State machine ${STATE_MACHINE_NAME} não encontrada no LocalStack`,
@@ -268,6 +293,7 @@ if (!ADMIN_AUTH_ENABLED && !['127.0.0.1', 'localhost', '::1'].includes(HOST)) {
 }
 
 server.listen(PORT, HOST, () => {
+  emfAgent.start();
   console.log(`🛒 Dashboard em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   console.log(`   LocalStack: ${process.env.AWS_ENDPOINT}`);
   console.log(process.env.SAGA_STATE_MACHINE_ARN

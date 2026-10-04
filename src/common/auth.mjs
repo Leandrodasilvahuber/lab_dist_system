@@ -7,20 +7,10 @@ import { promisify } from 'node:util';
  * em cada rota); o local-server usa esta mesma lista. Mantenha os dois iguais.
  */
 export const ADMIN_ROUTES = [
+  // Só as escritas da aba Admin (cadastro de produto e ajuste de estoque);
+  // consultas, observabilidade e DLQ são abertas
   ['POST', /^\/products$/],
-  ['POST', /^\/stock\/[^/]+\/adjust$/],
-  // Listagens de todas as compras e pedidos (o cliente consulta as suas por id)
-  ['GET', /^\/orders$/],
-  ['GET', /^\/sagas$/],
-  // Logs têm ids, correlationId e mensagens internas
-  ['GET', /^\/logs$/],
-  // Alarmes: nomes e descrições internas, e o motivo traz os valores das métricas
-  ['GET', /^\/alarms$/],
-  // Métricas da saga: ids das compras e erros internos de cada passo
-  ['GET', /^\/metrics\/sagas$/],
-  // DLQ: o body tem dados do produto e as ações mudam estado
-  ['GET', /^\/dlq$/],
-  ['POST', /^\/dlq\/[^/]+\/(redrive|discard)$/]
+  ['POST', /^\/stock\/[^/]+\/adjust$/]
 ];
 
 export function isAdminRoute(method, path) {

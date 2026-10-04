@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { parseLogQuery, parseLogLine, createLogBuffer } from '../../../src/common/log-query.mjs';
+import { parseLogQuery, parseLogLine, createLogBuffer, isTraceId, withoutMetrics } from '../../../src/common/log-query.mjs';
 
-const line = (status, timestamp, event = 'X') => JSON.stringify({ timestamp, event, status });
+const line = (status, timestamp, event = 'X', extra = {}) => JSON.stringify({ timestamp, event, status, ...extra });
 const NOW = Date.parse('2026-10-04T12:00:00Z');
 
 describe('log-query', () => {
@@ -16,6 +16,41 @@ describe('log-query', () => {
     assert.strictEqual(parseLogLine('GET /health -> 200'), null);
     assert.strictEqual(parseLogLine('{quebrado'), null);
     assert.strictEqual(parseLogLine(line('warn', '2026-10-04T11:00:00Z')).status, 'warn');
+  });
+
+  it('parseLogLine aceita o prefixo de texto do runtime da Lambda', () => {
+    const entry = parseLogLine(`2026-10-04T11:00:00.000Z\tabc-123\tINFO\t${line('info', '2026-10-04T11:00:00Z', 'A')}`);
+    assert.strictEqual(entry.event, 'A');
+  });
+
+  it('isTraceId aceita ids do sistema e recusa o que quebraria o filter pattern', () => {
+    assert.ok(isTraceId('saga_0f8e2a6c-1b2d-4c3e-9f00-123456789abc'));
+    assert.ok(isTraceId('order_saga_abc.1:2-3'));
+    assert.ok(!isTraceId('x" || $.status = "error'));
+    assert.ok(!isTraceId(''));
+    assert.ok(!isTraceId('a'.repeat(129)));
+  });
+
+  it('withoutMetrics tira o bloco _aws e os valores/dimensões EMF da raiz', () => {
+    const entry = {
+      event: 'X', status: 'warn', errorType: 'NotFound', ErrorType: 'NotFound', BusinessErrors: 1,
+      _aws: { CloudWatchMetrics: [{ Dimensions: [[], ['ErrorType']], Metrics: [{ Name: 'BusinessErrors' }] }] }
+    };
+    assert.deepStrictEqual(withoutMetrics(entry), { event: 'X', status: 'warn', errorType: 'NotFound' });
+  });
+
+  it('trace: todas as linhas com o correlationId, em ordem, sem as linhas só de métrica', () => {
+    const buffer = createLogBuffer(10);
+    buffer.capture(line('info', '2026-10-04T11:00:02Z', 'B', { correlationId: 'c1' }));
+    buffer.capture(line('warn', '2026-10-04T11:00:03Z', 'C', { correlationId: 'c1' }));
+    buffer.capture(line('info', '2026-10-04T11:00:01Z', 'A', { correlationId: 'c1' }));
+    buffer.capture(line('info', '2026-10-04T11:00:01Z', 'OUTRA', { correlationId: 'c2' }));
+    buffer.capture(JSON.stringify({ timestamp: '2026-10-04T11:00:04Z', event: 'METRICA', correlationId: 'c1', ActionCount: 1 }));
+
+    assert.deepStrictEqual(buffer.trace('c1').map(e => e.event), ['A', 'B', 'C']);
+    // info sem correlationId não interessa a nenhuma aba
+    buffer.capture(line('info', '2026-10-04T11:00:05Z', 'SEM_ID'));
+    assert.deepStrictEqual(buffer.query({}, NOW).map(e => e.event), ['C']);
   });
 
   it('buffer guarda só warn/error, filtra por nível e período, mais recentes primeiro', () => {

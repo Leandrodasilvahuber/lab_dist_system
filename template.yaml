@@ -32,7 +32,8 @@ Globals:
     MemorySize: 256
     Timeout: 15
     # Todas as Lambdas escrevem no mesmo log group (o campo `service` de cada
-    # linha diz qual função gerou), onde o metric filter conta os erros não tratados
+    # linha diz qual função gerou). As linhas de erro e de ação carregam métricas
+    # no Embedded Metric Format (src/common/emf.mjs): o CloudWatch as extrai sozinho
     LoggingConfig:
       LogFormat: Text
       LogGroup: !Ref ServicesLogGroup
@@ -114,8 +115,12 @@ Resources:
           SAGA_STATE_MACHINE_ARN: !Ref SagaStateMachine
       Policies:
         - Statement:
+            # GetMetricData/ListMetrics: aba Métricas (namespace Ecommerce/<env>, gravado via EMF)
             - Effect: Allow
-              Action: cloudwatch:DescribeAlarms
+              Action:
+                - cloudwatch:DescribeAlarms
+                - cloudwatch:GetMetricData
+                - cloudwatch:ListMetrics
               Resource: '*'
             # Aba Desempenho: lê o histórico das últimas execuções da saga
             - Effect: Allow
@@ -135,6 +140,9 @@ Resources:
                 - sqs:ChangeMessageVisibility
                 - sqs:GetQueueAttributes
               Resource: !GetAtt ProductEventsDlq.Arn
+        # Aba SLOs: desfecho e duração das compras (Scan na tabela de sagas)
+        - DynamoDBReadPolicy:
+            TableName: !Ref SagasTable
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref EventBus
       Events:
@@ -150,40 +158,48 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /alarms
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         Logs:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /logs
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         SagaMetrics:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /metrics/sagas
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
+        ErrorMetrics:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /metrics/errors
+            Method: GET
+        SloMetrics:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /metrics/slo
+            Method: GET
+        Trace:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /trace/{correlationId}
+            Method: GET
         ListDlq:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /dlq
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         DlqAction:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /dlq/{messageId}/{action}
             Method: POST
-            Auth:
-              Authorizer: AdminApiKey
         Proxy:
           Type: HttpApi
           Properties:
@@ -259,8 +275,6 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /orders
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         GetOrder:
           Type: HttpApi
           Properties:
@@ -397,8 +411,6 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /sagas
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SagasTable
@@ -549,19 +561,6 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${Environment}-ecommerce'
       RetentionInDays: 14
 
-  # Linhas com status "error" (src/common/logger.mjs) = erros não tratados.
-  # Erros de negócio saem com status "warn" e não contam.
-  UnhandledErrorsMetricFilter:
-    Type: AWS::Logs::MetricFilter
-    Properties:
-      LogGroupName: !Ref ServicesLogGroup
-      FilterPattern: '{ $.status = "error" }'
-      MetricTransformations:
-        - MetricNamespace: !Sub 'Ecommerce/${Environment}'
-          MetricName: UnhandledErrors
-          MetricValue: '1'
-          DefaultValue: 0
-
   # Os alarmes começam com ${Environment}-ecommerce- (ALARM_PREFIX do GET /alarms)
   UnhandledErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -574,6 +573,22 @@ Resources:
       Period: 300
       EvaluationPeriods: 1
       Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  # Erros de negócio (recusa de pagamento, falta de estoque, validação...) são
+  # esperados; o alarme só pega um volume fora do normal. Métrica via EMF.
+  BusinessErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${Environment}-ecommerce-business-errors'
+      AlarmDescription: 'Volume alto de erros de negócio (ver aba Métricas, por ErrorType)'
+      Namespace: !Sub 'Ecommerce/${Environment}'
+      MetricName: BusinessErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 20
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
 
@@ -594,22 +609,281 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
 
+  # A saga compensada termina no estado Fail "SagaCompensated", então
+  # AWS/States ExecutionsFailed mistura compensação (esperada: cartão recusado,
+  # falta de estoque) com saga que nem a compensação fechou. Os filtros abaixo
+  # separam as duas pelo erro final da execução no log da state machine.
+  SagaCompensationsMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref SagaStateMachineLogGroup
+      FilterPattern: '{ $.type = "ExecutionFailed" && $.details.error = "SagaCompensated" }'
+      MetricTransformations:
+        - MetricNamespace: !Sub 'Ecommerce/${Environment}'
+          MetricName: SagaCompensations
+          MetricValue: '1'
+          Unit: Count
+
+  SagaUnrecoveredMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref SagaStateMachineLogGroup
+      FilterPattern: '{ $.type = "ExecutionFailed" && $.details.error != "SagaCompensated" }'
+      MetricTransformations:
+        - MetricNamespace: !Sub 'Ecommerce/${Environment}'
+          MetricName: SagaUnrecovered
+          MetricValue: '1'
+          Unit: Count
+
+  # Só saga não recuperada: CompensationFailed, SagaFailed, timeout ou abortada
   SagaExecutionsFailedAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub '${Environment}-ecommerce-saga-failed'
-      AlarmDescription: 'Execuções da saga de compra que falharam (ver SagaStateMachineLogGroup)'
-      Namespace: AWS/States
-      MetricName: ExecutionsFailed
-      Dimensions:
-        - Name: StateMachineArn
-          Value: !Ref SagaStateMachine
-      Statistic: Sum
-      Period: 300
+      AlarmDescription: 'Saga que nem a compensação conseguiu fechar: CompensationFailed/SagaFailed/timeout (ver SagaStateMachineLogGroup)'
+      Metrics:
+        - Id: failed
+          Label: SagaUnrecovered + ExecutionsTimedOut + ExecutionsAborted
+          Expression: FILL(unrecovered, 0) + FILL(timedOut, 0) + FILL(aborted, 0)
+          ReturnData: true
+        - Id: unrecovered
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: !Sub 'Ecommerce/${Environment}'
+              MetricName: SagaUnrecovered
+            Period: 300
+            Stat: Sum
+        - Id: timedOut
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/States
+              MetricName: ExecutionsTimedOut
+              Dimensions:
+                - Name: StateMachineArn
+                  Value: !Ref SagaStateMachine
+            Period: 300
+            Stat: Sum
+        - Id: aborted
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/States
+              MetricName: ExecutionsAborted
+              Dimensions:
+                - Name: StateMachineArn
+                  Value: !Ref SagaStateMachine
+            Period: 300
+            Stat: Sum
       EvaluationPeriods: 1
       Threshold: 0
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
+
+  # Algumas compensações são esperadas; o alarme pega a taxa fora do patamar.
+  # Com menos de 20 execuções em 5 min a taxa não é avaliada (1 recusa em 2
+  # compras já daria 50%).
+  SagaCompensationRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${Environment}-ecommerce-saga-compensation-rate'
+      AlarmDescription: 'Mais de 5% das sagas compensadas (cartão recusado, falta de estoque...): fora do patamar normal'
+      Metrics:
+        - Id: rate
+          Label: '% de sagas compensadas'
+          Expression: IF(FILL(started, 0) >= 20, 100 * FILL(compensated, 0) / started, 0)
+          ReturnData: true
+        - Id: started
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/States
+              MetricName: ExecutionsStarted
+              Dimensions:
+                - Name: StateMachineArn
+                  Value: !Ref SagaStateMachine
+            Period: 300
+            Stat: Sum
+        - Id: compensated
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: !Sub 'Ecommerce/${Environment}'
+              MetricName: SagaCompensations
+            Period: 300
+            Stat: Sum
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  # SLOs nativos (CloudWatch Application Signals → Service Level Objectives):
+  # histórico, error budget e burn rate só na AWS. As metas são as mesmas da
+  # aba SLOs do dashboard (SLO_TARGETS em SloClient.js), que calcula os valores
+  # direto da tabela de sagas e da DLQ e é a única visão no LocalStack.
+
+  # Compensação é desfecho aceito (cartão recusado, falta de estoque); falha é
+  # a saga que nem a compensação fechou, timeout ou execução abortada
+  SloSagaOutcome:
+    Type: AWS::ApplicationSignals::ServiceLevelObjective
+    Properties:
+      Name: !Sub '${Environment}-ecommerce-slo-saga-outcome'
+      Description: '>= 99,5% das sagas terminam em Completed ou Compensated'
+      RequestBasedSli:
+        RequestBasedSliMetric:
+          TotalRequestCountMetric:
+            - Id: total
+              ReturnData: true
+              Expression: FILL(succeeded, 0) + FILL(compensated, 0) + FILL(unrecovered, 0) + FILL(timedOut, 0) + FILL(aborted, 0)
+            - Id: succeeded
+              ReturnData: false
+              MetricStat:
+                Metric:
+                  Namespace: AWS/States
+                  MetricName: ExecutionsSucceeded
+                  Dimensions:
+                    - Name: StateMachineArn
+                      Value: !Ref SagaStateMachine
+                Period: 60
+                Stat: Sum
+            - Id: compensated
+              ReturnData: false
+              MetricStat:
+                Metric:
+                  Namespace: !Sub 'Ecommerce/${Environment}'
+                  MetricName: SagaCompensations
+                Period: 60
+                Stat: Sum
+            - Id: unrecovered
+              ReturnData: false
+              MetricStat:
+                Metric:
+                  Namespace: !Sub 'Ecommerce/${Environment}'
+                  MetricName: SagaUnrecovered
+                Period: 60
+                Stat: Sum
+            - Id: timedOut
+              ReturnData: false
+              MetricStat:
+                Metric:
+                  Namespace: AWS/States
+                  MetricName: ExecutionsTimedOut
+                  Dimensions:
+                    - Name: StateMachineArn
+                      Value: !Ref SagaStateMachine
+                Period: 60
+                Stat: Sum
+            - Id: aborted
+              ReturnData: false
+              MetricStat:
+                Metric:
+                  Namespace: AWS/States
+                  MetricName: ExecutionsAborted
+                  Dimensions:
+                    - Name: StateMachineArn
+                      Value: !Ref SagaStateMachine
+                Period: 60
+                Stat: Sum
+          MonitoredRequestCountMetric:
+            GoodCountMetric:
+              - Id: good
+                ReturnData: true
+                Expression: FILL(succeeded, 0) + FILL(compensated, 0)
+              - Id: succeeded
+                ReturnData: false
+                MetricStat:
+                  Metric:
+                    Namespace: AWS/States
+                    MetricName: ExecutionsSucceeded
+                    Dimensions:
+                      - Name: StateMachineArn
+                        Value: !Ref SagaStateMachine
+                  Period: 60
+                  Stat: Sum
+              - Id: compensated
+                ReturnData: false
+                MetricStat:
+                  Metric:
+                    Namespace: !Sub 'Ecommerce/${Environment}'
+                    MetricName: SagaCompensations
+                  Period: 60
+                  Stat: Sum
+      Goal:
+        Interval:
+          RollingInterval:
+            DurationUnit: DAY
+            Duration: 1
+        AttainmentGoal: 99.5
+      BurnRateConfigurations:
+        - LookBackWindowMinutes: 60
+
+  # ExecutionTime inclui as sagas compensadas (o Step Functions não separa);
+  # a aba do dashboard mede só as COMPLETED. Meta: 99% das janelas de 5 min
+  # com p95 abaixo de 2 s
+  SloPurchaseLatency:
+    Type: AWS::ApplicationSignals::ServiceLevelObjective
+    Properties:
+      Name: !Sub '${Environment}-ecommerce-slo-purchase-latency'
+      Description: 'p95 da duração da saga de compra < 2 s'
+      Sli:
+        SliMetric:
+          MetricDataQueries:
+            - Id: p95
+              ReturnData: true
+              MetricStat:
+                Metric:
+                  Namespace: AWS/States
+                  MetricName: ExecutionTime
+                  Dimensions:
+                    - Name: StateMachineArn
+                      Value: !Ref SagaStateMachine
+                Period: 300
+                Stat: p95
+                Unit: Milliseconds
+        MetricThreshold: 2000
+        ComparisonOperator: LessThan
+      Goal:
+        Interval:
+          RollingInterval:
+            DurationUnit: DAY
+            Duration: 1
+        AttainmentGoal: 99
+      BurnRateConfigurations:
+        - LookBackWindowMinutes: 60
+
+  # Mensagem tratada (reprocessada ou descartada) sai da fila: idade da mais
+  # antiga acima de 24 h = evento esquecido. Meta 99,9% ~ nenhuma janela violada
+  SloDlqAge:
+    Type: AWS::ApplicationSignals::ServiceLevelObjective
+    Properties:
+      Name: !Sub '${Environment}-ecommerce-slo-dlq-age'
+      Description: 'Nenhuma mensagem na DLQ sem tratamento há mais de 24 h'
+      Sli:
+        SliMetric:
+          MetricDataQueries:
+            - Id: oldest
+              ReturnData: true
+              MetricStat:
+                Metric:
+                  Namespace: AWS/SQS
+                  MetricName: ApproximateAgeOfOldestMessage
+                  Dimensions:
+                    - Name: QueueName
+                      Value: !GetAtt ProductEventsDlq.QueueName
+                Period: 300
+                Stat: Maximum
+        MetricThreshold: 86400
+        ComparisonOperator: LessThan
+      Goal:
+        Interval:
+          RollingInterval:
+            DurationUnit: DAY
+            Duration: 1
+        AttainmentGoal: 99.9
+      BurnRateConfigurations:
+        - LookBackWindowMinutes: 60
 
   ApiServerErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -629,6 +903,157 @@ Resources:
       Threshold: 0
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
+
+  # ---------- Dashboard e Logs Insights ----------
+  # Visão de saúde agregada (testes de carga e chaos). A latência por etapa usa
+  # SEARCH na métrica EMF ActionDuration, então ação nova entra sozinha.
+  # O zoom num caso específico é a consulta salva TraceByCorrelationIdQuery.
+  HealthDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${Environment}-ecommerce'
+      DashboardBody: !Sub |
+        {
+          "start": "-PT3H",
+          "periodOverride": "inherit",
+          "widgets": [
+            { "type": "text", "x": 0, "y": 0, "width": 24, "height": 2, "properties": {
+              "markdown": "## Saúde da saga de compra (${Environment})\nPara investigar uma compra: Logs Insights → Consultas salvas → **ecommerce/${Environment}/Rastreio por correlationId** (troque COLE_O_CORRELATION_ID pelo id)."
+            } },
+            { "type": "metric", "x": 0, "y": 2, "width": 12, "height": 6, "properties": {
+              "title": "Sagas por minuto", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 60,
+              "metrics": [
+                [ "AWS/States", "ExecutionsStarted", "StateMachineArn", "${SagaStateMachine}", { "label": "iniciadas" } ],
+                [ ".", "ExecutionsSucceeded", ".", ".", { "label": "concluídas" } ],
+                [ "Ecommerce/${Environment}", "SagaCompensations", { "label": "compensadas" } ],
+                [ ".", "SagaUnrecovered", { "label": "não recuperadas" } ],
+                [ "AWS/States", "ExecutionsTimedOut", "StateMachineArn", "${SagaStateMachine}", { "label": "timeout" } ],
+                [ ".", "ExecutionsAborted", ".", ".", { "label": "abortadas" } ]
+              ]
+            } },
+            { "type": "metric", "x": 12, "y": 2, "width": 12, "height": 6, "properties": {
+              "title": "Taxa de sucesso e de compensação (%)", "region": "${AWS::Region}", "view": "timeSeries", "period": 300,
+              "yAxis": { "left": { "min": 0, "max": 100 } },
+              "metrics": [
+                [ { "expression": "IF(started > 0, 100 * FILL(succeeded, 0) / started)", "label": "sucesso", "id": "success" } ],
+                [ { "expression": "IF(started > 0, 100 * FILL(compensated, 0) / started)", "label": "compensação", "id": "compensation" } ],
+                [ "AWS/States", "ExecutionsStarted", "StateMachineArn", "${SagaStateMachine}", { "id": "started", "stat": "Sum", "visible": false } ],
+                [ ".", "ExecutionsSucceeded", ".", ".", { "id": "succeeded", "stat": "Sum", "visible": false } ],
+                [ "Ecommerce/${Environment}", "SagaCompensations", { "id": "compensated", "stat": "Sum", "visible": false } ]
+              ]
+            } },
+            { "type": "metric", "x": 0, "y": 8, "width": 8, "height": 6, "properties": {
+              "title": "Latência p50 por etapa (ms)", "region": "${AWS::Region}", "view": "timeSeries", "period": 60,
+              "metrics": [ [ { "expression": "SEARCH('{Ecommerce/${Environment},Action,Outcome} MetricName=\"ActionDuration\" Outcome=\"ok\"', 'p50', 60)", "id": "p50" } ] ]
+            } },
+            { "type": "metric", "x": 8, "y": 8, "width": 8, "height": 6, "properties": {
+              "title": "Latência p95 por etapa (ms)", "region": "${AWS::Region}", "view": "timeSeries", "period": 60,
+              "metrics": [ [ { "expression": "SEARCH('{Ecommerce/${Environment},Action,Outcome} MetricName=\"ActionDuration\" Outcome=\"ok\"', 'p95', 60)", "id": "p95" } ] ]
+            } },
+            { "type": "metric", "x": 16, "y": 8, "width": 8, "height": 6, "properties": {
+              "title": "Latência p99 por etapa (ms)", "region": "${AWS::Region}", "view": "timeSeries", "period": 60,
+              "metrics": [ [ { "expression": "SEARCH('{Ecommerce/${Environment},Action,Outcome} MetricName=\"ActionDuration\" Outcome=\"ok\"', 'p99', 60)", "id": "p99" } ] ]
+            } },
+            { "type": "metric", "x": 0, "y": 14, "width": 12, "height": 6, "properties": {
+              "title": "Erros", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 60,
+              "metrics": [
+                [ "Ecommerce/${Environment}", "UnhandledErrors", { "label": "não tratados (error)" } ],
+                [ ".", "BusinessErrors", { "label": "de negócio (warn)" } ],
+                [ "AWS/ApiGateway", "5xx", "ApiId", "${ApiGateway}", "Stage", "${Environment}", { "label": "API 5xx" } ],
+                [ { "expression": "SEARCH('{Ecommerce/${Environment},Action,Outcome} MetricName=\"ActionCount\" Outcome=\"failed\"', 'Sum', 60)", "id": "failedSteps", "label": "etapa falhou" } ]
+              ]
+            } },
+            { "type": "metric", "x": 12, "y": 14, "width": 12, "height": 6, "properties": {
+              "title": "Erros por Lambda", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 60,
+              "metrics": [
+                [ "AWS/Lambda", "Errors", "FunctionName", "${GatewayFunction}", { "label": "gateway" } ],
+                [ "...", "${ProductFunction}", { "label": "product" } ],
+                [ "...", "${OrderFunction}", { "label": "order" } ],
+                [ "...", "${PaymentFunction}", { "label": "payment" } ],
+                [ "...", "${StockFunction}", { "label": "stock" } ],
+                [ "...", "${SagaOrchestratorFunction}", { "label": "saga-orchestrator" } ],
+                [ "...", "${AdminAuthorizerFunction}", { "label": "admin-authorizer" } ]
+              ]
+            } },
+            { "type": "metric", "x": 0, "y": 20, "width": 12, "height": 6, "properties": {
+              "title": "Throttles", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 60,
+              "metrics": [
+                [ "AWS/Lambda", "Throttles", "FunctionName", "${GatewayFunction}", { "label": "gateway" } ],
+                [ "...", "${ProductFunction}", { "label": "product" } ],
+                [ "...", "${OrderFunction}", { "label": "order" } ],
+                [ "...", "${PaymentFunction}", { "label": "payment" } ],
+                [ "...", "${StockFunction}", { "label": "stock" } ],
+                [ "...", "${SagaOrchestratorFunction}", { "label": "saga-orchestrator" } ],
+                [ "AWS/States", "ExecutionThrottled", "StateMachineArn", "${SagaStateMachine}", { "label": "saga (Step Functions)" } ],
+                [ "AWS/ApiGateway", "4xx", "ApiId", "${ApiGateway}", "Stage", "${Environment}", { "label": "API 4xx (inclui 429)" } ]
+              ]
+            } },
+            { "type": "metric", "x": 12, "y": 20, "width": 12, "height": 6, "properties": {
+              "title": "Throttles do DynamoDB", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 60,
+              "metrics": [ [ { "expression": "SEARCH('{AWS/DynamoDB,TableName} (MetricName=\"ReadThrottleEvents\" OR MetricName=\"WriteThrottleEvents\") (TableName=\"${ProductsTable}\" OR TableName=\"${OrdersTable}\" OR TableName=\"${PaymentsTable}\" OR TableName=\"${StockReservationsTable}\" OR TableName=\"${InventoryTable}\" OR TableName=\"${SagasTable}\")', 'Sum', 60)", "id": "ddb" } ] ]
+            } },
+            { "type": "metric", "x": 0, "y": 26, "width": 12, "height": 6, "properties": {
+              "title": "DLQ de eventos de produto", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Maximum", "period": 60,
+              "metrics": [
+                [ "AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${ProductEventsDlq.QueueName}", { "label": "mensagens" } ],
+                [ ".", "ApproximateAgeOfOldestMessage", ".", ".", { "label": "idade da mais antiga (s)", "yAxis": "right" } ]
+              ]
+            } },
+            { "type": "alarm", "x": 12, "y": 26, "width": 12, "height": 6, "properties": {
+              "title": "Alarmes",
+              "alarms": [
+                "${UnhandledErrorsAlarm.Arn}",
+                "${BusinessErrorsAlarm.Arn}",
+                "${SagaExecutionsFailedAlarm.Arn}",
+                "${SagaCompensationRateAlarm.Arn}",
+                "${ApiServerErrorsAlarm.Arn}",
+                "${ProductEventsDlqAlarm.Arn}"
+              ]
+            } },
+            { "type": "log", "x": 0, "y": 32, "width": 24, "height": 6, "properties": {
+              "title": "Últimos erros (error e warn)", "region": "${AWS::Region}", "view": "table",
+              "query": "SOURCE '${ServicesLogGroup}' | fields @timestamp, status, event, correlationId, message | filter status = 'error' or status = 'warn' | sort @timestamp desc | limit 50"
+            } }
+          ]
+        }
+
+  # Consultas salvas (Logs Insights → Consultas salvas → ecommerce/<env>/...)
+  # O like casa o id em qualquer lugar da linha: nas Lambdas ele está no campo
+  # correlationId; no log da state machine, dentro do input/output da execução.
+  TraceByCorrelationIdQuery:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub 'ecommerce/${Environment}/Rastreio por correlationId'
+      LogGroupNames:
+        - !Ref ServicesLogGroup
+        - !Ref SagaStateMachineLogGroup
+      QueryString: |
+        fields @timestamp, @log, service, event, status, type, message, error
+        | filter @message like "COLE_O_CORRELATION_ID"
+        | sort @timestamp asc
+        | limit 1000
+
+  ErrorsByEventQuery:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub 'ecommerce/${Environment}/Erros por evento'
+      LogGroupNames:
+        - !Ref ServicesLogGroup
+      QueryString: |
+        filter status = "error" or status = "warn"
+        | stats count(*) as total by status, event, errorType
+        | sort total desc
+
+  SlowestStepsQuery:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub 'ecommerce/${Environment}/Etapas mais lentas'
+      LogGroupNames:
+        - !Ref ServicesLogGroup
+      QueryString: |
+        filter event = "ACTION_COMPLETED"
+        | stats count(*) as calls, pct(data.durationMs, 50) as p50, pct(data.durationMs, 95) as p95, pct(data.durationMs, 99) as p99, max(data.durationMs) as maxMs by message
+        | sort p95 desc
 
   # DynamoDB Tables
   # Todas com backup contínuo (PITR: restauração em qualquer ponto dos últimos
@@ -797,3 +1222,7 @@ Outputs:
   SagaStateMachineArn:
     Description: "Saga State Machine ARN"
     Value: !Ref SagaStateMachine
+
+  HealthDashboardUrl:
+    Description: "Dashboard de saúde da saga (CloudWatch)"
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/${HealthDashboard}"

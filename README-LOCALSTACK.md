@@ -62,18 +62,25 @@ mostra as linhas de log geradas:
 
 | Cenário | Resultado | Log |
 |---|---|---|
-| `POST /products` com preço 0 | 400 | `warn API_REJECTED` |
-| Ação `confirmOrder` de pedido inexistente | lança `NotFound` | `warn ACTION_REJECTED` |
-| `ProductCreated` com `initialStock: -1` | evento confirmado, **sem DLQ** | `warn DOMAIN_EVENT_REJECTED` |
+| `POST /products` com preço 0 | 400 | `warn API_REJECTED` (`BusinessErrors`, `HTTP_400`) |
+| Ação `confirmOrder` de pedido inexistente | lança `NotFound` | `warn ACTION_REJECTED` (`BusinessErrors`, `NotFound`) |
+| `ProductCreated` com `initialStock: -1` | evento confirmado, **sem DLQ** | `warn DOMAIN_EVENT_REJECTED` (`BusinessErrors`, `ValidationError`) |
 | `ProductCreated` sem a tabela de inventário | 3 tentativas e depois DLQ `local-ProductEventsDlq` | `error ACTION_FAILED` + stack |
 | `GET /stock` sem a tabela de inventário | 500 sem detalhes | `error UNEXPECTED_ERROR` + stack |
 
 No fim, ele cria os alarmes `local-ecommerce-*` (os mesmos do `template.yaml`)
-no CloudWatch do LocalStack e espera o LocalStack avaliá-los. Como o LocalStack
-não aplica metric filters nem publica métricas de SQS/API Gateway/Step
-Functions, o script publica em `Ecommerce/local` os valores observados (erros
-`error` no log, mensagens na DLQ, respostas 5xx). Os alarmes locais usam
-período de 60 s e ficam ~15 min em ALARM. Abra `npm run local-server` → aba
+no CloudWatch do LocalStack e espera o LocalStack avaliá-los. Na AWS as
+métricas de erro saem das próprias linhas de log (Embedded Metric Format, bloco
+`_aws`); o LocalStack guarda os logs mas não extrai EMF, nem publica métricas de
+SQS/API Gateway/Step Functions. Por isso o script publica em `Ecommerce/local`
+as métricas EMF das linhas geradas e os valores observados (mensagens na DLQ,
+respostas 5xx). Os alarmes locais usam período de 60 s, limiar 0 (na AWS,
+`business-errors` só dispara com 20 em 5 min) e ficam ~15 min em ALARM.
+`saga-failed` e `saga-compensation-rate` (limiar 5%) ficam em OK: o teste não
+executa saga, e na AWS eles vêm de metric filters no log da state machine,
+que o LocalStack não aplica. O
+LocalStack às vezes avalia um alarme antes de ver o ponto; se um ficar em OK,
+rode de novo. Abra `npm run local-server` → aba
 🩺 Monitoramento para ver a tabela. Para apagar alarmes e DLQ:
 `npm run test:e2e:errors -- --cleanup`.
 
@@ -81,9 +88,24 @@ A aba 📭 **DLQ** lista os eventos que o teste deixou na `local-ProductEventsDl
 (o `ProductCreated` de `p-transitorio`). ♻️ Reprocessar entrega o evento de novo
 ao Stock (cria o item "Transitório" no estoque local); 🗑️ Descartar só apaga.
 
-A aba 📜 **Logs** mostra as linhas warn/error. No `local-server` elas vêm de um
-buffer em memória (últimas 500, desde que o servidor subiu); na AWS, do
-CloudWatch Logs. Exige a chave de admin quando `ADMIN_API_KEY_HASH` (ou `ADMIN_API_KEY`) está definida.
+## Métricas e rastreio no local-server
+
+O `local-server` faz o papel do CloudWatch com um agente EMF
+(`scripts/lib/emf-agent.mjs`): as linhas dos handlers que rodam no processo e,
+a cada 10 s, as dos log groups `/aws/lambda/local-*` (os passos da saga, que
+rodam como Lambdas no LocalStack) têm as métricas do bloco `_aws` publicadas
+com `PutMetricData` em `Ecommerce/local`. Ao subir, ele lê a última hora desses
+log groups só para as abas de log (sem republicar métricas).
+
+- 📊 **Métricas**: erros de negócio e não tratados por tipo, e chamadas,
+  rejeições, falhas e duração por ação. Lê o CloudWatch do LocalStack.
+- 📜 **Logs**: linhas warn/error.
+- 🔎 **Rastreio**: estado da saga e todas as linhas do mesmo `correlationId`.
+- 🎯 **SLOs**: calculados da tabela `sagas` e da `local-ProductEventsDlq`, como
+  na AWS. Os SLOs nativos (Application Signals) existem só no deploy da AWS.
+
+Logs e Rastreio leem um buffer em memória (últimas 2000 linhas, desde que o
+servidor subiu, mais a última hora das Lambdas); na AWS, do CloudWatch Logs.
 
 O CloudWatch precisa estar em `SERVICES` no `docker-compose.yml`. Se o
 container subiu antes dessa mudança, recrie-o (apaga os dados locais):

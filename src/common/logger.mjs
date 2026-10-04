@@ -1,3 +1,5 @@
+import { emfFields } from './emf.mjs';
+
 // LOG_LEVEL: debug | info (padrão) | warn | error (só erros) | silent
 const LEVELS = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 };
 
@@ -10,25 +12,61 @@ function severityOf(status, error) {
   return error ? 'error' : 'info';
 }
 
-function shouldLog(severity) {
-  const level = LEVELS[(process.env.LOG_LEVEL || 'info').toLowerCase()] ?? LEVELS.info;
-  return level >= LEVELS[severity];
+function currentLevel() {
+  return LEVELS[(process.env.LOG_LEVEL || 'info').toLowerCase()] ?? LEVELS.info;
 }
 
 // Resolvido na chamada (não no carregamento) para os testes poderem trocar o console
 const WRITERS = { error: 'error', warn: 'warn', info: 'log', debug: 'log' };
 
-export function log({ event, orderId, correlationId, status, message, data = null, error = null }) {
-  const severity = severityOf(status, error);
-  if (!shouldLog(severity)) return;
+// Tipo do erro tratado sem objeto de erro (ex.: API_REJECTED, que só tem o status HTTP)
+function errorTypeOf(error, data) {
+  if (error) return error.name || 'Error';
+  return data?.statusCode ? `HTTP_${data.statusCode}` : 'Rejected';
+}
 
-  const logEntry = {
-    timestamp: new Date().toISOString(),
+/**
+ * Métricas EMF da linha: todo warn conta em BusinessErrors e todo error em
+ * UnhandledErrors (total e por ErrorType), além das métricas pedidas em `metrics`
+ * ({ metrics, dimensions, dimensionSets }, ver emf.mjs).
+ */
+function metricGroups(severity, error, data, metrics) {
+  const groups = metrics ? [metrics] : [];
+  if (severity === 'warn' || severity === 'error') {
+    groups.push({
+      metrics: { [severity === 'warn' ? 'BusinessErrors' : 'UnhandledErrors']: { value: 1 } },
+      dimensions: { ErrorType: errorTypeOf(error, data) },
+      dimensionSets: [[], ['ErrorType']]
+    });
+  }
+  return groups;
+}
+
+export function log({ event, orderId, correlationId, status, message, data = null, error = null, metrics = null }) {
+  const severity = severityOf(status, error);
+  const level = currentLevel();
+  if (level === LEVELS.silent) return;
+
+  const timestamp = new Date();
+  const metricFields = emfFields(metricGroups(severity, error, data, metrics), timestamp.getTime());
+  const base = {
+    timestamp: timestamp.toISOString(),
     // As Lambdas dividem um log group; o nome da função identifica a origem
     service: process.env.AWS_LAMBDA_FUNCTION_NAME,
     event,
+    correlationId
+  };
+
+  // Abaixo do LOG_LEVEL a linha some, mas as métricas não: sai uma linha
+  // mínima, sem status (a aba Logs a ignora), só para o CloudWatch extraí-las
+  if (level < LEVELS[severity]) {
+    if (metricFields._aws) console.log(JSON.stringify({ ...base, ...metricFields }));
+    return;
+  }
+
+  const logEntry = {
+    ...base,
     orderId,
-    correlationId,
     status: severity === 'info' ? (status || 'info') : severity,
     message,
     data,
@@ -40,7 +78,7 @@ export function log({ event, orderId, correlationId, status, message, data = nul
     if (severity === 'error' && error.stack) logEntry.stack = error.stack;
   }
 
-  // Uma linha JSON por evento (formato lido pelo CloudWatch Logs Insights e
-  // pelo metric filter de erros não tratados no template.yaml)
-  console[WRITERS[severity]](JSON.stringify(logEntry));
+  // Uma linha JSON por evento (formato lido pelo CloudWatch Logs Insights e,
+  // pelo bloco _aws, pelo Embedded Metric Format do CloudWatch)
+  console[WRITERS[severity]](JSON.stringify({ ...logEntry, ...metricFields }));
 }

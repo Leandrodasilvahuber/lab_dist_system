@@ -6,15 +6,19 @@ import { AlarmsClient } from '../services/AlarmsClient.js';
 import { LogsClient } from '../services/LogsClient.js';
 import { DlqClient } from '../services/DlqClient.js';
 import { SagaMetricsClient } from '../services/SagaMetricsClient.js';
-import { parseLogQuery } from '../../../../common/log-query.mjs';
+import { CloudWatchMetricsClient, parseMetricsQuery } from '../services/CloudWatchMetricsClient.js';
+import { SloClient, parseSloQuery } from '../services/SloClient.js';
+import { parseLogQuery, isTraceId } from '../../../../common/log-query.mjs';
 
 /**
  * Gateway centralizado.
  *
  * No HttpApi cada rota (/products, /orders, /payments, /stock, /saga...) é
  * ligada diretamente à Lambda do serviço. Esta função atende o health check,
- * os alarmes e os logs de erro (CloudWatch), a DLQ dos eventos de produto, as
- * métricas de desempenho da saga (histórico do Step Functions) e
+ * os alarmes, os logs de erro e o rastreio por correlationId (CloudWatch Logs),
+ * as métricas de erros e ações (CloudWatch, gravadas via EMF), a DLQ dos
+ * eventos de produto, as métricas de desempenho da saga (histórico do Step Functions),
+ * os SLOs (tabela de sagas e DLQ) e
  * tudo o que não casar com nenhuma rota ({proxy+}), devolvendo a lista de
  * endpoints disponíveis.
  */
@@ -23,6 +27,9 @@ const AVAILABLE_ENDPOINTS = [
   'GET  /alarms',
   'GET  /logs',
   'GET  /metrics/sagas',
+  'GET  /metrics/errors',
+  'GET  /metrics/slo',
+  'GET  /trace/{correlationId}',
   'GET  /dlq',
   'POST /dlq/{messageId}/redrive',
   'POST /dlq/{messageId}/discard',
@@ -43,7 +50,9 @@ export function createAPIHandler({
   alarms = new AlarmsClient(),
   logs = new LogsClient(),
   dlq = new DlqClient(),
-  sagaMetrics = new SagaMetricsClient()
+  sagaMetrics = new SagaMetricsClient(),
+  metrics = new CloudWatchMetricsClient(),
+  slo = new SloClient()
 } = {}) {
   return async function handleAPIRequest(rawEvent) {
     const event = normalizeHttpEvent(rawEvent);
@@ -61,7 +70,6 @@ export function createAPIHandler({
       }
     }
 
-    // Rota de admin: o authorizer do HttpApi exige a X-Api-Key antes de chegar aqui
     if (event.method === 'GET' && event.path === '/logs') {
       try {
         return successResponse({ logs: await logs.listLogs(parseLogQuery(event.queryStringParameters)) });
@@ -71,7 +79,7 @@ export function createAPIHandler({
       }
     }
 
-    // Rota de admin: tempos por passo das últimas compras (ids das sagas e erros internos)
+    // tempos por passo das últimas compras (ids das sagas e erros internos)
     if (event.method === 'GET' && event.path === '/metrics/sagas') {
       try {
         return successResponse(await sagaMetrics.recentMetrics());
@@ -81,7 +89,40 @@ export function createAPIHandler({
       }
     }
 
-    // Rotas de admin (o body tem dados do produto e as ações mudam estado)
+    // séries de erros por tipo e chamadas/duração por ação
+    if (event.method === 'GET' && event.path === '/metrics/errors') {
+      try {
+        return successResponse(await metrics.errorMetrics(parseMetricsQuery(event.queryStringParameters)));
+      } catch (error) {
+        log({ event: 'ERROR_METRICS_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: 'Could not read CloudWatch metrics', error });
+        return errorResponse('Metrics unavailable', 503);
+      }
+    }
+
+    // SLOs (latência e desfecho das compras, mensagens esquecidas na DLQ)
+    if (event.method === 'GET' && event.path === '/metrics/slo') {
+      try {
+        return successResponse(await slo.evaluate(parseSloQuery(event.queryStringParameters)));
+      } catch (error) {
+        log({ event: 'SLO_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: 'Could not evaluate SLOs', error });
+        return errorResponse('SLOs unavailable', 503);
+      }
+    }
+
+    // todas as linhas de log de uma compra (correlationId)
+    const traceMatch = event.method === 'GET' && event.path.match(/^\/trace\/([^/]+)$/);
+    if (traceMatch) {
+      // Ids só têm [\w.:-]: nada a decodificar, o que vier codificado é inválido
+      const correlationId = traceMatch[1];
+      if (!isTraceId(correlationId)) return errorResponse('Invalid correlationId', 400);
+      try {
+        return successResponse({ correlationId, logs: await logs.trace(correlationId) });
+      } catch (error) {
+        log({ event: 'TRACE_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: 'Could not read CloudWatch logs', error });
+        return errorResponse('Trace unavailable', 503);
+      }
+    }
+
     if (event.method === 'GET' && event.path === '/dlq') {
       return dlqCall(event, 'list', async () => successResponse(await dlq.listMessages()));
     }

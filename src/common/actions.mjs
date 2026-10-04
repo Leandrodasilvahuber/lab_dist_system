@@ -39,16 +39,27 @@ export async function runAction(actions, { action, input = {} }, { logRejection 
   });
 
   const started = Date.now();
+  // Chamadas e duração por ação e resultado: latência de cada passo da saga no tempo.
+  // Só o par Action+Outcome (o total por ação é a soma dos resultados): menos
+  // métricas custom cobradas e a consulta não depende de casar dimensões parciais
+  const actionMetrics = outcome => ({
+    metrics: { ActionCount: { value: 1 }, ActionDuration: { value: Date.now() - started, unit: 'Milliseconds' } },
+    dimensions: { Action: action, Outcome: outcome },
+    dimensionSets: [['Action', 'Outcome']]
+  });
   try {
     const result = await fn(input);
-    log({ event: 'ACTION_COMPLETED', correlationId: input.correlationId, status: 'info', message: `Action ${action} completed`, data: { durationMs: Date.now() - started } });
+    log({ event: 'ACTION_COMPLETED', correlationId: input.correlationId, status: 'info', message: `Action ${action} completed`, data: { durationMs: Date.now() - started }, metrics: actionMetrics('ok') });
     return result;
   } catch (error) {
     // Erro de negócio é esperado (warn); o resto é falha não tratada (error)
     if (isRetryable(error)) {
-      log({ event: 'ACTION_FAILED', correlationId: input.correlationId, status: 'error', message: `Action ${action} failed: ${error.message}`, error });
+      log({ event: 'ACTION_FAILED', correlationId: input.correlationId, status: 'error', message: `Action ${action} failed: ${error.message}`, error, metrics: actionMetrics('failed') });
     } else if (logRejection) {
-      log({ event: 'ACTION_REJECTED', correlationId: input.correlationId, status: 'warn', message: `Action ${action} rejected: ${error.message}`, error });
+      log({ event: 'ACTION_REJECTED', correlationId: input.correlationId, status: 'warn', message: `Action ${action} rejected: ${error.message}`, error, metrics: actionMetrics('rejected') });
+    } else {
+      // Quem chamou registra o warn (e conta o BusinessErrors); aqui só as métricas da ação
+      log({ event: 'ACTION_REJECTED', correlationId: input.correlationId, status: 'debug', message: `Action ${action} rejected: ${error.message}`, metrics: actionMetrics('rejected') });
     }
     throw error;
   }

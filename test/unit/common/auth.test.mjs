@@ -6,21 +6,17 @@ import { createHandler, createKeyProvider, CACHE_TTL_MS } from '../../../src/lay
 process.env.LOG_LEVEL = 'silent';
 
 describe('rotas de admin', () => {
-  it('protege as escritas, as listagens de compras/pedidos, os alarmes, os logs e a DLQ', () => {
+  it('protege só as escritas da aba Admin', () => {
     assert.ok(isAdminRoute('POST', '/products'));
-    assert.ok(isAdminRoute('GET', '/orders'));
-    assert.ok(isAdminRoute('GET', '/sagas'));
     assert.ok(isAdminRoute('POST', '/stock/p1/adjust'));
-    assert.ok(isAdminRoute('GET', '/logs'));
-    assert.ok(isAdminRoute('GET', '/alarms'));
-    assert.ok(isAdminRoute('GET', '/dlq'));
-    assert.ok(isAdminRoute('POST', '/dlq/m1/redrive'));
-    assert.ok(isAdminRoute('POST', '/dlq/m1/discard'));
   });
 
-  it('deixa públicas a vitrine, a compra e as consultas', () => {
+  it('deixa públicas a vitrine, a compra, as consultas, a observabilidade e a DLQ', () => {
     for (const [method, path] of [['GET', '/products'], ['GET', '/products/p1'], ['GET', '/stock'],
-      ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/orders/o1'], ['GET', '/health']]) {
+      ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/orders/o1'], ['GET', '/health'],
+      ['GET', '/orders'], ['GET', '/sagas'], ['GET', '/logs'], ['GET', '/alarms'], ['GET', '/metrics/sagas'],
+      ['GET', '/metrics/errors'], ['GET', '/metrics/slo'], ['GET', '/trace/s1'],
+      ['GET', '/dlq'], ['POST', '/dlq/m1/redrive'], ['POST', '/dlq/m1/discard']]) {
       assert.ok(!isAdminRoute(method, path), `${method} ${path}`);
     }
   });

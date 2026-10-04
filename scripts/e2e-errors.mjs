@@ -5,14 +5,16 @@
  * Provoca cada tipo de erro com os handlers reais e mostra as linhas de log
  * geradas (src/common/logger.mjs):
  *  - erro tratado (validação/regra de negócio) -> status "warn", sem stack,
- *    não vai para a DLQ nem conta para alarme;
+ *    não vai para a DLQ e conta em BusinessErrors (por ErrorType);
  *  - erro não tratado (infraestrutura)         -> status "error", com stack,
  *    conta em UnhandledErrors e, se veio de um evento, termina na DLQ.
+ * As métricas saem na própria linha, em Embedded Metric Format (bloco _aws).
  *
  * A falha de infraestrutura é real: a tabela de inventário não é criada
  * (DynamoDB responde ResourceNotFoundException).
  *
- * No fim, publica as métricas observadas e cria os alarmes `local-ecommerce-*`
+ * No fim, publica as métricas EMF das linhas (o LocalStack não as extrai
+ * sozinho) e as observadas e cria os alarmes `local-ecommerce-*`
  * (os mesmos do template.yaml) no CloudWatch do LocalStack, que os avalia;
  * eles aparecem na aba Monitoramento do dashboard (npm run local-server).
  * Alarmes e DLQ ficam; as tabelas do teste são removidas.
@@ -25,14 +27,18 @@
 import * as cw from '@aws-sdk/client-cloudwatch';
 import * as sqs from '@aws-sdk/client-sqs';
 import { ROOT, clients, ensureTables, removeTables } from './lib/localstack.mjs';
+import { extractEmfMetrics } from '../src/common/emf.mjs';
+import { parseLogLine } from '../src/common/log-query.mjs';
 
 const endpoint = process.env.LOCALSTACK_ENDPOINT || 'http://localhost:4566';
 const aws = clients(endpoint);
 const ALARM_PREFIX = 'local-ecommerce-';
 const ALARMS = {
   unhandledErrors: `${ALARM_PREFIX}unhandled-errors`,
+  businessErrors: `${ALARM_PREFIX}business-errors`,
   productEventsDlq: `${ALARM_PREFIX}product-events-dlq`,
   sagaFailed: `${ALARM_PREFIX}saga-failed`,
+  sagaCompensationRate: `${ALARM_PREFIX}saga-compensation-rate`,
   api5xx: `${ALARM_PREFIX}api-5xx`
 };
 const DLQ_NAME = 'local-ProductEventsDlq';
@@ -71,7 +77,8 @@ Object.assign(process.env, T, {
   AWS_REGION: 'us-east-1',
   AWS_ACCESS_KEY_ID: 'test',
   AWS_SECRET_ACCESS_KEY: 'test',
-  LOG_LEVEL: 'info'
+  LOG_LEVEL: 'info',
+  ENVIRONMENT: 'local'
 });
 
 // Captura as linhas JSON do logger; mostra só warn/error (info vira ruído aqui)
@@ -80,9 +87,8 @@ let currentScenario = '';
 for (const method of ['log', 'warn', 'error']) {
   const original = console[method].bind(console);
   console[method] = (first, ...rest) => {
-    let entry;
-    try { entry = typeof first === 'string' && first.startsWith('{') ? JSON.parse(first) : null; } catch { entry = null; }
-    if (!entry?.event) return original(first, ...rest);
+    const entry = parseLogLine(first);
+    if (!entry) return original(first, ...rest);
     logLines.push({ ...entry, scenario: currentScenario });
     if (entry.status === 'warn') original(color(33, `    [log warn ] ${first}`));
     if (entry.status === 'error') original(color(31, `    [log error] ${first.replace(/\\n\s+at [^"]*/, '...')}`));
@@ -113,6 +119,7 @@ let r = await call(products, 'POST', '/products', { name: 'Brinde', price: 0 });
 check(`responde 400 (${r.body.error})`, r.status === 400);
 let [line] = lines('API_REJECTED');
 check('log warn API_REJECTED com o status 400', line?.status === 'warn' && line.data?.statusCode === 400);
+check('métrica EMF BusinessErrors com ErrorType HTTP_400', line?.BusinessErrors === 1 && line.ErrorType === 'HTTP_400' && line._aws);
 check('nenhuma linha error', !logLines.some(l => l.scenario === currentScenario && l.status === 'error'));
 
 // ---------- 2 ----------
@@ -121,6 +128,8 @@ const thrown = await orders({ action: 'confirmOrder', input: { orderId: 'nao-exi
 check(`ação lança ${thrown?.name} (o Step Functions compensa sem repetir)`, thrown instanceof Error && thrown.name === 'NotFound');
 [line] = lines('ACTION_REJECTED');
 check('log warn ACTION_REJECTED, errorType NotFound, sem stack', line?.status === 'warn' && line.errorType === 'NotFound' && !line.stack);
+check('métricas EMF: BusinessErrors NotFound e ActionCount confirmOrder/rejected',
+  line?.BusinessErrors === 1 && line.ErrorType === 'NotFound' && line.ActionCount === 1 && line.Action === 'confirmOrder' && line.Outcome === 'rejected');
 
 // ---------- 3 ----------
 lines = scenario('3) Evento, erro de negócio: ProductCreated com initialStock -1');
@@ -129,6 +138,7 @@ check('evento confirmado com { rejected: true } (não vai para a DLQ)', rejected
 [line] = lines('DOMAIN_EVENT_REJECTED');
 check('log warn DOMAIN_EVENT_REJECTED, errorType ValidationError', line?.status === 'warn' && line.errorType === 'ValidationError');
 check('uma linha só (sem ACTION_REJECTED duplicado)', logLines.filter(l => l.scenario === currentScenario && l.status === 'warn').length === 1);
+check('BusinessErrors contado uma vez só', logLines.filter(l => l.scenario === currentScenario && l.BusinessErrors).length === 1);
 
 // ---------- 4 ----------
 lines = scenario('4) Evento, falha transitória: ProductCreated sem a tabela de inventário');
@@ -178,46 +188,66 @@ out('\nLinhas de log de erro geradas:');
 console.table(problems.map(l => ({
   nível: l.status, evento: l.event, errorType: l.errorType ?? '—', stack: l.stack ? 'sim' : 'não', cenário: l.scenario.split(')')[0]
 })));
-out(`${warns} warn (tratados: não contam para alarme) · ${errors} error (não tratados: métrica UnhandledErrors)`);
+out(`${warns} warn (tratados: métrica BusinessErrors) · ${errors} error (não tratados: métrica UnhandledErrors)`);
+
+// O que o CloudWatch extrairia na AWS: uma entrada por métrica × conjunto de dimensões
+const emfData = logLines.flatMap(extractEmfMetrics);
+const emfTotal = name => emfData.filter(d => d.MetricName === name && !d.Dimensions.length).reduce((a, d) => a + d.Value, 0);
+check(`EMF: BusinessErrors=${emfTotal('BusinessErrors')} igual aos warn, UnhandledErrors=${emfTotal('UnhandledErrors')} igual aos error`,
+  emfTotal('BusinessErrors') === warns && emfTotal('UnhandledErrors') === errors);
 
 // ---------- Alarmes no CloudWatch do LocalStack ----------
 out('\nAlarmes no CloudWatch do LocalStack');
-// Mesmos alarmes do template.yaml, com duas diferenças locais:
-//  - o LocalStack não aplica metric filters nem publica métricas de SQS/API
-//    Gateway/Step Functions, então o script publica em Ecommerce/local os
-//    valores que o teste observou;
+// Mesmos alarmes do template.yaml, com três diferenças locais:
+//  - o LocalStack não extrai Embedded Metric Format, não aplica metric filter
+//    nem publica métricas de SQS/API Gateway/Step Functions, então o script
+//    publica em Ecommerce/local as métricas EMF das linhas e os valores que o
+//    teste observou (saga-failed e saga-compensation-rate usam metric math na
+//    AWS; aqui são uma métrica simples com o valor final, e este teste não
+//    executa saga);
+//  - limiar 0 (business-errors é >= 20 em 5 min na AWS) para os poucos erros
+//    do teste dispararem; saga-compensation-rate mantém o limiar de 5%;
 //  - período de 60 s (o LocalStack avalia a cada período) e 1 ponto em 15
 //    períodos, para o alarme ficar ~15 min em ALARM e dar tempo de ver no dashboard.
 const dlqTotal = await dlqSize();
 const observed = {
-  UnhandledErrors: errors,
+  UnhandledErrors: emfTotal('UnhandledErrors'),
+  BusinessErrors: emfTotal('BusinessErrors'),
   ProductEventsDlqMessages: dlqTotal,
   SagaExecutionsFailed: 0,
+  SagaCompensationRate: 0,
   Api5xx: r.status >= 500 ? 1 : 0
 };
-const alarm = (AlarmName, AlarmDescription, MetricName) => ({
+const alarm = (AlarmName, AlarmDescription, MetricName, Threshold = 0) => ({
   AlarmName, AlarmDescription, Namespace: 'Ecommerce/local', MetricName, Statistic: 'Sum',
   Period: 60, EvaluationPeriods: 15, DatapointsToAlarm: 1,
-  ComparisonOperator: 'GreaterThanThreshold', Threshold: 0, TreatMissingData: 'notBreaching'
+  ComparisonOperator: 'GreaterThanThreshold', Threshold, TreatMissingData: 'notBreaching'
 });
 const definitions = [
   alarm(ALARMS.unhandledErrors, 'Erros não tratados nos logs das Lambdas', 'UnhandledErrors'),
+  alarm(ALARMS.businessErrors, 'Volume alto de erros de negócio (ver aba Métricas, por ErrorType)', 'BusinessErrors'),
   alarm(ALARMS.productEventsDlq, 'Eventos de produto na DLQ: inventário não criado/removido, reprocessar', 'ProductEventsDlqMessages'),
-  alarm(ALARMS.sagaFailed, 'Execuções da saga de compra que falharam', 'SagaExecutionsFailed'),
+  alarm(ALARMS.sagaFailed, 'Saga que nem a compensação conseguiu fechar: CompensationFailed/SagaFailed/timeout', 'SagaExecutionsFailed'),
+  alarm(ALARMS.sagaCompensationRate, 'Mais de 5% das sagas compensadas (cartão recusado, falta de estoque...): fora do patamar normal',
+    'SagaCompensationRate', 5),
   alarm(ALARMS.api5xx, 'Respostas 5xx da API', 'Api5xx')
 ];
 try {
-  await aws.CW.send(new cw.PutMetricDataCommand({
-    Namespace: 'Ecommerce/local',
-    MetricData: Object.entries(observed).map(([MetricName, Value]) => ({ MetricName, Value, Unit: 'Count' }))
-  }));
+  // EMF das linhas (como o agente do local-server faz) + métricas nativas observadas
+  const nativeMetrics = ['ProductEventsDlqMessages', 'SagaExecutionsFailed', 'SagaCompensationRate', 'Api5xx']
+    .map(MetricName => ({ MetricName, Value: observed[MetricName], Unit: MetricName === 'SagaCompensationRate' ? 'Percent' : 'Count' }));
+  // Namespace vai no PutMetricData, não em cada métrica
+  const metricData = [...emfData.map(({ Namespace: _namespace, ...datum }) => datum), ...nativeMetrics];
+  for (let i = 0; i < metricData.length; i += 1000) {
+    await aws.CW.send(new cw.PutMetricDataCommand({ Namespace: 'Ecommerce/local', MetricData: metricData.slice(i, i + 1000) }));
+  }
   // Recria do zero: o LocalStack mantém campos antigos (ex.: Dimensions) ao atualizar
   await aws.CW.send(new cw.DeleteAlarmsCommand({ AlarmNames: definitions.map(d => d.AlarmName) }));
   for (const definition of definitions) await aws.CW.send(new cw.PutMetricAlarmCommand(definition));
   out(`  métricas publicadas: ${Object.entries(observed).map(([k, v]) => `${k}=${v}`).join(' ')}`);
 
   // Espera o LocalStack avaliar (até ~2 períodos)
-  const expected = Object.fromEntries(definitions.map(d => [d.AlarmName, observed[d.MetricName] > 0 ? 'ALARM' : 'OK']));
+  const expected = Object.fromEntries(definitions.map(d => [d.AlarmName, observed[d.MetricName] > d.Threshold ? 'ALARM' : 'OK']));
   out('  aguardando a avaliação dos alarmes pelo LocalStack (até 2 min)...');
   let alarms = [];
   for (let i = 0; i < 26; i++) {
@@ -228,8 +258,8 @@ try {
   for (const a of alarms) {
     out(`  ${a.StateValue === 'ALARM' ? color(31, 'ALARM') : color(32, a.StateValue.padEnd(5))} ${a.AlarmName}: ${a.StateReason}`);
   }
-  check('alarmes no estado esperado (3 em ALARM, saga-failed OK)', alarms.length === definitions.length && alarms.every(a => a.StateValue === expected[a.AlarmName]));
-  out('\nVeja na aba 🩺 Monitoramento: npm run local-server e abra http://localhost:3001');
+  check('alarmes no estado esperado (4 em ALARM; saga-failed e saga-compensation-rate OK)', alarms.length === definitions.length && alarms.every(a => a.StateValue === expected[a.AlarmName]));
+  out('\nVeja nas abas 🩺 Monitoramento e 📊 Métricas: npm run local-server e abra http://localhost:3001');
   out('Os alarmes voltam a OK sozinhos ~15 min depois. Para limpar: npm run test:e2e:errors -- --cleanup');
 } catch (error) {
   out(`  CloudWatch indisponível no LocalStack (${error.name}): alarmes não criados.`);

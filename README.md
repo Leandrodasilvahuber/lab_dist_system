@@ -106,27 +106,56 @@ falhou mesmo após as tentativas; as demais rodaram mesmo assim. Exige interven�
 Os erros de cada execução ficam no log group da state machine (output
 `SagaStateMachineLogGroup`) e o trace no X-Ray.
 
+## Observabilidade
+
+Cada Lambda escreve uma linha JSON por evento (`src/common/logger.mjs`) no
+`ServicesLogGroup`. As métricas saem nessas mesmas linhas, no
+[Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format.html):
+o CloudWatch extrai o bloco `_aws` sozinho, sem `PutMetricData` e sem permissão
+IAM nas Lambdas. Namespace `Ecommerce/<ambiente>`:
+
+| Métrica | Dimensões | Origem |
+|---|---|---|
+| `BusinessErrors` | total, `ErrorType` | toda linha `warn` (erro de negócio: `PaymentDeclined`, `InsufficientStock`, `HTTP_400`...) |
+| `UnhandledErrors` | total, `ErrorType` | toda linha `error` (alarme `unhandled-errors`) |
+| `ActionCount`, `ActionDuration` (ms) | `Action`+`Outcome` (`ok`/`rejected`/`failed`) | cada ação da saga e evento de domínio (`src/common/actions.mjs`) |
+
+Linhas abaixo do `LOG_LEVEL` não somem das métricas: sai uma linha mínima, sem
+`status`, só com os campos EMF. Os alarmes `unhandled-errors` e
+`business-errors` (≥ 20 em 5 min) usam essas métricas.
+
+No dashboard: 📊 **Métricas** (séries por tipo de erro e tabela por ação),
+📜 **Logs** (warn/error), 🔎 **Rastreio** (estado da saga + todas as linhas
+do mesmo `correlationId`, de todos os serviços), ⏱️ **Desempenho** (últimas 10
+compras em detalhe), 🎯 **SLOs** (p95 da compra < 2 s, ≥ 99,5% das sagas em
+Completed/Compensated, nenhuma mensagem na DLQ há mais de 24 h) e
+🩺 **Monitoramento** (alarmes).
+
 ## API
 
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/health` | Health check |
-| GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) — **admin** |
-| GET | `/logs?level=warn\|error&hours=24` | Linhas de log warn/error, mais recentes primeiro (aba Logs) — **admin** |
-| GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) — **admin** |
-| POST | `/dlq/{messageId}/redrive` | Republica o evento (o Stock tenta de novo) e apaga da DLQ — **admin** |
-| POST | `/dlq/{messageId}/discard` | Apaga o evento da DLQ — **admin** |
+| GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) |
+| GET | `/logs?level=warn\|error&hours=24` | Linhas de log warn/error, mais recentes primeiro (aba Logs) |
+| GET | `/trace/{correlationId}` | Todas as linhas de log de uma compra, em ordem (aba Rastreio) |
+| GET | `/metrics/errors?hours=24` | Séries de erros de negócio/não tratados por tipo e chamadas/duração por ação, gravadas via EMF (aba Métricas) |
+| GET | `/metrics/sagas` | Tempo por passo das últimas 10 compras, do histórico do Step Functions (aba Desempenho) |
+| GET | `/metrics/slo?hours=24` | SLOs da janela: p95 das compras concluídas, % de sagas Completed/Compensated e mensagens na DLQ há mais de 24 h (aba SLOs) |
+| GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) |
+| POST | `/dlq/{messageId}/redrive` | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
+| POST | `/dlq/{messageId}/discard` | Apaga o evento da DLQ |
 | GET | `/products` | Lista produtos, paginado (`?name=&priceMin=&priceMax=&limit=&nextToken=`) |
 | POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`price > 0`; `stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
-| GET | `/orders` 🔑 | Lista pedidos, paginado (`?status=&productId=&limit=&nextToken=`) |
+| GET | `/orders` | Lista pedidos, paginado (`?status=&productId=&limit=&nextToken=`) |
 | GET | `/orders/{id}` | Busca pedido |
 | GET | `/stock` | Estoque dos produtos, paginado (`?productId=&stockMin=&stockMax=&limit=&nextToken=`) |
 | GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento) |
 | POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir) |
 | **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` → 202 |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
-| GET | `/sagas` 🔑 | Lista as compras, paginado (`?status=&limit=&nextToken=`) |
+| GET | `/sagas` | Lista as compras, paginado (`?status=&limit=&nextToken=`) |
 
 🔑 Rota administrativa: exige o header `X-Api-Key` com a chave de admin, guardada
 no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) e
@@ -139,9 +168,11 @@ stage tem throttling (100 req/s, rajada de 50).
 vir com menos de `limit` itens; em `/sagas` a ordem (mais recentes primeiro) vale
 dentro da página. Filtro numérico inválido (`priceMin=abc`) responde `400`.
 
-**Listagens de compras e pedidos são de admin:** `GET /sagas` e `GET /orders`
-expõem as compras de todos. O cliente acompanha a sua por `GET /saga/{sagaId}`
-(o id vem da resposta do `POST /saga/execute`) e `GET /orders/{id}`.
+**Só as escritas da aba Admin exigem a chave:** `POST /products` e
+`POST /stock/{productId}/adjust`. Listagens (`GET /sagas`, `GET /orders`),
+alarmes, logs, rastreio, métricas, SLOs e a DLQ (inclusive reprocessar e
+descartar) são abertos, o que serve ao laboratório mas expõe as compras de todos
+e mensagens internas.
 
 ### Exposição
 
@@ -153,9 +184,7 @@ expõem as compras de todos. O cliente acompanha a sua por `GET /saga/{sagaId}`
   nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
 - **O dashboard usa só** `/health`, `/alarms`, `/logs`, `/dlq`, `GET/POST /products`, `GET /stock`,
   `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. A
-  chave de admin (campo no topo da página) só é pedida para criar produtos, listar todos os
-  pedidos e compras, ver os alarmes, os logs e a DLQ. Sem ela, a aba de compra mostra as compras feitas
-  naquele navegador (ids guardados no `localStorage`), consultadas uma a uma em `GET /saga/{id}`.
+  chave de admin (campo no topo da página) só é pedida na aba Admin, para criar produtos.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
   rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem
   nenhuma rota pública.
@@ -188,7 +217,9 @@ src/
 │   ├── http-event.mjs      # Normaliza eventos do HttpApi (payload 2.0)
 │   ├── actions.mjs         # Despacho de ações ({ action, input }) e eventos do EventBridge
 │   ├── response.mjs        # Respostas HTTP
-│   ├── logger.mjs          # Logs JSON (LOG_LEVEL = debug | info | warn | error | silent)
+│   ├── logger.mjs          # Logs JSON (LOG_LEVEL = debug | info | warn | error | silent) com métricas EMF
+│   ├── emf.mjs             # Embedded Metric Format: bloco _aws da linha de log (e o inverso, para o local)
+│   ├── log-query.mjs       # Filtros das abas Logs e Rastreio (CloudWatch Logs ou buffer local)
 │   └── sdks/               # ProductSDK, OrderSDK, PaymentSDK, StockSDK
 ├── ecommerce/
 │   ├── products/ orders/ payments/ stock/
