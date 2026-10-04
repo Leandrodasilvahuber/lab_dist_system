@@ -221,7 +221,8 @@ const server = http.createServer(async (req, res) => {
   // O dashboard é servido pelo próprio servidor (evita problemas de CORS com file://)
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
     const html = fs.readFileSync(path.join(ROOT, 'ecommerce-dashboard.html'));
-    return send(res, 200, { 'Content-Type': 'text/html; charset=utf-8' }, html);
+    // no-store: o navegador nunca reaproveita uma versão antiga do dashboard
+    return send(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, html);
   }
 
   if (ADMIN_AUTH_ENABLED && isAdminRoute(req.method, url.pathname) && !(await isAuthorizedAdmin(req.headers))) {
