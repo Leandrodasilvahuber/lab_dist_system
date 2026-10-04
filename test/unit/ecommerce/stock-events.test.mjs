@@ -118,4 +118,38 @@ describe('initializeStock', () => {
       await assert.rejects(stock.initializeStock({ productId: 'p1', initialStock }), ValidationError, JSON.stringify(initialStock));
     }
   });
+
+  // Captura as linhas warn do logger durante `fn`
+  async function warnings(fn) {
+    const previous = process.env.LOG_LEVEL;
+    process.env.LOG_LEVEL = 'warn';
+    const warn = mock.method(console, 'warn', () => {});
+    try {
+      await fn();
+      return warn.mock.calls.map(call => JSON.parse(call.arguments[0]).event);
+    } finally {
+      warn.mock.restore();
+      process.env.LOG_LEVEL = previous;
+    }
+  }
+
+  it('avisa quando o inventário já foi criado por um ajuste e o estoque inicial é descartado', async () => {
+    const { StockSDK } = await import('../../../src/common/sdks/StockSDK.js');
+    const stock = new StockSDK(null, {
+      putItemIfNotExists: async () => false,
+      getItem: async () => ({ id: 'p1', stock: 3 })
+    });
+    const events = await warnings(async () => {
+      assert.strictEqual((await stock.initializeStock({ productId: 'p1', initialStock: 10 })).stock, 3);
+    });
+    assert.deepStrictEqual(events, ['STOCK_INITIAL_IGNORED']);
+  });
+
+  it('ProductCreated repetido ou de produto já removido não gera aviso', async () => {
+    const { StockSDK } = await import('../../../src/common/sdks/StockSDK.js');
+    for (const existing of [{ id: 'p1', stock: 8, initialStock: 10 }, { id: 'p1', stock: 0, deleted: true }]) {
+      const stock = new StockSDK(null, { putItemIfNotExists: async () => false, getItem: async () => existing });
+      assert.deepStrictEqual(await warnings(() => stock.initializeStock({ productId: 'p1', initialStock: 10 })), []);
+    }
+  });
 });

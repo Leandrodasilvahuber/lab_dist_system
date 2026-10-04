@@ -2,8 +2,11 @@ import { Database } from '../database.mjs';
 import { NotFoundError, ValidationError } from '../errors.mjs';
 import { generateId } from '../ids.mjs';
 import { encodeToken } from '../pagination.mjs';
-import { optionalNumber } from '../validation.mjs';
+import { optionalNumber, MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH } from '../validation.mjs';
 import { log } from '../logger.mjs';
+
+// Campos que updateProduct aceita (id, datas e estoque não são do cliente)
+const UPDATABLE_FIELDS = ['name', 'price', 'description'];
 
 /**
  * SDK Público - Interface uniforme para operações de produto
@@ -100,17 +103,33 @@ export class ProductSDK {
   /**
    * Atualizar produto
    * Altera só os campos enviados (UpdateItem), sem regravar o item inteiro.
+   * Só aceita os campos do catálogo (UPDATABLE_FIELDS), com as mesmas regras
+   * da criação; qualquer outro campo é recusado em vez de gravado às cegas.
    */
   async updateProduct(productId, updates) {
-    if ('stock' in updates) {
+    // Campo com valor undefined conta como não enviado
+    const changes = Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined));
+    if ('stock' in changes) {
       throw new ValidationError('stock is managed by the stock service');
     }
-    if ('price' in updates && (typeof updates.price !== 'number' || !Number.isFinite(updates.price) || updates.price <= 0)) {
+    const unknown = Object.keys(changes).filter(key => !UPDATABLE_FIELDS.includes(key));
+    if (unknown.length) {
+      throw new ValidationError(`Fields cannot be updated: ${unknown.join(', ')}`);
+    }
+    if ('price' in changes && (typeof changes.price !== 'number' || !Number.isFinite(changes.price) || changes.price <= 0)) {
       throw new ValidationError('price must be a positive number');
     }
+    if ('name' in changes) {
+      if (typeof changes.name !== 'string' || !changes.name.trim() || changes.name.trim().length > MAX_NAME_LENGTH) {
+        throw new ValidationError(`name must be a non-empty string with at most ${MAX_NAME_LENGTH} characters`);
+      }
+      changes.name = changes.name.trim();
+    }
+    if ('description' in changes && (typeof changes.description !== 'string' || changes.description.length > MAX_DESCRIPTION_LENGTH)) {
+      throw new ValidationError(`description must be a string with at most ${MAX_DESCRIPTION_LENGTH} characters`);
+    }
 
-    const fields = Object.entries(updates)
-      .filter(([key, value]) => !['id', 'createdAt', 'updatedAt'].includes(key) && value !== undefined);
+    const fields = Object.entries(changes);
     const names = {};
     const values = { ':updatedAt': new Date().toISOString() };
     const sets = ['updatedAt = :updatedAt'];

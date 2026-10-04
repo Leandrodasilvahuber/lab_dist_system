@@ -61,7 +61,7 @@ npm run seed -- --stage dev
 | `SagaOrchestratorFunction` | `/saga/execute`, `/saga/{id}`, `/sagas` |
 | `AdminAuthorizerFunction` | Authorizer das rotas de admin (`X-Api-Key`) |
 | `SagaStateMachine` (`dev-purchase-saga`) | Saga de compra (Step Functions Standard) |
-| `GatewayFunction` | `/health`, `/alarms` (lê os alarmes `dev-ecommerce-*`), `/logs` (admin: linhas warn/error do `ServicesLogGroup`), `/dlq` (admin: lista, reprocessa e descarta eventos da `ProductEventsDlq`) e 404 com a lista de endpoints |
+| `GatewayFunction` | `/health`, `/alarms` (admin: lê os alarmes `dev-ecommerce-*`), `/logs` (admin: linhas warn/error do `ServicesLogGroup`), `/dlq` (admin: lista, reprocessa e descarta eventos da `ProductEventsDlq`) e 404 com a lista de endpoints |
 | Tabelas `dev-Products`, `dev-Orders`, `dev-Payments`, `dev-Inventory`, `dev-StockReservations`, `dev-Sagas` | DynamoDB on-demand, uma ou mais por serviço |
 | `EventBus` (`dev-ecommerce-events`) | Eventos de domínio dos serviços |
 | `ProductEventsToStockRule` | Entrega `ProductCreated`/`ProductDeleted` à `StockFunction` (cria/remove o inventário), com DLQ `ProductEventsDlq` para falhas de entrega. Erros da função são repetidos pela própria Lambda (invocação assíncrona, `EventInvokeConfig` da `StockFunction`) e, esgotadas as tentativas, vão para a mesma DLQ pelo destino `OnFailure` (só falhas transitórias; erro de negócio fica no log como `DOMAIN_EVENT_REJECTED`) |

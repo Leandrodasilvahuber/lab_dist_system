@@ -92,4 +92,25 @@ describe('preço do produto', () => {
     const sdk = new ProductSDK(null, { updateItem: async () => assert.fail('não deveria gravar') });
     await assert.rejects(sdk.updateProduct('p1', { price: 0 }), /price must be a positive number/);
   });
+
+  it('updateProduct só aceita campos do catálogo, validados como na criação', async () => {
+    const ProductSDK = await loadProductSDK();
+    const sdk = new ProductSDK(null, { updateItem: async () => assert.fail('não deveria gravar') });
+    await assert.rejects(sdk.updateProduct('p1', { id: 'outro' }), /Fields cannot be updated: id/);
+    await assert.rejects(sdk.updateProduct('p1', { isAdmin: true, price: 5 }), /Fields cannot be updated: isAdmin/);
+    await assert.rejects(sdk.updateProduct('p1', { name: '   ' }), /name must be a non-empty string/);
+    await assert.rejects(sdk.updateProduct('p1', { name: 'x'.repeat(201) }), /name must be/);
+    await assert.rejects(sdk.updateProduct('p1', { description: 'x'.repeat(2001) }), /description must be/);
+  });
+
+  it('updateProduct grava o nome sem espaços e ignora campos undefined', async () => {
+    const ProductSDK = await loadProductSDK();
+    let call;
+    const sdk = new ProductSDK(null, { updateItem: async (...args) => { call = args; return {}; } });
+    await sdk.updateProduct('p1', { name: '  Teclado  ', description: undefined });
+    const [, , expression, values, options] = call;
+    assert.strictEqual(expression, 'SET updatedAt = :updatedAt, #f0 = :f0');
+    assert.deepStrictEqual(options.expressionAttributeNames, { '#f0': 'name' });
+    assert.strictEqual(values[':f0'], 'Teclado');
+  });
 });

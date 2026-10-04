@@ -4,6 +4,10 @@ import { generateId } from '../ids.mjs';
 import { roundMoney } from '../validation.mjs';
 import { encodeToken } from '../pagination.mjs';
 
+// Leitura logo depois de uma escrita (retry de um passo, passo seguinte da
+// saga): a leitura eventualmente consistente poderia não ver o item gravado
+const CONSISTENT = { consistentRead: true };
+
 /**
  * SDK Público - Interface uniforme para operações de pedido
  *
@@ -46,7 +50,7 @@ export class OrderSDK {
     const created = await this.db.putItemIfNotExists('orders', order);
     if (!created) {
       // Leitura direta: getOrder esconde os registros `voided`
-      const existing = await this.db.getItem('orders', { id: order.id });
+      const existing = await this.db.getItem('orders', { id: order.id }, CONSISTENT);
       if (!existing || existing.status === 'voided') {
         throw new InvalidStateError('Order was voided by the saga compensation');
       }
@@ -67,9 +71,10 @@ export class OrderSDK {
   /**
    * Buscar pedido por ID. Um registro `voided` não é um pedido de fato
    * (só barra um CreateOrder atrasado), então responde como inexistente.
+   * `options.consistentRead`: usado pela saga, que lê logo depois de gravar.
    */
-  async getOrder(orderId) {
-    const order = await this.db.getItem('orders', { id: orderId });
+  async getOrder(orderId, options) {
+    const order = await this.db.getItem('orders', { id: orderId }, options);
     if (!order || order.status === 'voided') {
       throw new NotFoundError('Order not found');
     }
@@ -94,7 +99,7 @@ export class OrderSDK {
    * que um CreateOrder atrasado com o mesmo id não crie o pedido depois.
    */
   async cancelOrder(orderId, correlationId) {
-    const existing = await this.db.getItem('orders', { id: orderId });
+    const existing = await this.db.getItem('orders', { id: orderId }, CONSISTENT);
     if (!existing) {
       const voided = { id: orderId, status: 'voided', voidedAt: new Date().toISOString(), correlationId };
       if (await this.db.putItemIfNotExists('orders', voided)) {
@@ -118,7 +123,7 @@ export class OrderSDK {
    * Muda o status de forma atômica (condicional ao status atual)
    */
   async transition(orderId, allowedFrom, to) {
-    const order = await this.getOrder(orderId);
+    const order = await this.getOrder(orderId, CONSISTENT);
     if (order.status === to) {
       return { item: order, changed: false };
     }
@@ -142,7 +147,7 @@ export class OrderSDK {
     } catch (error) {
       if (error.name !== 'ConditionalCheckFailedException') throw error;
 
-      const current = await this.getOrder(orderId);
+      const current = await this.getOrder(orderId, CONSISTENT);
       if (current.status === to) return { item: current, changed: false };
       throw new InvalidStateError(`Cannot change order from ${current.status} to ${to}`);
     }

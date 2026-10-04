@@ -3,6 +3,11 @@ import { SFNClient, ListExecutionsCommand, GetExecutionHistoryCommand } from '@a
 // Quantidade fixa de compras analisadas: uma GetExecutionHistory por compra
 export const RECENT_EXECUTIONS = 10;
 
+// Cada leitura custa 1 ListExecutions + RECENT_EXECUTIONS GetExecutionHistory,
+// APIs com limite de taxa baixo no Step Functions. O resultado é reaproveitado
+// por este tempo (aba aberta em vários navegadores, recarregamentos seguidos).
+export const METRICS_CACHE_TTL_MS = 20 * 1000;
+
 // Estados da saga que chamam Lambdas (os Record*/Mark* só gravam na tabela de sagas)
 const STEPS = ['CreateOrder', 'ReserveStock', 'ProcessPayment', 'CommitReservation', 'ConfirmOrder'];
 const COMPENSATIONS = ['RefundPayment', 'ReleaseStock', 'CancelOrder', 'CleanupOrder'];
@@ -16,8 +21,11 @@ const TRACKED = new Set([...STEPS, ...COMPENSATIONS]);
  * as transições de estado da compra.
  */
 export class SagaMetricsClient {
-  constructor({ stateMachineArn = process.env.SAGA_STATE_MACHINE_ARN, client } = {}) {
+  constructor({ stateMachineArn = process.env.SAGA_STATE_MACHINE_ARN, client, cacheTtlMs = METRICS_CACHE_TTL_MS, now = Date.now } = {}) {
     this.stateMachineArn = stateMachineArn;
+    this.cacheTtlMs = cacheTtlMs;
+    this.now = now;
+    this.cached = null;
     const endpoint = process.env.STEPFUNCTIONS_ENDPOINT || process.env.AWS_ENDPOINT;
     this.client = client || new SFNClient({
       region: process.env.AWS_REGION || 'us-east-1',
@@ -25,7 +33,19 @@ export class SagaMetricsClient {
     });
   }
 
-  async recentMetrics() {
+  /**
+   * Guarda a promessa (não o resultado): chamadas simultâneas dividem a mesma
+   * leitura. Uma falha não fica no cache.
+   */
+  recentMetrics() {
+    if (this.cached && this.cached.expiresAt > this.now()) return this.cached.value;
+    const value = this.readMetrics();
+    this.cached = { value, expiresAt: this.now() + this.cacheTtlMs };
+    value.catch(() => { if (this.cached?.value === value) this.cached = null; });
+    return value;
+  }
+
+  async readMetrics() {
     if (!this.stateMachineArn) {
       throw new Error('SAGA_STATE_MACHINE_ARN is not configured');
     }
@@ -36,7 +56,7 @@ export class SagaMetricsClient {
     }));
 
     const sagas = await Promise.all(executions.map(async execution => ({
-      sagaId: execution.name,
+      sagaId: sagaIdFromExecution(execution.name),
       status: execution.status,
       startedAt: iso(execution.startDate),
       durationMs: execution.stopDate ? execution.stopDate - execution.startDate : null,
@@ -61,6 +81,18 @@ export class SagaMetricsClient {
     } while (nextToken);
     return events;
   }
+}
+
+/**
+ * Uma saga reiniciada (StartExecution falhou antes) roda numa execução de nome
+ * `<sagaId>-<tentativa>` (SagaService.resume): devolve só o sagaId, que é o id
+ * consultado em GET /saga/{id}. O sagaId é `saga_<uuid>` ou `saga_<48 hex>`;
+ * outros nomes voltam como estão.
+ */
+const EXECUTION_NAME = /^(saga_(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{48}))(?:-\d+)?$/;
+
+export function sagaIdFromExecution(name) {
+  return EXECUTION_NAME.exec(name ?? '')?.[1] ?? name;
 }
 
 /**

@@ -2,6 +2,10 @@ import { Database } from '../database.mjs';
 import { NotFoundError, InvalidStateError, PaymentDeclinedError, ValidationError } from '../errors.mjs';
 import { generateId } from '../ids.mjs';
 
+// Leitura logo depois de uma escrita (retry de um passo, passo seguinte da
+// saga): a leitura eventualmente consistente poderia não ver o item gravado
+const CONSISTENT = { consistentRead: true };
+
 // Gateway de pagamento simulado: recusa valores acima do limite.
 // Permite testar a compensação da saga de forma determinística.
 const MAX_APPROVED_AMOUNT = Number(process.env.PAYMENT_MAX_AMOUNT || 10000);
@@ -62,10 +66,10 @@ export class PaymentSDK {
   }
 
   /**
-   * Buscar pagamento por ID
+   * Buscar pagamento por ID (só a saga consulta, logo depois de gravar)
    */
   async getPayment(paymentId) {
-    const payment = await this.db.getItem('payments', { id: paymentId });
+    const payment = await this.db.getItem('payments', { id: paymentId }, CONSISTENT);
     if (!payment) {
       throw new NotFoundError('Payment not found');
     }
@@ -79,7 +83,7 @@ export class PaymentSDK {
    *    atrasado com o mesmo id não cobre depois da compensação.
    */
   async refundPaymentById(paymentId, amount, correlationId) {
-    const payment = await this.db.getItem('payments', { id: paymentId });
+    const payment = await this.db.getItem('payments', { id: paymentId }, CONSISTENT);
 
     if (!payment) {
       const voided = { id: paymentId, status: 'voided', voidedAt: new Date().toISOString(), correlationId };

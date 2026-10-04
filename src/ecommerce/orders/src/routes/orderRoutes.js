@@ -10,12 +10,12 @@ export async function setupRoutes(event) {
 
   // GET /orders
   if (method === 'GET' && path === '/orders') {
-    return OrderController.getOrders(event, queryStringParameters);
+    return OrderController.listOrders(event, queryStringParameters);
   }
 
   // GET /orders/{id}
   if (method === 'GET' && idMatch) {
-    return OrderController.getOrders(event, { id: decodePathSegment(idMatch[1]) });
+    return OrderController.getOrder(event, decodePathSegment(idMatch[1]));
   }
 
   return notFoundResponse(path);

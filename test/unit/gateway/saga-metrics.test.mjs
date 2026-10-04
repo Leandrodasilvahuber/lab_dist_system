@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { SagaMetricsClient, stepsFromHistory, RECENT_EXECUTIONS } from '../../../src/layers/api-gateway-layer/src/services/SagaMetricsClient.js';
+import { SagaMetricsClient, stepsFromHistory, sagaIdFromExecution, RECENT_EXECUTIONS, METRICS_CACHE_TTL_MS } from '../../../src/layers/api-gateway-layer/src/services/SagaMetricsClient.js';
 import { createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
 import { isAdminRoute } from '../../../src/common/auth.mjs';
 
@@ -83,6 +83,47 @@ describe('SagaMetricsClient', () => {
 
   it('sem a state machine configurada, falha', async () => {
     await assert.rejects(new SagaMetricsClient({ stateMachineArn: '', client: fakeSfn({}) }).recentMetrics());
+  });
+
+  it('reaproveita a leitura por METRICS_CACHE_TTL_MS', async () => {
+    let clock = 0;
+    const client = fakeSfn({ executions: [], histories: {} });
+    const metrics = new SagaMetricsClient({ stateMachineArn: 'arn:sm', client, now: () => clock });
+
+    await Promise.all([metrics.recentMetrics(), metrics.recentMetrics()]);
+    clock = METRICS_CACHE_TTL_MS - 1;
+    await metrics.recentMetrics();
+    assert.strictEqual(client.sent.length, 1);
+
+    clock = METRICS_CACHE_TTL_MS;
+    await metrics.recentMetrics();
+    assert.strictEqual(client.sent.length, 2);
+  });
+
+  it('não guarda falha no cache', async () => {
+    let fail = true;
+    const client = { async send() { if (fail) throw new Error('Throttling'); return { executions: [] }; } };
+    const metrics = new SagaMetricsClient({ stateMachineArn: 'arn:sm', client, now: () => 0 });
+
+    await assert.rejects(metrics.recentMetrics(), /Throttling/);
+    fail = false;
+    assert.deepStrictEqual((await metrics.recentMetrics()).sagas, []);
+  });
+});
+
+describe('sagaIdFromExecution', () => {
+  const uuidSaga = 'saga_3f2c1a9e-1b2c-4d5e-8f90-123456789012';
+  const keySaga = `saga_${'a'.repeat(48)}`;
+
+  it('tira o sufixo de tentativa das sagas reiniciadas', () => {
+    assert.strictEqual(sagaIdFromExecution(`${uuidSaga}-2`), uuidSaga);
+    assert.strictEqual(sagaIdFromExecution(`${keySaga}-3`), keySaga);
+  });
+
+  it('mantém o nome da primeira execução e nomes fora do padrão', () => {
+    assert.strictEqual(sagaIdFromExecution(uuidSaga), uuidSaga);
+    assert.strictEqual(sagaIdFromExecution(keySaga), keySaga);
+    assert.strictEqual(sagaIdFromExecution('saga-1'), 'saga-1');
   });
 });
 

@@ -18,6 +18,11 @@ Parameters:
     Default: '*'
     Description: 'Origem permitida pelo CORS (ex.: https://loja.exemplo.com)'
 
+Conditions:
+  # Em prod as tabelas não podem ser apagadas (nem por sam delete); em dev/test
+  # a stack continua descartável
+  IsProd: !Equals [!Ref Environment, prod]
+
 # Todas as funções são empacotadas com esbuild a partir da raiz do projeto,
 # o que inclui automaticamente o código compartilhado de src/common.
 Globals:
@@ -145,6 +150,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /alarms
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         Logs:
           Type: HttpApi
           Properties:
@@ -624,11 +631,16 @@ Resources:
       TreatMissingData: notBreaching
 
   # DynamoDB Tables
+  # Todas com backup contínuo (PITR: restauração em qualquer ponto dos últimos
+  # 35 dias) e, em prod, proteção contra exclusão (condição IsProd).
   ProductsTable:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: !Sub '${Environment}-Products'
       BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: !If [IsProd, true, false]
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -641,6 +653,9 @@ Resources:
     Properties:
       TableName: !Sub '${Environment}-Orders'
       BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: !If [IsProd, true, false]
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -653,6 +668,9 @@ Resources:
     Properties:
       TableName: !Sub '${Environment}-Payments'
       BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: !If [IsProd, true, false]
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -668,6 +686,9 @@ Resources:
     Properties:
       TableName: !Sub '${Environment}-StockReservations'
       BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: !If [IsProd, true, false]
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -690,6 +711,9 @@ Resources:
     Properties:
       TableName: !Sub '${Environment}-Inventory'
       BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: !If [IsProd, true, false]
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -703,6 +727,9 @@ Resources:
     Properties:
       TableName: !Sub '${Environment}-Sagas'
       BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: !If [IsProd, true, false]
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S

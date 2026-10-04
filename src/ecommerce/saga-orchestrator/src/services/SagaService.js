@@ -21,6 +21,10 @@ export const SAGA_STEPS = ['createOrder', 'reserveStock', 'processPayment', 'com
 // Erro gravado quando o StartExecution falha: a saga pode ser iniciada de novo
 const START_FAILED = 'StartExecutionFailed';
 
+// A saga é relida logo depois de gravada (idempotência, corrida entre requisições
+// com a mesma chave, GET /saga/{id} logo após o 202): leitura consistente
+const CONSISTENT = { consistentRead: true };
+
 /**
  * Inicia e consulta sagas de compra.
  * A execução dos passos e a compensação ficam a cargo do Step Functions
@@ -46,7 +50,7 @@ export class SagaService {
 
     const sagaId = idempotencyKey ? sagaIdFromKey(idempotencyKey) : `saga_${randomUUID()}`;
 
-    const existing = await this.db.getItem('sagas', { id: sagaId });
+    const existing = await this.db.getItem('sagas', { id: sagaId }, CONSISTENT);
     if (existing) {
       return this.resume(existing, { productId, quantity });
     }
@@ -76,7 +80,7 @@ export class SagaService {
     const created = await this.db.putItemIfNotExists('sagas', saga);
     if (!created) {
       // Requisição concorrente com a mesma idempotencyKey
-      return this.resume(await this.db.getItem('sagas', { id: sagaId }), { productId, quantity });
+      return this.resume(await this.db.getItem('sagas', { id: sagaId }, CONSISTENT), { productId, quantity });
     }
 
     await this.launch(saga, sagaId);
@@ -111,7 +115,7 @@ export class SagaService {
     } catch (error) {
       if (error.name !== 'ConditionalCheckFailedException') throw error;
       // Outra requisição já reiniciou a saga
-      return { saga: await this.db.getItem('sagas', { id: existing.id }), created: false };
+      return { saga: await this.db.getItem('sagas', { id: existing.id }, CONSISTENT), created: false };
     }
 
     // Nome novo: o Step Functions não aceita repetir o nome de uma execução
@@ -173,7 +177,7 @@ export class SagaService {
   }
 
   async getSaga(sagaId) {
-    const saga = await this.db.getItem('sagas', { id: sagaId });
+    const saga = await this.db.getItem('sagas', { id: sagaId }, CONSISTENT);
     if (!saga) {
       throw new NotFoundError('Saga not found');
     }

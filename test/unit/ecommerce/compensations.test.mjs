@@ -128,16 +128,24 @@ describe('ciclo de vida da reserva', () => {
     assert.deepStrictEqual(queries[0][1].ExpressionAttributeValues, { ':productId': 'p1' });
   });
 
-  it('listagem sem productId varre só o índice esparso, não a tabela de reservas', async () => {
-    const scans = [];
+  it('listagem consulta as reservas só dos produtos da página, sem varrer o índice inteiro', async () => {
+    const queried = [];
     const db = {
-      scanPage: async () => ({ items: [{ id: 'p1', name: 'A', stock: 5 }, { id: 'p2', name: 'B', stock: 1 }] }),
-      scanItems: async (table, options) => { scans.push([table, options]); return [{ productId: 'p1', quantity: 2 }]; },
-      queryItems: async () => assert.fail('não deveria consultar por produto')
+      scanPage: async () => ({ items: [{ id: 'p1', name: 'A', stock: 5 }, { id: 'p2', name: 'B', stock: 1 }, { id: 'p3', deleted: true }] }),
+      scanItems: async (table) => { throw new Error(`scan em ${table}`); },
+      queryItems: async (table, params) => {
+        const productId = params.ExpressionAttributeValues[':productId'];
+        queried.push([table, params.IndexName, productId]);
+        return productId === 'p1' ? [{ productId: 'p1', quantity: 2 }] : [];
+      }
     };
     const { stock } = await new StockSDK(null, db).listStock({}, { limit: 10 });
 
-    assert.deepStrictEqual(scans, [['stockReservations', { indexName: 'ActiveReservationsIndex' }]]);
+    // p3 foi removido (tombstone): não aparece e não é consultado
+    assert.deepStrictEqual(queried, [
+      ['stockReservations', 'ActiveReservationsIndex', 'p1'],
+      ['stockReservations', 'ActiveReservationsIndex', 'p2']
+    ]);
     assert.deepStrictEqual(stock.map(s => [s.productId, s.reserved]), [['p1', 2], ['p2', 0]]);
   });
 
@@ -203,5 +211,37 @@ describe('ProductSDK.createProduct', () => {
     };
     await assert.rejects(new ProductSDK(bus, db).createProduct({ name: 'X', price: 1 }), /EventBridge fora/);
     assert.deepStrictEqual(published, ['ProductCreated', 'ProductDeleted']);
+  });
+});
+
+// Réplica atrasada: a leitura eventualmente consistente ainda não vê nada do
+// que foi gravado; só a leitura consistente vê
+class LaggingDb extends MapDb {
+  async getItem(table, key, options) {
+    return options?.consistentRead ? super.getItem(table, key) : undefined;
+  }
+}
+
+describe('leituras logo depois de gravar (réplica atrasada)', () => {
+  it('confirmOrder enxerga o pedido recém-criado pela saga', async () => {
+    const db = new LaggingDb();
+    await db.putItem('orders', { id: 'o1', status: 'pending' });
+    const result = await new OrderSDK(null, db).confirmOrder('o1');
+    assert.strictEqual(result.id, 'o1');
+  });
+
+  it('commitReservation enxerga a reserva recém-gravada', async () => {
+    const db = new LaggingDb();
+    await db.putItem('stockReservations', { id: 'r1', productId: 'p1', quantity: 1, status: 'active' });
+    assert.strictEqual((await new StockSDK(null, db).commitReservation({ reservationId: 'r1' })).status, 'committed');
+  });
+
+  it('retry de reserveStock e de processPayment devolve o que a 1ª tentativa gravou', async () => {
+    const db = new LaggingDb();
+    await db.putItem('stockReservations', { id: 'r1', productId: 'p1', quantity: 1, status: 'active' });
+    await db.putItem('payments', { id: 'pay1', orderId: 'o1', amount: 10, status: 'approved' });
+
+    assert.strictEqual((await new StockSDK(null, db).reserveStock({ id: 'r1', productId: 'p1', quantity: 1 })).id, 'r1');
+    assert.strictEqual((await new PaymentSDK(null, db).processPayment({ id: 'pay1', orderId: 'o1', amount: 10 })).id, 'pay1');
   });
 });

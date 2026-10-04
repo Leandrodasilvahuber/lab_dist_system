@@ -1,4 +1,4 @@
-import { successResponse, errorResponse } from '../../../../common/response.mjs';
+import { successResponse, errorResponse, notFoundResponse } from '../../../../common/response.mjs';
 import { DomainError } from '../../../../common/errors.mjs';
 import { normalizeHttpEvent } from '../../../../common/http-event.mjs';
 import { log } from '../../../../common/logger.mjs';
@@ -116,11 +116,10 @@ async function dlqCall(event, action, fn) {
 }
 
 function notFound(event) {
-  return successResponse({
-    error: 'Not found',
+  return notFoundResponse(event.path, {
     message: `Endpoint ${event.method} ${event.path} not found`,
     available: AVAILABLE_ENDPOINTS
-  }, 404);
+  });
 }
 
 export const handleAPIRequest = createAPIHandler();

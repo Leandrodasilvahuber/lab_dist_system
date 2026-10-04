@@ -14,6 +14,8 @@ export const ADMIN_ROUTES = [
   ['GET', /^\/sagas$/],
   // Logs têm ids, correlationId e mensagens internas
   ['GET', /^\/logs$/],
+  // Alarmes: nomes e descrições internas, e o motivo traz os valores das métricas
+  ['GET', /^\/alarms$/],
   // Métricas da saga: ids das compras e erros internos de cada passo
   ['GET', /^\/metrics\/sagas$/],
   // DLQ: o body tem dados do produto e as ações mudam estado

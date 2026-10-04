@@ -114,11 +114,24 @@ function routeFor(pathname) {
   return 'gateway';
 }
 
+// Bem acima de qualquer body da API (o maior é o POST /products)
+const MAX_BODY_BYTES = 1024 * 1024;
+
+class PayloadTooLargeError extends Error {}
+
+// Junta os Buffers antes de decodificar: concatenar chunk a chunk como string
+// quebraria um caractere UTF-8 dividido entre dois chunks
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => resolve(body || null));
+    const chunks = [];
+    let size = 0;
+    req.on('data', chunk => {
+      size += chunk.length;
+      // Acima do limite rejeita na hora e só descarta o resto, sem acumular
+      if (size > MAX_BODY_BYTES) return reject(new PayloadTooLargeError(`Body maior que ${MAX_BODY_BYTES} bytes`));
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(size ? Buffer.concat(chunks).toString('utf8') : null));
     req.on('error', reject);
   });
 }
@@ -236,6 +249,9 @@ const server = http.createServer(async (req, res) => {
       console.log(`${req.method} ${url.pathname} -> ${result.statusCode} (${Date.now() - started}ms)`);
     }
   } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      return send(res, 413, { 'Content-Type': 'application/json', Connection: 'close' }, JSON.stringify({ error: error.message }));
+    }
     console.error(`${req.method} ${url.pathname} ->`, error);
     send(res, 500, { 'Content-Type': 'application/json' }, JSON.stringify({ error: 'Internal server error' }));
   }

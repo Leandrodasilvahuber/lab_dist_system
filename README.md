@@ -111,7 +111,7 @@ Os erros de cada execução ficam no log group da state machine (output
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/health` | Health check |
-| GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) |
+| GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) — **admin** |
 | GET | `/logs?level=warn\|error&hours=24` | Linhas de log warn/error, mais recentes primeiro (aba Logs) — **admin** |
 | GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) — **admin** |
 | POST | `/dlq/{messageId}/redrive` | Republica o evento (o Stock tenta de novo) e apaga da DLQ — **admin** |
@@ -154,7 +154,7 @@ expõem as compras de todos. O cliente acompanha a sua por `GET /saga/{sagaId}`
 - **O dashboard usa só** `/health`, `/alarms`, `/logs`, `/dlq`, `GET/POST /products`, `GET /stock`,
   `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. A
   chave de admin (campo no topo da página) só é pedida para criar produtos, listar todos os
-  pedidos e compras, ver os logs e a DLQ. Sem ela, a aba de compra mostra as compras feitas
+  pedidos e compras, ver os alarmes, os logs e a DLQ. Sem ela, a aba de compra mostra as compras feitas
   naquele navegador (ids guardados no `localStorage`), consultadas uma a uma em `GET /saga/{id}`.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
   rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem

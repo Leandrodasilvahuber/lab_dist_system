@@ -8,19 +8,25 @@ const productSDK = new ProductSDK(eventBus);
 
 export class ProductController {
   /**
-   * GET /products (paginado: ?limit=&nextToken=) e GET /products/{id}
+   * GET /products (paginado: ?limit=&nextToken=)
    */
-  static async getProducts(event, params = {}) {
+  static async listProducts(event, query = {}) {
     try {
-      if (params.id) {
-        const product = await productSDK.getProduct(params.id);
-        return successResponse(product);
-      }
-
-      const page = await productSDK.listProducts(params, parsePagination(params));
+      const page = await productSDK.listProducts(query, parsePagination(query));
       return successResponse(page);
     } catch (error) {
       return sdkErrorResponse(error, 'Failed to get products');
+    }
+  }
+
+  /**
+   * GET /products/{id}. O id vem só do path: ?id= na listagem não vira busca.
+   */
+  static async getProduct(event, productId) {
+    try {
+      return successResponse(await productSDK.getProduct(productId));
+    } catch (error) {
+      return sdkErrorResponse(error, 'Failed to get product');
     }
   }
 

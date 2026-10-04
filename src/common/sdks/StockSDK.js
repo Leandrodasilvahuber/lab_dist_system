@@ -3,6 +3,7 @@ import { NotFoundError, InsufficientStockError, InvalidStateError, ValidationErr
 import { generateId } from '../ids.mjs';
 import { encodeToken } from '../pagination.mjs';
 import { optionalNumber, toNumber } from '../validation.mjs';
+import { log } from '../logger.mjs';
 
 // GSI esparso da tabela de reservas, chave `activeProductId`: o atributo só
 // existe enquanto a reserva está ativa (é removido no commit e na liberação).
@@ -29,6 +30,10 @@ const ACTIVE_INDEX = 'ActiveReservationsIndex';
 
 // Inventário existente e não removido (ver removeInventory)
 const INVENTORY_LIVE = 'attribute_exists(id) AND attribute_not_exists(deleted)';
+
+// Leitura logo depois de uma escrita (retry de um passo, passo seguinte da
+// saga): a leitura eventualmente consistente poderia não ver o item gravado
+const CONSISTENT = { consistentRead: true };
 export class StockSDK {
   constructor(eventBridgeClient, db = new Database()) {
     this.eventBridgeClient = eventBridgeClient;
@@ -38,8 +43,11 @@ export class StockSDK {
   /**
    * Criar o inventário de um produto recém-criado.
    * Idempotente: um evento ProductCreated repetido não altera o estoque.
+   * Se o inventário já tinha sido criado por um ajuste (adjustStock recuperando
+   * um ProductCreated perdido), o estoque inicial do evento é descartado: fica
+   * um aviso no log para quem ajustou conferir a quantidade.
    */
-  async initializeStock({ productId, name, initialStock = 0 }) {
+  async initializeStock({ productId, name, initialStock = 0, correlationId }) {
     const quantity = toNumber(initialStock);
     if (!productId) {
       throw new ValidationError('productId is required');
@@ -49,9 +57,23 @@ export class StockSDK {
     }
 
     const now = new Date().toISOString();
-    const item = { id: productId, name, stock: quantity, createdAt: now, updatedAt: now };
-    const created = await this.db.putItemIfNotExists('inventory', item);
-    return created ? item : this.db.getItem('inventory', { id: productId });
+    // initialStock gravado identifica o inventário criado por este evento
+    const item = { id: productId, name, stock: quantity, initialStock: quantity, createdAt: now, updatedAt: now };
+    if (await this.db.putItemIfNotExists('inventory', item)) {
+      return item;
+    }
+
+    const existing = await this.db.getItem('inventory', { id: productId }, CONSISTENT);
+    if (isLive(existing) && existing.initialStock === undefined) {
+      log({
+        event: 'STOCK_INITIAL_IGNORED',
+        correlationId,
+        status: 'warn',
+        message: `Inventory of ${productId} was created by a stock adjustment; initialStock ${quantity} from ProductCreated was ignored`,
+        data: { productId, initialStock: quantity, stock: existing.stock }
+      });
+    }
+    return existing;
   }
 
   /**
@@ -112,7 +134,7 @@ export class StockSDK {
         return existing;
       }
       if (productReason === 'ConditionalCheckFailed') {
-        const inventory = await this.db.getItem('inventory', { id: productId });
+        const inventory = await this.db.getItem('inventory', { id: productId }, CONSISTENT);
         if (!isLive(inventory)) throw new NotFoundError('Inventory not found for product');
         throw new InsufficientStockError(
           `Insufficient stock: requested ${quantity}, available ${inventory.stock || 0}`
@@ -181,7 +203,7 @@ export class StockSDK {
    * devolver estoque (não há mais inventário para onde devolver).
    */
   async releaseStock({ reservationId, correlationId }) {
-    const reservation = await this.db.getItem('stockReservations', { id: reservationId });
+    const reservation = await this.db.getItem('stockReservations', { id: reservationId }, CONSISTENT);
 
     if (!reservation) {
       const tombstone = { id: reservationId, status: 'released', releasedAt: new Date().toISOString(), quantity: 0, correlationId };
@@ -313,14 +335,15 @@ export class StockSDK {
     } catch (error) {
       if (error.name !== 'ConditionalCheckFailedException') throw error;
 
-      const inventory = await this.db.getItem('inventory', { id: productId });
+      const inventory = await this.db.getItem('inventory', { id: productId }, CONSISTENT);
       if (!isLive(inventory)) throw new NotFoundError('Inventory not found for product');
       throw new InsufficientStockError('Insufficient stock for adjustment');
     }
   }
 
+  // Só a saga consulta reservas, sempre logo depois de gravar
   async getReservation(reservationId) {
-    const reservation = await this.db.getItem('stockReservations', { id: reservationId });
+    const reservation = await this.db.getItem('stockReservations', { id: reservationId }, CONSISTENT);
     if (!reservation) {
       throw new NotFoundError('Reservation not found');
     }
@@ -351,6 +374,9 @@ export class StockSDK {
    * Listar estoque, uma página por vez (`limit`, `startKey`).
    * Como em listProducts, os filtros valem para a página lida (exceto
    * `productId`, que lê o item direto e devolve uma única página).
+   * As reservas ativas são consultadas só para os produtos da página (uma
+   * Query por produto no índice esparso): o custo acompanha o tamanho da
+   * página, não o total de compras em andamento.
    */
   async listStock(filters = {}, { limit, startKey } = {}) {
     const stockMin = optionalNumber(filters.stockMin, 'stockMin');
@@ -361,9 +387,8 @@ export class StockSDK {
     const { items, lastKey } = filters.productId
       ? { items: [await this.db.getItem('inventory', { id: filters.productId })].filter(Boolean) }
       : await this.db.scanPage('inventory', { limit, startKey });
-    const activeReservations = await this.activeReservations(filters.productId);
 
-    const stock = items.filter(item => {
+    const selected = items.filter(item => {
       if (!isLive(item)) {
         return false;
       }
@@ -377,12 +402,14 @@ export class StockSDK {
         return false;
       }
       return true;
-    }).map(item => ({
+    });
+
+    const stock = await Promise.all(selected.map(async item => ({
       productId: item.id,
       name: item.name,
       available: item.stock || 0,
-      reserved: sumQuantities(activeReservations.filter(r => r.productId === item.id))
-    }));
+      reserved: sumQuantities(await this.activeReservations(item.id))
+    })));
     return { stock, nextToken: encodeToken(lastKey) };
   }
 
@@ -402,13 +429,10 @@ export class StockSDK {
   }
 
   /**
-   * Reservas ativas (compras em andamento), de um produto (Query) ou de todos
-   * (Scan do índice esparso, que só contém as reservas ativas).
+   * Reservas ativas (compras em andamento) de um produto, pelo índice
+   * esparso, que só contém as reservas ativas.
    */
   async activeReservations(productId) {
-    if (!productId) {
-      return this.db.scanItems('stockReservations', { indexName: ACTIVE_INDEX });
-    }
     return this.db.queryItems('stockReservations', {
       IndexName: ACTIVE_INDEX,
       KeyConditionExpression: 'activeProductId = :productId',

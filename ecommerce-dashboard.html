@@ -1089,6 +1089,10 @@
                         lastAlarms = { ok: true, items: (await api('/alarms')).alarms || [] };
                     } catch (error) {
                         lastAlarms = { ok: false, error };
+                        // Rota de admin: sem a chave não é falha do sistema, só falta de acesso
+                        if (error.status === 401 || error.status === 403) {
+                            return { value: 'só admin', ok: null, detail: 'Entre como admin para ver os alarmes' };
+                        }
                         return { value: 'indisponível', ok: false, detail: error.message };
                     }
                     const firing = lastAlarms.items.filter(a => a.state === 'ALARM').length;

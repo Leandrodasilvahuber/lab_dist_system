@@ -66,10 +66,16 @@ async function putItemIfNotExists(tableType, item, keyName = 'id') {
   }
 }
 
-async function getItem(tableType, key) {
+/**
+ * `consistentRead`: lê a gravação mais recente. Necessário logo depois de uma
+ * escrita (ex.: gravação condicional que falhou, passo seguinte da saga): a
+ * leitura padrão, eventualmente consistente, pode não enxergar o item ainda.
+ */
+async function getItem(tableType, key, { consistentRead = false } = {}) {
   const { Item } = await docClient.send(new GetCommand({
     TableName: getTable(tableType),
-    Key: key
+    Key: key,
+    ...(consistentRead && { ConsistentRead: true })
   }));
   return Item;
 }
@@ -167,8 +173,8 @@ export class Database {
     return putItem(tableType, item);
   }
 
-  async getItem(tableType, key) {
-    return getItem(tableType, key);
+  async getItem(tableType, key, options) {
+    return getItem(tableType, key, options);
   }
 
   async queryItems(tableType, queryParams) {

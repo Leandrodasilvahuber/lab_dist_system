@@ -7,19 +7,25 @@ const orderSDK = new OrderSDK(eventBus);
 
 export class OrderController {
   /**
-   * GET /orders (admin, paginado: ?limit=&nextToken=) e GET /orders/{id}
+   * GET /orders (admin, paginado: ?limit=&nextToken=)
    */
-  static async getOrders(event, params = {}) {
+  static async listOrders(event, query = {}) {
     try {
-      if (params.id) {
-        const order = await orderSDK.getOrder(params.id);
-        return successResponse(order);
-      }
-
-      const page = await orderSDK.listOrders(params, parsePagination(params));
+      const page = await orderSDK.listOrders(query, parsePagination(query));
       return successResponse(page);
     } catch (error) {
       return sdkErrorResponse(error, 'Failed to get orders');
+    }
+  }
+
+  /**
+   * GET /orders/{id}. O id vem só do path: ?id= na listagem não vira busca.
+   */
+  static async getOrder(event, orderId) {
+    try {
+      return successResponse(await orderSDK.getOrder(orderId));
+    } catch (error) {
+      return sdkErrorResponse(error, 'Failed to get order');
     }
   }
 }
