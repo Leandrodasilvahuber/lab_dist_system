@@ -133,6 +133,7 @@ seguintes são rápidas.
 | `PRODUCT_FUNCTION_NAME` | Lambda de produtos consultada pela saga ao iniciar | `local-ProductFunction` (local-server) |
 | `SAGA_STATE_MACHINE_ARN` | State machine da saga | — |
 | `EVENT_BUS_NAME` | Barramento de eventos (sem ele, os eventos vão para o log e para assinantes locais, ex.: `ProductCreated` → Stock) | — |
+| `TIMEOUT_SCALE` | Multiplica os timeouts do SDK (conexão, request, Scan, Lambda de produtos). Ligado sozinho com `AWS_ENDPOINT` ou `LOCALSTACK_HOSTNAME` (o LocalStack sobrecarregado não responde nos tempos da AWS); o breaker de produtos passa a abrir com 10 falhas e testar a volta em 10s. `1` desliga. Na AWS nenhuma dessas variáveis existe | `3` no LocalStack, `1` na AWS |
 | `PAYMENT_MAX_AMOUNT` | Valor máximo aprovado pelo pagamento simulado | `10000` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` ou `silent` | `info` (`warn` no `local-server`) |
 | `SAMPLE_ORDERS` | `false` desliga as compras de exemplo enviadas ao subir o `local-server` | ligado |

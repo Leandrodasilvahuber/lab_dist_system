@@ -1,6 +1,6 @@
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import { MAX_LOG_ENTRIES, MAX_TRACE_ENTRIES, isTraceId, parseLogLine, selectLogs, selectTrace } from '../../../../common/log-query.mjs';
-import { awsClientConfig, DEFAULT_TIMEOUTS, QUERY_CLIENT_OPTIONS, QUERY_TIMEOUT_MS } from '../../../../common/aws-client.mjs';
+import { awsClientConfig, DEFAULT_TIMEOUTS, QUERY_CLIENT_OPTIONS, QUERY_TIMEOUT_MS, scaled } from '../../../../common/aws-client.mjs';
 
 const MAX_PAGES = 5;
 
@@ -8,8 +8,9 @@ const MAX_PAGES = 5;
 // menos 1s para montar a resposta. Cada página pode levar até 1s de conexão + QUERY_TIMEOUT_MS, então só
 // pede a próxima se ela ainda couber. Sem isso a Lambda estouraria e o API
 // Gateway responderia sem Retry-After; com ele a resposta sai com as linhas
-// já lidas (parte das linhas fica de fora só em períodos muito volumosos)
-export const FILTER_BUDGET_MS = 14000;
+// já lidas (parte das linhas fica de fora só em períodos muito volumosos).
+// Escala com a conexão (TIMEOUT_SCALE): no local-server não há timeout de Lambda
+export const FILTER_BUDGET_MS = scaled(14000);
 const PAGE_WORST_CASE_MS = DEFAULT_TIMEOUTS.connectionTimeout + QUERY_TIMEOUT_MS;
 
 // Rastreio olha todo o período de retenção do log group (RetentionInDays: 14)

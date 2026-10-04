@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
-import { DEFAULT_TIMEOUTS, QUERY_CLIENT_OPTIONS, awsClientConfig } from '../../../src/common/aws-client.mjs';
+import { DEFAULT_TIMEOUTS, QUERY_CLIENT_OPTIONS, TIMEOUT_SCALE, awsClientConfig, timeoutScale } from '../../../src/common/aws-client.mjs';
 import { MAX_SOCKETS, SCAN_TIMEOUT_MS } from '../../../src/common/database.mjs';
 import { MAX_PAGE_SIZE } from '../../../src/common/pagination.mjs';
 
@@ -19,6 +19,12 @@ function functionTimeoutMs(name) {
 const callMs = (requestTimeout, maxAttempts) => maxAttempts * (DEFAULT_TIMEOUTS.connectionTimeout + requestTimeout);
 
 describe('orçamento de tempo dos clientes da AWS (template.yaml)', () => {
+  // As contas valem para a AWS: com AWS_ENDPOINT/TIMEOUT_SCALE no shell o
+  // perfil local estaria ativo e os orçamentos não se aplicam
+  it('roda com o perfil de produção', () => {
+    assert.strictEqual(TIMEOUT_SCALE, 1, 'rode os testes sem AWS_ENDPOINT, LOCALSTACK_HOSTNAME e TIMEOUT_SCALE');
+  });
+
   it('uma consulta de observabilidade termina antes do timeout da GatewayFunction', () => {
     assert.ok(callMs(QUERY_CLIENT_OPTIONS.requestTimeout, QUERY_CLIENT_OPTIONS.maxAttempts) < functionTimeoutMs('GatewayFunction'));
   });
@@ -55,5 +61,23 @@ describe('awsClientConfig', () => {
     assert.strictEqual(requestHandler.httpAgent, httpAgent);
     assert.strictEqual(requestHandler.requestTimeout, DEFAULT_TIMEOUTS.requestTimeout);
     assert.strictEqual(requestHandler.throwOnRequestTimeout, true);
+  });
+});
+
+describe('timeoutScale (perfil local)', () => {
+  it('na AWS (sem endpoint do LocalStack) mantém os valores de produção', () => {
+    assert.strictEqual(timeoutScale({}), 1);
+    // Variável padrão do SDK, pode existir na AWS: não liga o perfil local
+    assert.strictEqual(timeoutScale({ AWS_ENDPOINT_URL: 'https://vpce.example' }), 1);
+  });
+
+  it('triplica os timeouts contra o LocalStack', () => {
+    assert.strictEqual(timeoutScale({ AWS_ENDPOINT: 'http://localhost:4566' }), 3);
+    assert.strictEqual(timeoutScale({ LOCALSTACK_HOSTNAME: 'localhost.localstack.cloud' }), 3);
+  });
+
+  it('TIMEOUT_SCALE sobrescreve a detecção (1 desliga o perfil local)', () => {
+    assert.strictEqual(timeoutScale({ AWS_ENDPOINT: 'http://localhost:4566', TIMEOUT_SCALE: '1' }), 1);
+    assert.strictEqual(timeoutScale({ TIMEOUT_SCALE: '2' }), 2);
   });
 });

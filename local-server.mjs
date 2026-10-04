@@ -31,6 +31,7 @@
  * chamar a API local. Para liberar uma origem, defina CORS_ALLOW_ORIGIN.
  * Sem chave de admin, só aceita o header Host de loopback (barra DNS rebinding).
  */
+import './scripts/lib/local-env.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -59,11 +60,8 @@ const isAuthorizedAdmin = async headers => ADMIN_API_KEY_HASH
   ? isValidApiKeyHash(headers, ADMIN_API_KEY_HASH)
   : isValidApiKey(headers, ADMIN_API_KEY);
 
-// Os serviços leem a configuração ao carregar, então ela vem antes dos imports dinâmicos
-process.env.AWS_ENDPOINT ||= 'http://localhost:4566';
-process.env.AWS_REGION ||= 'us-east-1';
-process.env.AWS_ACCESS_KEY_ID ||= 'test';
-process.env.AWS_SECRET_ACCESS_KEY ||= 'test';
+// Os serviços leem a configuração ao carregar, então ela vem antes dos imports
+// dinâmicos (endpoint e credenciais: scripts/lib/local-env.mjs, primeiro import)
 
 async function findStateMachineArn() {
   try {
@@ -84,6 +82,8 @@ process.env.PRODUCT_TIMEOUT_MS ||= '30000';
 process.env.ALARM_PREFIX ||= 'local-ecommerce-';
 // GET /dlq lê a DLQ local (criada pelo npm run test:e2e:errors)
 process.env.DLQ_NAME ||= 'local-ProductEventsDlq';
+
+const { TIMEOUT_SCALE } = await import('./src/common/aws-client.mjs');
 
 const handlers = {
   products: (await import('./src/ecommerce/products/index.mjs')).handler,
@@ -297,7 +297,7 @@ if (!ADMIN_AUTH_ENABLED && !['127.0.0.1', 'localhost', '::1'].includes(HOST)) {
 server.listen(PORT, HOST, () => {
   emfAgent.start();
   console.log(`🛒 Dashboard em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-  console.log(`   LocalStack: ${process.env.AWS_ENDPOINT}`);
+  console.log(`   LocalStack: ${process.env.AWS_ENDPOINT} (timeouts x${TIMEOUT_SCALE})`);
   console.log(process.env.SAGA_STATE_MACHINE_ARN
     ? `   Saga: ${process.env.SAGA_STATE_MACHINE_ARN}`
     : `   ⚠️  Saga não publicada: compras indisponíveis. Rode npm run build && npm run localstack:deploy`);

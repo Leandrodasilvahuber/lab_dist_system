@@ -11,7 +11,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { Agent as HttpAgent } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
-import { awsClientConfig } from './aws-client.mjs';
+import { awsClientConfig, scaled } from './aws-client.mjs';
 import { MAX_PAGE_SIZE } from './pagination.mjs';
 
 // Os três clientes abaixo dividem os mesmos sockets (um pool por container, não
@@ -43,8 +43,9 @@ const noRetryDocClient = createDocClient({ maxAttempts: 1 });
 // Página de Scan das listagens (GET /products, /stock, /orders, /sagas): lê
 // muito mais que um getItem, e com 3s responderia 503 sob carga. Uma tentativa
 // só. Pior caso do GET /stock (timeout 15s): Scan 1s + 5s, depois as reservas
-// de todos os itens em paralelo, uma tentativa de 1s + 3s = 10s
-export const SCAN_TIMEOUT_MS = 5000;
+// de todos os itens em paralelo, uma tentativa de 1s + 3s = 10s (na AWS; no
+// LocalStack tudo escala com TIMEOUT_SCALE)
+export const SCAN_TIMEOUT_MS = scaled(5000);
 const scanDocClient = createDocClient({ requestTimeout: SCAN_TIMEOUT_MS, maxAttempts: 1 });
 
 // Nome físico de cada tabela, configurável por variável de ambiente.

@@ -77,7 +77,8 @@ export async function deploySaga({ L, F }, { prefix, tables, environment = {} })
         // O LocalStack executa na arquitetura da máquina; o bundle é JS puro
         Architectures: [os.arch() === 'arm64' ? 'arm64' : 'x86_64'],
         Code: { ZipFile: fs.readFileSync(zip) },
-        Environment: { Variables: { ...tables, PAYMENT_MAX_AMOUNT: '10000', ...environment } }
+        // TIMEOUT_SCALE: perfil local de timeouts (src/common/aws-client.mjs)
+        Environment: { Variables: { ...tables, PAYMENT_MAX_AMOUNT: '10000', TIMEOUT_SCALE: '3', ...environment } }
       }));
       arns[fn] = FunctionArn;
       await lambda.waitUntilFunctionActiveV2({ client: L, maxWaitTime: 180 }, { FunctionName });

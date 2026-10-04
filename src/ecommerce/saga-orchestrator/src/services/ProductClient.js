@@ -1,6 +1,6 @@
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { DependencyUnavailableError, NotFoundError, ValidationError } from '../../../../common/errors.mjs';
-import { awsClientConfig, isTransientAwsError } from '../../../../common/aws-client.mjs';
+import { IS_LOCAL, awsClientConfig, isTransientAwsError, scaled } from '../../../../common/aws-client.mjs';
 import { CircuitBreaker } from '../../../../common/circuit-breaker.mjs';
 
 // Erros de negócio da Lambda de produtos que viram o erro equivalente aqui
@@ -10,7 +10,11 @@ const DOMAIN_ERRORS = { NotFound: NotFoundError, ValidationError };
 // orçamento de tempo da SagaOrchestratorFunction (Timeout no template.yaml).
 // No LocalStack o cold start de uma Lambda em contêiner passa disso: o
 // local-server e o e2e aumentam via PRODUCT_TIMEOUT_MS.
-export const PRODUCT_TIMEOUT_MS = Number(process.env.PRODUCT_TIMEOUT_MS) || 5000;
+export const PRODUCT_TIMEOUT_MS = Number(process.env.PRODUCT_TIMEOUT_MS) || scaled(5000);
+
+// No LocalStack a lentidão vem da máquina sobrecarregada, não de Products fora
+// do ar: o breaker local tolera mais falhas e testa a volta mais cedo
+const LOCAL_CIRCUIT = IS_LOCAL ? { failureThreshold: 10, resetTimeoutMs: 10000 } : {};
 
 // Uma tentativa só: com o retry do SDK, dois timeouts seguidos (2 x 5s)
 // estourariam o orçamento da Lambda antes do 503, e o circuit breaker nunca
@@ -34,8 +38,8 @@ export class ProductClient {
     // Uma instância por requisição nunca acumularia falhas para abrir
     breaker = new CircuitBreaker({
       name: 'products',
-      failureThreshold: Number(process.env.PRODUCT_CIRCUIT_FAILURE_THRESHOLD) || undefined,
-      resetTimeoutMs: Number(process.env.PRODUCT_CIRCUIT_RESET_MS) || undefined,
+      failureThreshold: Number(process.env.PRODUCT_CIRCUIT_FAILURE_THRESHOLD) || LOCAL_CIRCUIT.failureThreshold,
+      resetTimeoutMs: Number(process.env.PRODUCT_CIRCUIT_RESET_MS) || LOCAL_CIRCUIT.resetTimeoutMs,
       // Só indisponibilidade abre o circuito; erro de configuração (500) não
       isFailure: error => error instanceof DependencyUnavailableError
     })

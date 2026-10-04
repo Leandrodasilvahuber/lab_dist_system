@@ -16,13 +16,31 @@
  * `endpointEnv`: variável com o endpoint do serviço (LocalStack); sem ela e
  * sem AWS_ENDPOINT o SDK usa o endpoint padrão da região.
  */
-export const DEFAULT_TIMEOUTS = { connectionTimeout: 1000, requestTimeout: 3000 };
+
+/**
+ * Perfil local: contra o LocalStack o gargalo é a CPU da máquina, não o
+ * timeout da Lambda, e os timeouts da AWS viram 503 em cascata sob carga.
+ * Detecta o LocalStack por `AWS_ENDPOINT` (local-server e e2e) ou
+ * `LOCALSTACK_HOSTNAME` (injetada nas Lambdas que ele executa). Não usa
+ * `AWS_ENDPOINT_URL`: é variável padrão do SDK e pode existir na AWS (VPC
+ * endpoint). Na AWS nenhuma delas existe e a escala é 1 (valores de produção).
+ * `TIMEOUT_SCALE` sobrescreve (1 desliga o perfil local).
+ */
+export function timeoutScale(env = process.env) {
+  return Number(env.TIMEOUT_SCALE) || (env.AWS_ENDPOINT || env.LOCALSTACK_HOSTNAME ? 3 : 1);
+}
+export const TIMEOUT_SCALE = timeoutScale();
+export const IS_LOCAL = TIMEOUT_SCALE !== 1;
+export const scaled = ms => ms * TIMEOUT_SCALE;
+
+export const DEFAULT_TIMEOUTS = { connectionTimeout: scaled(1000), requestTimeout: scaled(3000) };
 
 // Consultas de observabilidade (logs, métricas, histórico de execuções) leem
 // muito mais dados por chamada; o teto é o timeout da GatewayFunction (15s).
 // Uma tentativa só: com o retry do SDK, duas chamadas lentas (2 x (1s + 10s))
 // estourariam a Lambda antes de ela responder 503 (apiRoutes). Quem repete é
-// o dashboard, no próximo refresh
+// o dashboard, no próximo refresh. Fora do perfil local: já é folgado, e
+// escalado não caberia nem uma página no orçamento do LogsClient
 export const QUERY_TIMEOUT_MS = 10000;
 export const QUERY_CLIENT_OPTIONS = { requestTimeout: QUERY_TIMEOUT_MS, maxAttempts: 1 };
 
