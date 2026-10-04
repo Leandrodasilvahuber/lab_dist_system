@@ -1,4 +1,5 @@
 import { SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
+import { awsClientConfig } from '../../../../common/aws-client.mjs';
 
 /**
  * Cliente mínimo do Step Functions usado para iniciar a saga.
@@ -9,11 +10,7 @@ export class StepFunctionsClient {
     client
   } = {}) {
     this.stateMachineArn = stateMachineArn;
-    const endpoint = process.env.STEPFUNCTIONS_ENDPOINT || process.env.AWS_ENDPOINT;
-    this.client = client || new SFNClient({
-      region: process.env.AWS_REGION || 'us-east-1',
-      ...(endpoint && { endpoint })
-    });
+    this.client = client || new SFNClient(awsClientConfig('STEPFUNCTIONS_ENDPOINT'));
   }
 
   async startExecution(name, input) {

@@ -1,6 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { Database } from '../../../../common/database.mjs';
-import { IdempotencyConflictError, NotFoundError, ValidationError } from '../../../../common/errors.mjs';
+import { DependencyUnavailableError, IdempotencyConflictError, NotFoundError, ValidationError } from '../../../../common/errors.mjs';
 import { log } from '../../../../common/logger.mjs';
 import { encodeToken } from '../../../../common/pagination.mjs';
 import { StepFunctionsClient } from './StepFunctionsClient.js';
@@ -20,6 +20,13 @@ export const SAGA_STEPS = ['createOrder', 'reserveStock', 'processPayment', 'com
 
 // Erro gravado quando o StartExecution falha: a saga pode ser iniciada de novo
 const START_FAILED = 'StartExecutionFailed';
+
+// Saga RUNNING sem executionArn e sem passos há mais que isto não chegou a
+// iniciar: a Lambda morreu (timeout, OOM) entre gravar o registro e o
+// StartExecution, sem marcá-la START_FAILED. Bem acima do Timeout da
+// SagaOrchestratorFunction (template.yaml), para não disputar com quem ainda
+// está iniciando
+export const STUCK_START_MS = 60 * 1000;
 
 // A saga é relida logo depois de gravada (idempotência, corrida entre requisições
 // com a mesma chave, GET /saga/{id} logo após o 202): leitura consistente
@@ -47,8 +54,12 @@ export class SagaService {
     if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
       throw new ValidationError('productId and a positive integer quantity are required');
     }
+    // O controller já responde 400 sem o header; aqui garante o contrato
+    if (!idempotencyKey) {
+      throw new ValidationError('idempotencyKey is required');
+    }
 
-    const sagaId = idempotencyKey ? sagaIdFromKey(idempotencyKey) : `saga_${randomUUID()}`;
+    const sagaId = sagaIdFromKey(idempotencyKey);
 
     const existing = await this.db.getItem('sagas', { id: sagaId }, CONSISTENT);
     if (existing) {
@@ -72,6 +83,7 @@ export class SagaService {
       paymentId: `pay_${sagaId}`,
       reservationId: `res_${sagaId}`,
       startAttempts: 1,
+      executionName: sagaId,
       steps: {},
       createdAt: now,
       updatedAt: now
@@ -83,19 +95,20 @@ export class SagaService {
       return this.resume(await this.db.getItem('sagas', { id: sagaId }, CONSISTENT), { productId, quantity });
     }
 
-    await this.launch(saga, sagaId);
+    await this.launch(saga);
     return { saga, created: true };
   }
 
   /**
    * Saga já existente para a idempotencyKey: confere se é o mesmo pedido e,
-   * se ela falhou ao iniciar, inicia de novo.
+   * se ela falhou ao iniciar (ou ficou presa antes de iniciar), inicia de novo.
    */
   async resume(existing, { productId, quantity }) {
     if (existing.productId !== productId || existing.quantity !== quantity) {
       throw new IdempotencyConflictError();
     }
-    if (existing.status !== SagaStatus.FAILED || existing.error !== START_FAILED) {
+    const restart = restartCondition(existing, Date.now());
+    if (!restart) {
       return { saga: existing, created: false };
     }
 
@@ -105,9 +118,9 @@ export class SagaService {
         'sagas',
         { id: existing.id },
         'SET #status = :status, updatedAt = :now, startAttempts = if_not_exists(startAttempts, :one) + :one REMOVE #error',
-        { ':status': SagaStatus.RUNNING, ':failed': SagaStatus.FAILED, ':startFailed': START_FAILED, ':now': new Date().toISOString(), ':one': 1 },
+        { ':status': SagaStatus.RUNNING, ':now': new Date().toISOString(), ':one': 1, ...restart.values },
         {
-          conditionExpression: '#status = :failed AND #error = :startFailed',
+          conditionExpression: restart.expression,
           expressionAttributeNames: { '#status': 'status', '#error': 'error' },
           returnValues: 'ALL_NEW'
         }
@@ -118,32 +131,41 @@ export class SagaService {
       return { saga: await this.db.getItem('sagas', { id: existing.id }, CONSISTENT), created: false };
     }
 
-    // Nome novo: o Step Functions não aceita repetir o nome de uma execução
-    await this.launch(saga, `${saga.id}-${saga.startAttempts}`);
+    if (restart.stuck) {
+      log({ event: 'SAGA_START_RECOVERED', correlationId: saga.correlationId, status: 'info', message: `Saga ${saga.id} was never started, starting it again` });
+    }
+    await this.launch(saga, { retry: true });
     return { saga, created: true };
   }
 
   /**
    * Inicia a execução no Step Functions. Se falhar, marca a saga como FAILED
-   * (com START_FAILED, para permitir nova tentativa) e relança o erro.
+   * (com START_FAILED, para permitir nova tentativa) e responde 503.
    * Depois que a execução começou, uma falha ao gravar o executionArn só é
    * registrada no log: a saga está rodando e não pode ser dada como falha.
    */
-  async launch(saga, executionName) {
+  async launch(saga, { retry = false } = {}) {
     let executionArn;
     try {
-      executionArn = await this.stepFunctions.startExecution(executionName, {
-        sagaId: saga.id,
-        productId: saga.productId,
-        quantity: saga.quantity,
-        unitPrice: saga.unitPrice,
-        correlationId: saga.correlationId,
-        ids: { orderId: saga.orderId, paymentId: saga.paymentId, reservationId: saga.reservationId }
-      });
+      executionArn = await this.startExecution(saga, retry);
     } catch (error) {
+      // Outra requisição assumiu o início: não marca a saga como falha
+      if (error instanceof StartSupersededError) throw error;
       log({ event: 'SAGA_START_FAILED', correlationId: saga.correlationId, status: 'error', message: `Failed to start saga ${saga.id}`, error });
-      await this.markStartFailed(saga);
-      throw error;
+      try {
+        await this.markStartFailed(saga);
+      } catch (markError) {
+        // Comum na mesma queda (DynamoDB fora do ar): a saga fica RUNNING sem
+        // execução e a mesma Idempotency-Key a reinicia depois de
+        // STUCK_START_MS. A resposta continua sendo o 503 da falha original
+        log({ event: 'SAGA_START_FAILED_NOT_RECORDED', correlationId: saga.correlationId, status: 'error', message: `Saga ${saga.id} could not be marked as failed to start`, error: markError });
+      }
+      // A saga ficou marcada para reinício: a mesma Idempotency-Key a inicia de
+      // novo. Já registrado acima (SAGA_START_FAILED, com o correlationId)
+      throw new DependencyUnavailableError('Could not start the purchase, retry with the same Idempotency-Key', {
+        cause: error,
+        logged: true
+      });
     }
 
     saga.executionArn = executionArn;
@@ -152,6 +174,45 @@ export class SagaService {
     } catch (error) {
       log({ event: 'SAGA_ARN_NOT_RECORDED', correlationId: saga.correlationId, status: 'error', message: `Saga ${saga.id} started but executionArn was not recorded`, error });
     }
+  }
+
+  /**
+   * Na nova tentativa, repete primeiro o nome e o input da anterior: se aquele
+   * StartExecution criou a execução e só a resposta se perdeu (timeout do
+   * cliente), o Step Functions (STANDARD) devolve a mesma execução em vez de
+   * criar uma segunda compra em paralelo. ExecutionAlreadyExists: a execução
+   * anterior já terminou sem registrar passos, e só então vai um nome novo,
+   * gravado antes de iniciar para que a tentativa seguinte o repita.
+   */
+  async startExecution(saga, retry) {
+    const input = {
+      sagaId: saga.id,
+      productId: saga.productId,
+      quantity: saga.quantity,
+      unitPrice: saga.unitPrice,
+      correlationId: saga.correlationId,
+      ids: { orderId: saga.orderId, paymentId: saga.paymentId, reservationId: saga.reservationId }
+    };
+    const name = saga.executionName || legacyExecutionName(saga);
+    try {
+      return await this.stepFunctions.startExecution(name, input);
+    } catch (error) {
+      if (!retry || error.name !== 'ExecutionAlreadyExists') throw error;
+    }
+
+    const executionName = `${saga.id}-${saga.startAttempts}`;
+    try {
+      // Só esta tentativa grava o nome: o reinício condicional do resume já
+      // garante uma por vez, e a condição deixa isso explícito aqui
+      await this.db.updateItem('sagas', { id: saga.id }, 'SET executionName = :name', { ':name': executionName, ':attempt': saga.startAttempts }, {
+        conditionExpression: 'startAttempts = :attempt'
+      });
+    } catch (error) {
+      if (error.name === 'ConditionalCheckFailedException') throw new StartSupersededError();
+      throw error;
+    }
+    saga.executionName = executionName;
+    return this.stepFunctions.startExecution(executionName, input);
   }
 
   /**
@@ -197,6 +258,56 @@ export class SagaService {
       .map(withProgress);
     return { sagas, nextToken: encodeToken(lastKey) };
   }
+}
+
+/**
+ * Outra requisição com a mesma Idempotency-Key reiniciou a saga enquanto esta
+ * tentava: 503, e o cliente repete para ler o resultado daquela.
+ */
+class StartSupersededError extends DependencyUnavailableError {
+  constructor() {
+    super('Purchase is being started by another request, retry with the same Idempotency-Key', { retryAfterSeconds: 1 });
+  }
+}
+
+/**
+ * Condição para reiniciar uma saga existente, ou null se ela não deve ser
+ * reiniciada. Dois casos, ambos sem passos registrados: o StartExecution
+ * falhou (START_FAILED) ou a Lambda
+ * morreu antes de iniciar (RUNNING sem execução nem passos há STUCK_START_MS).
+ * A condição no DynamoDB garante que só uma requisição reinicia: o
+ * `updatedAt` lido é o que precisa estar lá.
+ */
+function restartCondition(saga, now) {
+  const noSteps = Object.keys(saga.steps || {}).length === 0;
+  // Sem passos também no START_FAILED: uma execução que rodou sem conseguir
+  // registrar o status (o Catch das gravações deixa seguir) não é repetida
+  if (saga.status === SagaStatus.FAILED && saga.error === START_FAILED && noSteps) {
+    return {
+      expression: '#status = :failed AND #error = :startFailed AND size(steps) = :zero',
+      values: { ':failed': SagaStatus.FAILED, ':startFailed': START_FAILED, ':zero': 0 }
+    };
+  }
+  const stuck = saga.status === SagaStatus.RUNNING && !saga.executionArn && noSteps &&
+    now - Date.parse(saga.updatedAt) > STUCK_START_MS;
+  if (stuck) {
+    return {
+      stuck: true,
+      expression: '#status = :running AND attribute_not_exists(executionArn) AND size(steps) = :zero AND updatedAt = :seen',
+      values: { ':running': SagaStatus.RUNNING, ':zero': 0, ':seen': saga.updatedAt }
+    };
+  }
+  return null;
+}
+
+/**
+ * Nome da tentativa anterior de uma saga gravada antes do executionName: a 1ª
+ * usou o id e as seguintes `<id>-<tentativa>`. Quem chama já incrementou
+ * startAttempts para a tentativa atual.
+ */
+function legacyExecutionName(saga) {
+  const previous = (saga.startAttempts || 1) - 1;
+  return previous <= 1 ? saga.id : `${saga.id}-${previous}`;
 }
 
 function withProgress(saga) {

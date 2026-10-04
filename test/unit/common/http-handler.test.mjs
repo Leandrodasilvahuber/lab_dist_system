@@ -53,4 +53,16 @@ describe('createServiceHandler: log por request', () => {
     assert.strictEqual(error.mock.calls.length, 0);
     assert.strictEqual(JSON.parse(warn.mock.calls[0].arguments[0]).event, 'API_REJECTED');
   });
+
+  it('throttling da AWS lançado fora dos controllers responde 503 com Retry-After', async () => {
+    process.env.LOG_LEVEL = 'info';
+    mock.method(console, 'log', () => {});
+    const error = mock.method(console, 'error', () => {});
+    const throttled = Object.assign(new Error('Rate exceeded'), { name: 'ThrottlingException' });
+    const response = await createServiceHandler({ setupRoutes: async () => { throw throttled; } })(request('/products'));
+
+    assert.strictEqual(response.statusCode, 503);
+    assert.ok(Number(response.headers['Retry-After']) > 0);
+    assert.strictEqual(JSON.parse(error.mock.calls[0].arguments[0]).event, 'DEPENDENCY_UNAVAILABLE');
+  });
 });

@@ -1,4 +1,5 @@
 import { CloudWatchClient, DescribeAlarmsCommand } from '@aws-sdk/client-cloudwatch';
+import { awsClientConfig } from '../../../../common/aws-client.mjs';
 
 // ALARM primeiro, depois sem dados, depois OK
 const STATE_ORDER = { ALARM: 0, INSUFFICIENT_DATA: 1, OK: 2 };
@@ -10,11 +11,7 @@ const STATE_ORDER = { ALARM: 0, INSUFFICIENT_DATA: 1, OK: 2 };
 export class AlarmsClient {
   constructor({ prefix = process.env.ALARM_PREFIX, client } = {}) {
     this.prefix = prefix;
-    const endpoint = process.env.CLOUDWATCH_ENDPOINT || process.env.AWS_ENDPOINT;
-    this.client = client || new CloudWatchClient({
-      region: process.env.AWS_REGION || 'us-east-1',
-      ...(endpoint && { endpoint })
-    });
+    this.client = client || new CloudWatchClient(awsClientConfig('CLOUDWATCH_ENDPOINT'));
   }
 
   async listAlarms() {

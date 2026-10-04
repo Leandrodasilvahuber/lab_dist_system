@@ -8,6 +8,7 @@ import {
 } from '@aws-sdk/client-sqs';
 import { eventBus as defaultEventBus } from '../../../../common/event-bus.mjs';
 import { NotFoundError, ValidationError } from '../../../../common/errors.mjs';
+import { awsClientConfig } from '../../../../common/aws-client.mjs';
 
 const BATCH = 10;
 const MAX_BATCHES = 5;
@@ -31,11 +32,7 @@ export class DlqClient {
     this.queueUrl = queueUrl;
     this.queueName = queueName;
     this.eventBus = eventBus;
-    const endpoint = process.env.SQS_ENDPOINT || process.env.AWS_ENDPOINT;
-    this.client = client || new SQSClient({
-      region: process.env.AWS_REGION || 'us-east-1',
-      ...(endpoint && { endpoint })
-    });
+    this.client = client || new SQSClient(awsClientConfig('SQS_ENDPOINT'));
   }
 
   // Na AWS a URL vem do template; no local, só o nome. Fila inexistente -> null

@@ -15,7 +15,7 @@ export class ProductController {
       const page = await productSDK.listProducts(query, parsePagination(query));
       return successResponse(page);
     } catch (error) {
-      return sdkErrorResponse(error, 'Failed to get products');
+      return sdkErrorResponse(error, 'Failed to get products', event.headers?.correlationId);
     }
   }
 
@@ -26,7 +26,7 @@ export class ProductController {
     try {
       return successResponse(await productSDK.getProduct(productId));
     } catch (error) {
-      return sdkErrorResponse(error, 'Failed to get product');
+      return sdkErrorResponse(error, 'Failed to get product', event.headers?.correlationId);
     }
   }
 
@@ -68,7 +68,7 @@ export class ProductController {
 
       return successResponse(product, 201);
     } catch (error) {
-      return sdkErrorResponse(error, 'Failed to create product');
+      return sdkErrorResponse(error, 'Failed to create product', event.headers?.correlationId);
     }
   }
 }

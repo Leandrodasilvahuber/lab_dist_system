@@ -1,5 +1,6 @@
 import { CloudWatchClient, GetMetricDataCommand, ListMetricsCommand } from '@aws-sdk/client-cloudwatch';
 import { metricNamespace } from '../../../../common/emf.mjs';
+import { awsClientConfig, QUERY_CLIENT_OPTIONS } from '../../../../common/aws-client.mjs';
 
 // Mesma ideia do SagaMetricsClient: aba aberta em vários navegadores não multiplica as leituras
 export const ERROR_METRICS_CACHE_TTL_MS = 20 * 1000;
@@ -31,11 +32,7 @@ export class CloudWatchMetricsClient {
     this.cacheTtlMs = cacheTtlMs;
     this.now = now;
     this.cache = new Map();
-    const endpoint = process.env.CLOUDWATCH_ENDPOINT || process.env.AWS_ENDPOINT;
-    this.client = client || new CloudWatchClient({
-      region: process.env.AWS_REGION || 'us-east-1',
-      ...(endpoint && { endpoint })
-    });
+    this.client = client || new CloudWatchClient(awsClientConfig('CLOUDWATCH_ENDPOINT', QUERY_CLIENT_OPTIONS));
   }
 
   errorMetrics({ hours }) {

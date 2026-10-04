@@ -92,11 +92,14 @@ curl $API/saga/saga_3c1f...
 # {"status":"COMPLETED","steps":{"createOrder":{"status":"COMPLETED",...},...},"progress":{"completed":5,"total":5}}
 ```
 
-O header `Idempotency-Key` (opcional) evita compras duplicadas: repetir a
+O header `Idempotency-Key` é obrigatório (`400` sem ele; **mudança incompatível**:
+clientes que não o enviavam precisam passar a gerar um UUID por compra) e evita compras duplicadas: repetir a
 requisição com a mesma chave e o mesmo pedido devolve a saga existente (200) em
 vez de criar outra. A mesma chave com outro pedido responde `409`. Se a saga
 falhou ao iniciar (Step Functions indisponível), repetir com a mesma chave a
-inicia de novo. O `sagaId` é `saga_` + hash SHA-256 da chave. A chave precisa
+inicia de novo. Se uma dependência estiver fora do ar (serviço de Products,
+Step Functions), a resposta é `503` com `Retry-After`: repita com a mesma chave
+depois desse tempo. O `sagaId` é `saga_` + hash SHA-256 da chave. A chave precisa
 ter de 16 a 255 caracteres (`400` fora disso): use um UUID por compra, porque
 quem conhece a chave consegue calcular o `sagaId` e consultar `GET /saga/{id}`.
 
@@ -150,10 +153,10 @@ Completed/Compensated, nenhuma mensagem na DLQ há mais de 24 h) e
 | GET | `/products/{id}` | Busca produto |
 | GET | `/orders` | Lista pedidos, paginado (`?status=&productId=&limit=&nextToken=`) |
 | GET | `/orders/{id}` | Busca pedido |
-| GET | `/stock` | Estoque dos produtos, paginado (`?productId=&stockMin=&stockMax=&limit=&nextToken=`) |
-| GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento) |
-| POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir) |
-| **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` → 202 |
+| GET | `/stock` | Estoque dos produtos, paginado (`?productId=&stockMin=&stockMax=&limit=&nextToken=`; `reserved: null` e `degraded: true` se as reservas não puderem ser lidas) |
+| GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento; com o índice de reservas fora do ar, `reserved`/`activeReservations` vêm `null` e `degraded: true`) |
+| POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir; não é idempotente: depois de um 503, confira o estoque antes de repetir) |
+| **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` + header `Idempotency-Key` (obrigatório, 400 sem ele) → 202; `503` + `Retry-After`: repita com a mesma chave |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
 | GET | `/sagas` | Lista as compras, paginado (`?status=&limit=&nextToken=`) |
 

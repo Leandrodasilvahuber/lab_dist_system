@@ -85,7 +85,7 @@ if [ ! -z "$API_URL" ]; then
     echo "   Products:   $API_URL/products"
     echo "   Stock:      $API_URL/stock"
     echo "   Orders:     curl -H \"X-Api-Key: \$ADMIN_API_KEY\" $API_URL/orders   (admin)"
-    echo "   Saga:       curl -X POST $API_URL/saga/execute -d '{\"productId\":\"apple\",\"quantity\":1}'"
+    echo "   Saga:       curl -X POST $API_URL/saga/execute -H \"Idempotency-Key: \$(uuidgen)\" -d '{\"productId\":\"apple\",\"quantity\":1}'"
     echo ""
     echo "🌱 Popular produtos: npm run seed -- --stage dev"
 else

@@ -71,6 +71,29 @@ describe('GET /logs', () => {
     assert.deepStrictEqual(logs.map(l => l.event), ['B', 'A']);
   });
 
+  it('LogsClient só pede a próxima página se ela couber no timeout da Lambda', async () => {
+    let clock = 0;
+    const sent = [];
+    const client = {
+      async send(command) {
+        sent.push(command.input);
+        clock += 2000; // página lenta: depois de 2 delas, a 3ª (até 11s) não cabe mais
+        return { events: [{ message: JSON.stringify({ timestamp: '2026-10-04T11:00:00Z', event: `P${sent.length}`, status: 'error' }) }], nextToken: 'more' };
+      }
+    };
+    const logs = await new LogsClient({ logGroupName: 'g', client, clock: () => clock }).listLogs({ levels: ['error'], hours: 1 }, Date.parse('2026-10-04T12:00:00Z'));
+    assert.strictEqual(sent.length, 2);
+    assert.strictEqual(logs.length, 2);
+  });
+
+  it('LogsClient lê as 5 páginas quando elas respondem rápido', async () => {
+    let clock = 0;
+    let calls = 0;
+    const client = { async send() { calls += 1; clock += 300; return { events: [], nextToken: 'more' }; } };
+    await new LogsClient({ logGroupName: 'g', client, clock: () => clock }).listLogs({ levels: ['error'], hours: 1 });
+    assert.strictEqual(calls, 5);
+  });
+
   it('repassa level e hours da query', async () => {
     let received;
     const handler = createAPIHandler({ logs: { listLogs: async query => { received = query; return []; } } });

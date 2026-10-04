@@ -108,10 +108,10 @@ curl $API/sagas
 curl -X POST -H "X-Api-Key: $ADMIN_API_KEY" $API/stock/apple/adjust -d '{"delta": 10}'
 
 # Pagamento recusado (produto de 25000 > limite de 10000): saga termina COMPENSATED
-curl -X POST $API/saga/execute -d '{"productId": "server", "quantity": 1}'
+curl -X POST $API/saga/execute -H "Idempotency-Key: $(uuidgen)" -d '{"productId": "server", "quantity": 1}'
 
 # Estoque insuficiente: falha antes de cobrar; pedido cancelado
-curl -X POST $API/saga/execute -d '{"productId": "apple", "quantity": 999}'
+curl -X POST $API/saga/execute -H "Idempotency-Key: $(uuidgen)" -d '{"productId": "apple", "quantity": 999}'
 ```
 
 No console do Step Functions (máquina `dev-purchase-saga`) dá para ver cada

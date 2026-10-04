@@ -20,7 +20,7 @@ export class StockController {
       const page = await stockSDK.listStock(params, parsePagination(params));
       return successResponse(page);
     } catch (error) {
-      return sdkErrorResponse(error, 'Failed to get stock');
+      return sdkErrorResponse(error, 'Failed to get stock', event.headers?.correlationId);
     }
   }
 
@@ -46,7 +46,7 @@ export class StockController {
       const result = await stockSDK.adjustStock(productId, deltaValue, { name: name?.trim() });
       return successResponse(result);
     } catch (error) {
-      return sdkErrorResponse(error, 'Failed to adjust stock');
+      return sdkErrorResponse(error, 'Failed to adjust stock', event.headers?.correlationId);
     }
   }
 }

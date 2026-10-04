@@ -38,6 +38,10 @@ TRANSIENT_ERRORS = [
     'Sandbox.Timedout', 'Lambda.Unknown'
 ]
 
+# Backoff exponencial com jitter completo e teto: sagas simultâneas no mesmo
+# produto (TransactionConflict) não repetem em sincronia e voltam a colidir
+BACKOFF = {'IntervalSeconds': 1, 'BackoffRate': 2, 'MaxDelaySeconds': 10, 'JitterStrategy': 'FULL'}
+
 FUNCTIONS = {'orders': '${OrderFunctionArn}', 'payments': '${PaymentFunctionArn}', 'stock': '${StockFunctionArn}'}
 TABLE = '${SagasTableName}'
 
@@ -92,9 +96,8 @@ def lambda_task(service, action, payload_input, next_state, retry_attempts, catc
         },
         'Retry': [{
             'ErrorEquals': TRANSIENT_ERRORS,
-            'IntervalSeconds': 1,
             'MaxAttempts': retry_attempts,
-            'BackoffRate': 2
+            **BACKOFF
         }],
         'Catch': [{'ErrorEquals': ['States.ALL'], 'ResultPath': '$.error', 'Next': catch_next}],
         'Next': next_state
@@ -114,7 +117,7 @@ def update_saga(update_expression, names, values, next_state):
             'ExpressionAttributeValues': values
         },
         'ResultPath': None,
-        'Retry': [{'ErrorEquals': ['States.ALL'], 'IntervalSeconds': 1, 'MaxAttempts': 3, 'BackoffRate': 2}],
+        'Retry': [{'ErrorEquals': ['States.ALL'], 'MaxAttempts': 3, **BACKOFF}],
         'Catch': [{'ErrorEquals': ['States.ALL'], 'ResultPath': '$.recordError', 'Next': next_state}],
         'Next': next_state
     }

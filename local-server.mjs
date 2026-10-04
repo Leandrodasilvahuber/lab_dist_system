@@ -78,6 +78,8 @@ async function findStateMachineArn() {
 process.env.SAGA_STATE_MACHINE_ARN ||= await findStateMachineArn() || '';
 // A saga consulta o produto invocando a Lambda publicada por `npm run localstack:deploy`
 process.env.PRODUCT_FUNCTION_NAME ||= 'local-ProductFunction';
+// Cold start de Lambda no LocalStack (contêiner) passa do teto de 5s da AWS
+process.env.PRODUCT_TIMEOUT_MS ||= '30000';
 // GET /alarms lista só os alarmes do ambiente local (mesmo padrão de nome do template.yaml)
 process.env.ALARM_PREFIX ||= 'local-ecommerce-';
 // GET /dlq lê a DLQ local (criada pelo npm run test:e2e:errors)

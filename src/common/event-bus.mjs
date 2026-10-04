@@ -1,5 +1,6 @@
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { log } from './logger.mjs';
+import { awsClientConfig } from './aws-client.mjs';
 
 /**
  * Publica eventos de domínio (OrderCreated, PaymentRefunded...) no EventBridge.
@@ -21,11 +22,7 @@ export class EventBus {
     this.eventBusName = eventBusName;
     this.subscribers = [];
     if (this.eventBusName) {
-      const endpoint = process.env.EVENTBRIDGE_ENDPOINT || process.env.AWS_ENDPOINT;
-      this.client = client || new EventBridgeClient({
-        region: process.env.AWS_REGION || 'us-east-1',
-        ...(endpoint && { endpoint })
-      });
+      this.client = client || new EventBridgeClient(awsClientConfig('EVENTBRIDGE_ENDPOINT'));
     }
   }
 

@@ -24,8 +24,12 @@ export class SagaOrchestratorController {
       const idempotencyKey = event.headers?.['idempotency-key'] || event.headers?.['x-idempotency-key'];
       const { productId, quantity } = parseBody(event);
 
-      if (idempotencyKey !== undefined &&
-          (idempotencyKey.length < MIN_IDEMPOTENCY_KEY_LENGTH || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH)) {
+      // Obrigatória: sem ela, um retry do cliente depois de um timeout (a
+      // compra pode ter começado) ou de um 503 criaria uma segunda compra
+      if (idempotencyKey === undefined) {
+        return errorResponse('Idempotency-Key header is required (use a UUID per purchase)', 400);
+      }
+      if (idempotencyKey.length < MIN_IDEMPOTENCY_KEY_LENGTH || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
         return errorResponse(
           `Idempotency-Key must have between ${MIN_IDEMPOTENCY_KEY_LENGTH} and ${MAX_IDEMPOTENCY_KEY_LENGTH} characters (use a UUID)`, 400);
       }
@@ -55,7 +59,7 @@ export class SagaOrchestratorController {
         statusUrl: `/saga/${saga.id}`
       }, created ? 202 : 200);
     } catch (error) {
-      return sdkErrorResponse(error, 'Failed to start saga');
+      return sdkErrorResponse(error, 'Failed to start saga', event.headers?.correlationId);
     }
   }
 
@@ -67,7 +71,7 @@ export class SagaOrchestratorController {
       const saga = await sagaService.getSaga(event.pathParameters.sagaId);
       return successResponse(saga);
     } catch (error) {
-      return sdkErrorResponse(error, 'Failed to get saga');
+      return sdkErrorResponse(error, 'Failed to get saga', event.headers?.correlationId);
     }
   }
 
@@ -80,7 +84,7 @@ export class SagaOrchestratorController {
       const { sagas, nextToken } = await sagaService.listSagas(query, parsePagination(query));
       return successResponse({ sagas, count: sagas.length, nextToken });
     } catch (error) {
-      return sdkErrorResponse(error, 'Failed to list sagas');
+      return sdkErrorResponse(error, 'Failed to list sagas', event.headers?.correlationId);
     }
   }
 }

@@ -9,19 +9,43 @@ import {
   DeleteCommand,
   TransactWriteCommand
 } from '@aws-sdk/lib-dynamodb';
+import { Agent as HttpAgent } from 'node:http';
+import { Agent as HttpsAgent } from 'node:https';
+import { awsClientConfig } from './aws-client.mjs';
+import { MAX_PAGE_SIZE } from './pagination.mjs';
+
+// Os três clientes abaixo dividem os mesmos sockets (um pool por container, não
+// três). maxSockets cobre uma página inteira de listagem (MAX_PAGE_SIZE) com uma
+// consulta por item em paralelo: com o padrão do SDK (50) metade esperaria na
+// fila, e a espera pelo socket não entra no requestTimeout
+export const MAX_SOCKETS = MAX_PAGE_SIZE;
+const agentOptions = { keepAlive: true, maxSockets: MAX_SOCKETS };
+const handlerOptions = { httpAgent: new HttpAgent(agentOptions), httpsAgent: new HttpsAgent(agentOptions) };
 
 // Endpoint customizado só é usado quando definido (LocalStack / DynamoDB Local).
 // Na AWS a variável não existe e o SDK usa o endpoint padrão da região.
-const endpoint = process.env.DYNAMODB_ENDPOINT || process.env.AWS_ENDPOINT;
+function createDocClient(options) {
+  return DynamoDBDocumentClient.from(new DynamoDBClient(awsClientConfig('DYNAMODB_ENDPOINT', { ...options, handlerOptions })), {
+    marshallOptions: { removeUndefinedValues: true }
+  });
+}
 
-const client = new DynamoDBClient({
-  region: process.env.AWS_REGION || 'us-east-1',
-  ...(endpoint && { endpoint })
-});
+const docClient = createDocClient();
 
-const docClient = DynamoDBDocumentClient.from(client, {
-  marshallOptions: { removeUndefinedValues: true }
-});
+// Uma tentativa só (`retry: false`), em dois casos:
+// - escrita que não é idempotente (ex.: `stock = stock + :delta`): depois de
+//   um timeout do cliente a escrita pode ter sido aplicada, e o retry do SDK a
+//   aplicaria de novo; quem repete decide (o cliente HTTP)
+// - leitura acessória que degrada se falhar (reservas no GET /stock): o retry
+//   só gastaria o orçamento de tempo da Lambda
+const noRetryDocClient = createDocClient({ maxAttempts: 1 });
+
+// Página de Scan das listagens (GET /products, /stock, /orders, /sagas): lê
+// muito mais que um getItem, e com 3s responderia 503 sob carga. Uma tentativa
+// só. Pior caso do GET /stock (timeout 15s): Scan 1s + 5s, depois as reservas
+// de todos os itens em paralelo, uma tentativa de 1s + 3s = 10s
+export const SCAN_TIMEOUT_MS = 5000;
+const scanDocClient = createDocClient({ requestTimeout: SCAN_TIMEOUT_MS, maxAttempts: 1 });
 
 // Nome físico de cada tabela, configurável por variável de ambiente.
 // No deploy o template deve injetar os nomes (ex.: dev-Products).
@@ -80,13 +104,17 @@ async function getItem(tableType, key, { consistentRead = false } = {}) {
   return Item;
 }
 
-async function queryItems(tableType, queryParams) {
+/**
+ * `retry: false`: leitura acessória que degrada se falhar (ver noRetryDocClient)
+ */
+async function queryItems(tableType, queryParams, { retry = true } = {}) {
+  const client = retry ? docClient : noRetryDocClient;
   const items = [];
   let ExclusiveStartKey;
 
   // Percorre todas as páginas da consulta (limite de 1MB por chamada)
   do {
-    const result = await docClient.send(new QueryCommand({
+    const result = await client.send(new QueryCommand({
       TableName: getTable(tableType),
       ...queryParams,
       ExclusiveStartKey
@@ -98,8 +126,12 @@ async function queryItems(tableType, queryParams) {
   return items;
 }
 
+/**
+ * `retry: false`: para escritas que não são idempotentes (ver noRetryDocClient)
+ */
 async function updateItem(tableType, key, updateExpression, expressionAttributeValues, options = {}) {
-  const { Attributes } = await docClient.send(new UpdateCommand({
+  const client = options.retry === false ? noRetryDocClient : docClient;
+  const { Attributes } = await client.send(new UpdateCommand({
     TableName: getTable(tableType),
     Key: key,
     UpdateExpression: updateExpression,
@@ -147,7 +179,7 @@ async function scanItems(tableType, { indexName } = {}) {
  * `lastKey` é o cursor da próxima página (undefined na última).
  */
 async function scanPage(tableType, { limit, startKey } = {}) {
-  const result = await docClient.send(new ScanCommand({
+  const result = await scanDocClient.send(new ScanCommand({
     TableName: getTable(tableType),
     ...(limit && { Limit: limit }),
     ...(startKey && { ExclusiveStartKey: startKey })
@@ -177,8 +209,8 @@ export class Database {
     return getItem(tableType, key, options);
   }
 
-  async queryItems(tableType, queryParams) {
-    return queryItems(tableType, queryParams);
+  async queryItems(tableType, queryParams, options) {
+    return queryItems(tableType, queryParams, options);
   }
 
   async putItemIfNotExists(tableType, item, keyName) {

@@ -34,9 +34,11 @@
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -91,9 +93,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -149,9 +153,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -196,9 +202,11 @@
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -252,9 +260,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -310,9 +320,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -365,9 +377,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -412,9 +426,11 @@
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -469,9 +485,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -527,9 +545,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -582,9 +602,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -627,9 +649,11 @@
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -680,9 +704,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -738,9 +764,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -793,9 +821,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -838,9 +868,11 @@
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -891,9 +923,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -949,9 +983,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1004,9 +1040,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1050,9 +1088,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1098,9 +1138,11 @@
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 5,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1151,9 +1193,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1209,9 +1253,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1254,9 +1300,11 @@
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 5,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1307,9 +1355,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1365,9 +1415,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1410,9 +1462,11 @@
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 5,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1463,9 +1517,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1521,9 +1577,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1577,9 +1635,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1627,9 +1687,11 @@
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 5,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1683,9 +1745,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
@@ -1739,9 +1803,11 @@
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [

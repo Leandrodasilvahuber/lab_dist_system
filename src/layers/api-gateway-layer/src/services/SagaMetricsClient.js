@@ -1,4 +1,5 @@
 import { SFNClient, ListExecutionsCommand, GetExecutionHistoryCommand } from '@aws-sdk/client-sfn';
+import { awsClientConfig, QUERY_CLIENT_OPTIONS } from '../../../../common/aws-client.mjs';
 
 // Quantidade fixa de compras analisadas: uma GetExecutionHistory por compra
 export const RECENT_EXECUTIONS = 10;
@@ -26,11 +27,7 @@ export class SagaMetricsClient {
     this.cacheTtlMs = cacheTtlMs;
     this.now = now;
     this.cached = null;
-    const endpoint = process.env.STEPFUNCTIONS_ENDPOINT || process.env.AWS_ENDPOINT;
-    this.client = client || new SFNClient({
-      region: process.env.AWS_REGION || 'us-east-1',
-      ...(endpoint && { endpoint })
-    });
+    this.client = client || new SFNClient(awsClientConfig('STEPFUNCTIONS_ENDPOINT', QUERY_CLIENT_OPTIONS));
   }
 
   /**

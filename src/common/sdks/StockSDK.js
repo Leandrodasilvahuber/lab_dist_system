@@ -4,6 +4,7 @@ import { generateId } from '../ids.mjs';
 import { encodeToken } from '../pagination.mjs';
 import { optionalNumber, toNumber } from '../validation.mjs';
 import { log } from '../logger.mjs';
+import { isTransientAwsError } from '../aws-client.mjs';
 
 // GSI esparso da tabela de reservas, chave `activeProductId`: o atributo só
 // existe enquanto a reserva está ativa (é removido no commit e na liberação).
@@ -328,7 +329,9 @@ export class StockSDK {
         },
         {
           conditionExpression: 'attribute_not_exists(deleted) AND ((attribute_not_exists(stock) AND :min = :zero) OR stock >= :min)',
-          ...(name && { expressionAttributeNames: { '#name': 'name' } })
+          ...(name && { expressionAttributeNames: { '#name': 'name' } }),
+          // Soma o delta: um retry do SDK depois de timeout somaria duas vezes
+          retry: false
         }
       );
       return { productId, previousStock: attributes.stock - delta, stock: attributes.stock };
@@ -359,14 +362,16 @@ export class StockSDK {
       throw new NotFoundError('Inventory not found for product');
     }
 
-    const activeReservations = await this.activeReservations(productId);
+    const reservations = await this.reservationsSummary(productId);
+    if (reservations.error) logReservationsUnavailable([productId], reservations.error);
 
     return {
       productId: inventory.id,
       name: inventory.name,
       available: inventory.stock || 0,
-      reserved: sumQuantities(activeReservations),
-      activeReservations: activeReservations.length
+      reserved: reservations.reserved ?? null,
+      activeReservations: reservations.count ?? null,
+      ...(reservations.error && { degraded: true })
     };
   }
 
@@ -404,13 +409,18 @@ export class StockSDK {
       return true;
     });
 
-    const stock = await Promise.all(selected.map(async item => ({
+    const summaries = await Promise.all(selected.map(item => this.reservationsSummary(item.id)));
+    const stock = selected.map((item, i) => ({
       productId: item.id,
       name: item.name,
       available: item.stock || 0,
-      reserved: sumQuantities(await this.activeReservations(item.id))
-    })));
-    return { stock, nextToken: encodeToken(lastKey) };
+      reserved: summaries[i].reserved ?? null
+    }));
+    // Um registro só para a página: com o índice fora do ar, todas as
+    // consultas falham juntas e uma linha por produto inflaria a métrica
+    const failed = summaries.flatMap((summary, i) => summary.error ? [selected[i].id] : []);
+    if (failed.length) logReservationsUnavailable(failed, summaries.find(summary => summary.error).error);
+    return { stock, nextToken: encodeToken(lastKey), ...(failed.length && { degraded: true }) };
   }
 
   /**
@@ -429,15 +439,34 @@ export class StockSDK {
   }
 
   /**
+   * Total reservado em compras em andamento, só para exibição. Degradação
+   * graciosa: se a consulta ao índice falhar, devolve `{ error }` em vez de
+   * derrubar a leitura inteira (quem chama registra a falha). O `available`
+   * (o que vale para comprar) segue exato, porque vem do inventário.
+   */
+  async reservationsSummary(productId) {
+    try {
+      const reservations = await this.activeReservations(productId);
+      return { reserved: sumQuantities(reservations), count: reservations.length };
+    } catch (error) {
+      // Só falha de infraestrutura degrada; bug de código e configuração
+      // errada (índice ou tabela inexistente) continuam sendo 500
+      if (!isDependencyFailure(error)) throw error;
+      return { error };
+    }
+  }
+
+  /**
    * Reservas ativas (compras em andamento) de um produto, pelo índice
-   * esparso, que só contém as reservas ativas.
+   * esparso, que só contém as reservas ativas. Uma tentativa só: é leitura
+   * para exibição, que degrada se falhar (reservationsSummary).
    */
   async activeReservations(productId) {
     return this.db.queryItems('stockReservations', {
       IndexName: ACTIVE_INDEX,
       KeyConditionExpression: 'activeProductId = :productId',
       ExpressionAttributeValues: { ':productId': productId }
-    });
+    }, { retry: false });
   }
 
   async publish(detailType, detail) {
@@ -461,6 +490,30 @@ function throwIfConflict(error) {
 
 function isLive(inventory) {
   return Boolean(inventory) && !inventory.deleted;
+}
+
+/**
+ * Falha de infraestrutura (o índice de reservas não respondeu): error, como
+ * as outras falhas de dependência, mesmo que a resposta saia degradada.
+ */
+function logReservationsUnavailable(productIds, error) {
+  log({
+    event: 'STOCK_RESERVATIONS_UNAVAILABLE',
+    status: 'error',
+    message: `Active reservations unavailable for ${productIds.length} product(s), responding without them`,
+    data: { productIds },
+    error
+  });
+}
+
+// Erros do DynamoDB que indicam configuração errada, não queda: não degradam
+const CONFIGURATION_ERRORS = new Set(['ResourceNotFoundException', 'ValidationException', 'AccessDeniedException']);
+
+// Falha da dependência (resposta de erro do serviço ou rede/timeout), exceto
+// configuração errada
+function isDependencyFailure(error) {
+  if (CONFIGURATION_ERRORS.has(error?.name)) return false;
+  return Boolean(error?.$metadata) || isTransientAwsError(error);
 }
 
 function sumQuantities(reservations) {

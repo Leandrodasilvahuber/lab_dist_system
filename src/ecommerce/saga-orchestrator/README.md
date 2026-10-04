@@ -73,19 +73,37 @@ precisa de intervenção manual.
   Compensar duas vezes também não tem efeito colateral.
 - **Retry só para falhas transitórias:** erros e timeouts da Lambda
   (`Sandbox.Timedout`, `Lambda.Unknown`), throttling e
-  `TransactionConflictException` são repetidos com backoff exponencial. Erros de
+  `TransactionConflictException` são repetidos com backoff exponencial, jitter
+  completo (`JitterStrategy: FULL`) e teto de 10s: sagas simultâneas no mesmo
+  produto não repetem em sincronia. Erros de
   negócio (`InsufficientStock`, `PaymentDeclined`, `NotFound`, `InvalidState`)
   vão direto para a compensação: o `name` do erro lançado pelo SDK vira o
   `errorType` da Lambda, que é o que o Step Functions compara.
 - **Estoque consistente:** a reserva debita o inventário (tabela do serviço de
   Stock) numa transação do DynamoDB com a condição `stock >= quantidade`, então compras simultâneas nunca deixam o
   estoque negativo.
-- **Idempotency-Key:** o cliente pode mandar o header `Idempotency-Key`; a mesma
-  chave sempre corresponde à mesma saga (`saga_` + SHA-256 da chave). A mesma
-  chave com outro pedido responde `409`; uma saga que falhou ao iniciar é
-  iniciada de novo (execução `<sagaId>-<tentativa>`). Só uma falha do
+- **Idempotency-Key:** o cliente manda o header `Idempotency-Key`
+  (obrigatório); a mesma chave sempre corresponde à mesma saga (`saga_` +
+  SHA-256 da chave). A mesma chave com outro pedido responde `409`; uma saga
+  que falhou ao iniciar é iniciada de novo **com o mesmo nome de execução**
+  (`executionName` no registro): se o `StartExecution` anterior criou a
+  execução e só a resposta se perdeu (timeout), o Step Functions devolve a
+  mesma execução em vez de rodar a compra duas vezes. Só se aquela execução já
+  terminou vai um nome novo (`<sagaId>-<tentativa>`). Só uma falha do
   `StartExecution` conta como falha ao iniciar: se a execução começou e só a
-  gravação do `executionArn` falhou, a saga segue rodando.
+  gravação do `executionArn` falhou, a saga segue rodando. Se a Lambda morrer
+  entre gravar o registro e o `StartExecution` (a saga fica `RUNNING` sem
+  execução nem passos), a mesma chave a inicia de novo depois de 60s.
+- **Fail-fast ao iniciar:** a consulta ao serviço de Products tem timeout
+  (5s) e circuit breaker (`src/common/circuit-breaker.mjs`, estado por
+  container): com Products ou Step Functions fora do ar, `POST /saga/execute`
+  responde `503` com `Retry-After`, e o cliente repete com a mesma
+  `Idempotency-Key` (obrigatória).
+  A abertura do circuito grava a métrica `CircuitOpened` e dispara o alarme
+  `<env>-ecommerce-circuit-open`. Função de produtos inexistente ou sem
+  permissão é erro de configuração: `500`, sem abrir o circuito.
+  Throttling, timeout ou erro 5xx de qualquer serviço da AWS também respondem
+  `503` com `Retry-After` (`isTransientAwsError` em `src/common/aws-client.mjs`).
 
 ## Registro da saga (tabela Sagas)
 

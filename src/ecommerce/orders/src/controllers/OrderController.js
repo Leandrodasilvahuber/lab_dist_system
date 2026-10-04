@@ -14,7 +14,7 @@ export class OrderController {
       const page = await orderSDK.listOrders(query, parsePagination(query));
       return successResponse(page);
     } catch (error) {
-      return sdkErrorResponse(error, 'Failed to get orders');
+      return sdkErrorResponse(error, 'Failed to get orders', event.headers?.correlationId);
     }
   }
 
@@ -25,7 +25,7 @@ export class OrderController {
     try {
       return successResponse(await orderSDK.getOrder(orderId));
     } catch (error) {
-      return sdkErrorResponse(error, 'Failed to get order');
+      return sdkErrorResponse(error, 'Failed to get order', event.headers?.correlationId);
     }
   }
 }

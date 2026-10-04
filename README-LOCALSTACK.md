@@ -67,6 +67,7 @@ mostra as linhas de log geradas:
 | `ProductCreated` com `initialStock: -1` | evento confirmado, **sem DLQ** | `warn DOMAIN_EVENT_REJECTED` (`BusinessErrors`, `ValidationError`) |
 | `ProductCreated` sem a tabela de inventário | 3 tentativas e depois DLQ `local-ProductEventsDlq` | `error ACTION_FAILED` + stack |
 | `GET /stock` sem a tabela de inventário | 500 sem detalhes | `error UNEXPECTED_ERROR` + stack |
+| 6 compras com o serviço de produtos fora do ar (endpoint do Lambda recusa a conexão) | 5× 503 com `Retry-After`; o circuit breaker abre e a 6ª é recusada na hora, sem invocar | `error DEPENDENCY_UNAVAILABLE` por falha da Lambda + `error CIRCUIT_STATE_CHANGED` (`CircuitOpened`, `Circuit=products`); a recusa com o circuito aberto é `info` |
 
 No fim, ele cria os alarmes `local-ecommerce-*` (os mesmos do `template.yaml`)
 no CloudWatch do LocalStack e espera o LocalStack avaliá-los. Na AWS as
@@ -74,7 +75,7 @@ métricas de erro saem das próprias linhas de log (Embedded Metric Format, bloc
 `_aws`); o LocalStack guarda os logs mas não extrai EMF, nem publica métricas de
 SQS/API Gateway/Step Functions. Por isso o script publica em `Ecommerce/local`
 as métricas EMF das linhas geradas e os valores observados (mensagens na DLQ,
-respostas 5xx). Os alarmes locais usam período de 60 s, limiar 0 (na AWS,
+respostas 5xx, aberturas do circuito). Os alarmes locais usam período de 60 s, limiar 0 (na AWS,
 `business-errors` só dispara com 20 em 5 min) e ficam ~15 min em ALARM.
 `saga-failed` e `saga-compensation-rate` (limiar 5%) ficam em OK: o teste não
 executa saga, e na AWS eles vêm de metric filters no log da state machine,

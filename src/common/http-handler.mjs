@@ -1,8 +1,9 @@
 import { log } from './logger.mjs';
 import { normalizeHttpEvent } from './http-event.mjs';
 import { isActionInvocation, runAction, isDomainEvent, runEventHandler } from './actions.mjs';
-import { errorResponse, notFoundResponse } from './response.mjs';
-import { DomainError } from './errors.mjs';
+import { errorResponse, notFoundResponse, sdkErrorResponse } from './response.mjs';
+import { DependencyUnavailableError, DomainError } from './errors.mjs';
+import { isTransientAwsError } from './aws-client.mjs';
 
 function errorMessage(response) {
   try {
@@ -49,6 +50,11 @@ export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers 
       }
       return response;
     } catch (error) {
+      // Dependência fora do ar ou throttling/timeout da AWS: 503 com
+      // Retry-After, como nos controllers
+      if (error instanceof DependencyUnavailableError || isTransientAwsError(error)) {
+        return sdkErrorResponse(error, `${event.method} ${event.path}`, correlationId);
+      }
       // Erro de negócio lançado fora dos controllers (ex.: path mal codificado): 4xx, não alarme
       if (error instanceof DomainError) {
         log({ event: 'API_REJECTED', correlationId, status: 'warn', message: `${event.method} ${event.path} -> ${error.statusCode}: ${error.message}`, error });

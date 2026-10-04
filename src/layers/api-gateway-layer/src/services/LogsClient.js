@@ -1,7 +1,16 @@
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import { MAX_LOG_ENTRIES, MAX_TRACE_ENTRIES, isTraceId, parseLogLine, selectLogs, selectTrace } from '../../../../common/log-query.mjs';
+import { awsClientConfig, DEFAULT_TIMEOUTS, QUERY_CLIENT_OPTIONS, QUERY_TIMEOUT_MS } from '../../../../common/aws-client.mjs';
 
 const MAX_PAGES = 5;
+
+// Orçamento das páginas de uma consulta: timeout da GatewayFunction (15s)
+// menos 1s para montar a resposta. Cada página pode levar até 1s de conexão + QUERY_TIMEOUT_MS, então só
+// pede a próxima se ela ainda couber. Sem isso a Lambda estouraria e o API
+// Gateway responderia sem Retry-After; com ele a resposta sai com as linhas
+// já lidas (parte das linhas fica de fora só em períodos muito volumosos)
+export const FILTER_BUDGET_MS = 14000;
+const PAGE_WORST_CASE_MS = DEFAULT_TIMEOUTS.connectionTimeout + QUERY_TIMEOUT_MS;
 
 // Rastreio olha todo o período de retenção do log group (RetentionInDays: 14)
 export const TRACE_HOURS = 24 * 14;
@@ -11,13 +20,10 @@ export const TRACE_HOURS = 24 * 14;
  * Logs e todas as linhas de um correlationId para a aba Rastreio.
  */
 export class LogsClient {
-  constructor({ logGroupName = process.env.LOG_GROUP_NAME, client } = {}) {
+  constructor({ logGroupName = process.env.LOG_GROUP_NAME, client, clock = Date.now } = {}) {
     this.logGroupName = logGroupName;
-    const endpoint = process.env.CLOUDWATCH_LOGS_ENDPOINT || process.env.AWS_ENDPOINT;
-    this.client = client || new CloudWatchLogsClient({
-      region: process.env.AWS_REGION || 'us-east-1',
-      ...(endpoint && { endpoint })
-    });
+    this.clock = clock;
+    this.client = client || new CloudWatchLogsClient(awsClientConfig('CLOUDWATCH_LOGS_ENDPOINT', QUERY_CLIENT_OPTIONS));
   }
 
   async listLogs({ levels, hours }, now = Date.now()) {
@@ -40,7 +46,9 @@ export class LogsClient {
 
     const entries = [];
     let nextToken;
+    const deadline = this.clock() + FILTER_BUDGET_MS;
     for (let page = 0; page < MAX_PAGES && entries.length < limit; page++) {
+      if (page > 0 && this.clock() + PAGE_WORST_CASE_MS > deadline) break;
       const response = await this.client.send(new FilterLogEventsCommand({
         logGroupName: this.logGroupName,
         filterPattern,

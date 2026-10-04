@@ -38,9 +38,27 @@ export class IdempotencyConflictError extends DomainError {
 }
 
 /**
+ * Dependência indisponível (timeout, erro de infraestrutura, circuit breaker
+ * aberto). Não é erro de negócio: vale tentar de novo depois de
+ * `retryAfterSeconds` (vira o header Retry-After do 503).
+ *
+ * `logged`: quem lançou já registrou a falha como error (com contexto, ex.:
+ * correlationId); a resposta HTTP não registra de novo, para não contar duas
+ * vezes em UnhandledErrors.
+ */
+export class DependencyUnavailableError extends DomainError {
+  constructor(message = 'Service temporarily unavailable', { retryAfterSeconds = 5, cause, logged = false } = {}) {
+    super(message, 'ServiceUnavailable', 503);
+    this.retryAfterSeconds = retryAfterSeconds;
+    this.logged = logged;
+    if (cause) this.cause = cause;
+  }
+}
+
+/**
  * Erro de negócio não muda numa nova tentativa; só falhas de infraestrutura
- * (rede, throttling, timeout) valem retry e DLQ.
+ * (rede, throttling, timeout, dependência indisponível) valem retry e DLQ.
  */
 export function isRetryable(error) {
-  return !(error instanceof DomainError);
+  return !(error instanceof DomainError) || error instanceof DependencyUnavailableError;
 }

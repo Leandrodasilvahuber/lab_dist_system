@@ -17,6 +17,7 @@
  * O runtime das Lambdas é o mesmo do template.yaml.
  */
 import { ROOT, clients, assertBuilt, ensureTables, deploySaga, removeSaga } from './lib/localstack.mjs';
+import { randomUUID } from 'node:crypto';
 
 const endpoint = process.env.LOCALSTACK_ENDPOINT || 'http://localhost:4566';
 const PREFIX = `e2e-${Date.now()}`;
@@ -49,6 +50,12 @@ try {
 Object.assign(process.env, T, {
   SAGA_STATE_MACHINE_ARN: stateMachineArn,
   PRODUCT_FUNCTION_NAME: `${PREFIX}-ProductFunction`,
+  // Cold start de Lambda no LocalStack (contêiner) passa do teto de 5s da AWS
+  PRODUCT_TIMEOUT_MS: '30000',
+  // Cold starts simultâneos no LocalStack falham (cenário 6) e são repetidos
+  // pelo buy(); sem abrir o circuito, o retry não espera os 30s dele. O
+  // breaker é coberto pelo npm run test:e2e:errors
+  PRODUCT_CIRCUIT_FAILURE_THRESHOLD: '50',
   AWS_ENDPOINT: endpoint,
   AWS_REGION: 'us-east-1',
   AWS_ACCESS_KEY_ID: 'test',
@@ -64,7 +71,22 @@ const { eventBus } = await import(`${ROOT}/src/common/event-bus.mjs`);
 eventBus.subscribe('products', 'ProductCreated', stock);
 const ev = (method, path, body, headers = {}) => ({ version: '2.0', rawPath: `/dev${path}`, headers,
   requestContext: { stage: 'dev', http: { method } }, body: body && JSON.stringify(body) });
-const call = async (fn, ...a) => { const r = await fn(ev(...a)); return { status: r.statusCode, body: JSON.parse(r.body) }; };
+const call = async (fn, ...a) => { const r = await fn(ev(...a)); return { status: r.statusCode, headers: r.headers, body: JSON.parse(r.body) }; };
+// Compra com uma Idempotency-Key nova (o header é obrigatório). Como um
+// cliente de verdade, repete o 503 com a mesma chave depois do Retry-After:
+// no LocalStack, vários cold starts simultâneos da Lambda de produtos estouram
+// o tempo de inicialização dos contêineres (e podem abrir o circuit breaker)
+const BUY_RETRY_BUDGET_MS = 90 * 1000;
+async function buy(body) {
+  const headers = { 'Idempotency-Key': randomUUID() };
+  const deadline = Date.now() + BUY_RETRY_BUDGET_MS;
+  for (;;) {
+    const r = await call(saga, 'POST', '/saga/execute', body, headers);
+    const wait = Number(r.headers?.['Retry-After']) * 1000;
+    if (r.status !== 503 || !wait || Date.now() + wait > deadline) return r;
+    await new Promise(resolve => setTimeout(resolve, wait));
+  }
+}
 
 const TERMINAL = ['COMPLETED', 'COMPENSATED', 'FAILED', 'COMPENSATION_FAILED'];
 async function waitSaga(id) {
@@ -90,7 +112,7 @@ check('catálogo não guarda estoque', p.stock === undefined);
 check('inventário inicial 10', await productStock(p.id) === 10);
 
 console.log('\n1) Compra com sucesso (2 unidades)');
-let r = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 2 });
+let r = await buy({ productId: p.id, quantity: 2 });
 console.log(`  resposta imediata: ${r.status} ${JSON.stringify(r.body)}`);
 check('responde 202 com status RUNNING', r.status === 202 && r.body.status === 'RUNNING');
 let s = await waitSaga(r.body.sagaId);
@@ -103,7 +125,7 @@ const order = (await call(orders, 'GET', `/orders/${s.orderId}`)).body;
 check('preço vindo da saga (2 x 150 = 300)', order.unitPrice === 150 && order.total === 300);
 
 console.log('\n2) Pagamento recusado (valor acima do limite)');
-r = await call(saga, 'POST', '/saga/execute', { productId: caro.id, quantity: 1 });
+r = await buy({ productId: caro.id, quantity: 1 });
 s = await waitSaga(r.body.sagaId);
 console.log(`  final: ${s.status} | falhou em ${s.failedStep} (${s.error?.type}: ${s.error?.message}) | ${steps(s)}`);
 check('saga COMPENSATED', s.status === 'COMPENSATED');
@@ -135,7 +157,7 @@ console.log('\n2b) Compensação que falha não impede as seguintes');
 }
 
 console.log('\n3) Estoque insuficiente (pede 50, tem 8)');
-r = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 50 });
+r = await buy({ productId: p.id, quantity: 50 });
 s = await waitSaga(r.body.sagaId);
 console.log(`  final: ${s.status} | falhou em ${s.failedStep} (${s.error?.type}: ${s.error?.message}) | ${steps(s)}`);
 check('saga COMPENSATED', s.status === 'COMPENSATED');
@@ -144,7 +166,7 @@ check('pedido cancelado', s.steps.cancelOrder?.status === 'COMPENSATED' && await
 check('estoque continua 8', await productStock(p.id) === 8);
 
 console.log('\n4) Produto inexistente');
-r = await call(saga, 'POST', '/saga/execute', { productId: 'nao-existe', quantity: 1 });
+r = await buy({ productId: 'nao-existe', quantity: 1 });
 console.log(`  ${r.status} ${JSON.stringify(r.body)}`);
 check('responde 404 sem iniciar saga', r.status === 404);
 
@@ -158,10 +180,12 @@ await waitSaga(r1.body.sagaId);
 check('estoque debitado uma vez só (8 -> 7)', await productStock(p.id) === 7);
 const r3 = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 2 }, h);
 check('mesma chave com outro pedido responde 409', r3.status === 409);
+const r4 = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 1 });
+check('sem Idempotency-Key responde 400', r4.status === 400);
 
 console.log('\n6) Concorrência: 10 compras simultâneas de 1 unidade, produto com 5 em estoque');
 const c = (await call(products, 'POST', '/products', { name: 'Mouse', price: 80, stock: 5 })).body;
-const started = await Promise.all(Array.from({ length: 10 }, () => call(saga, 'POST', '/saga/execute', { productId: c.id, quantity: 1 })));
+const started = await Promise.all(Array.from({ length: 10 }, () => buy({ productId: c.id, quantity: 1 })));
 const finals = await Promise.all(started.map(x => waitSaga(x.body.sagaId)));
 const count = st => finals.filter(f => f.status === st).length;
 console.log(`  COMPLETED=${count('COMPLETED')} COMPENSATED=${count('COMPENSATED')} outros=${10 - count('COMPLETED') - count('COMPENSATED')}`);

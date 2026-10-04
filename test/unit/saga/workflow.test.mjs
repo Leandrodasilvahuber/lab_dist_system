@@ -86,6 +86,15 @@ describe('saga-workflow.asl.json', () => {
     }
   });
 
+  it('retries usam backoff exponencial com jitter completo e teto', () => {
+    for (const state of Object.values(states).filter(s => s.Retry)) {
+      for (const retry of state.Retry) {
+        assert.strictEqual(retry.JitterStrategy, 'FULL');
+        assert.ok(retry.BackoffRate > 1 && retry.MaxDelaySeconds > 0);
+      }
+    }
+  });
+
   it('erros de negócio não são repetidos (só falhas transitórias)', () => {
     for (const state of Object.values(states).filter(s => s.Parameters?.Payload)) {
       const retried = state.Retry.flatMap(r => r.ErrorEquals);

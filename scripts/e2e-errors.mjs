@@ -11,7 +11,9 @@
  * As métricas saem na própria linha, em Embedded Metric Format (bloco _aws).
  *
  * A falha de infraestrutura é real: a tabela de inventário não é criada
- * (DynamoDB responde ResourceNotFoundException).
+ * (DynamoDB responde ResourceNotFoundException), e o serviço de produtos que a
+ * saga consulta não responde: o endpoint do Lambda recusa a conexão
+ * (ECONNREFUSED) e o circuit breaker abre.
  *
  * No fim, publica as métricas EMF das linhas (o LocalStack não as extrai
  * sozinho) e as observadas e cria os alarmes `local-ecommerce-*`
@@ -26,6 +28,7 @@
  */
 import * as cw from '@aws-sdk/client-cloudwatch';
 import * as sqs from '@aws-sdk/client-sqs';
+import { randomUUID } from 'node:crypto';
 import { ROOT, clients, ensureTables, removeTables } from './lib/localstack.mjs';
 import { extractEmfMetrics } from '../src/common/emf.mjs';
 import { parseLogLine } from '../src/common/log-query.mjs';
@@ -39,7 +42,8 @@ const ALARMS = {
   productEventsDlq: `${ALARM_PREFIX}product-events-dlq`,
   sagaFailed: `${ALARM_PREFIX}saga-failed`,
   sagaCompensationRate: `${ALARM_PREFIX}saga-compensation-rate`,
-  api5xx: `${ALARM_PREFIX}api-5xx`
+  api5xx: `${ALARM_PREFIX}api-5xx`,
+  circuitOpen: `${ALARM_PREFIX}circuit-open`
 };
 const DLQ_NAME = 'local-ProductEventsDlq';
 
@@ -59,7 +63,8 @@ const PREFIX = `e2e-errors-${Date.now()}`;
 const T = {
   PRODUCTS_TABLE: `${PREFIX}-Products`,
   ORDERS_TABLE: `${PREFIX}-Orders`,
-  STOCK_RESERVATIONS_TABLE: `${PREFIX}-StockReservations`
+  STOCK_RESERVATIONS_TABLE: `${PREFIX}-StockReservations`,
+  SAGAS_TABLE: `${PREFIX}-Sagas`
 };
 
 try {
@@ -72,6 +77,11 @@ try {
 
 Object.assign(process.env, T, {
   INVENTORY_TABLE: `${PREFIX}-Inventory-inexistente`,
+  // A saga consulta o produto invocando esta Lambda num endpoint que recusa a
+  // conexão: o serviço de Products está fora do ar (cenário 6, circuit
+  // breaker). Função inexistente seria erro de configuração (500), não queda
+  PRODUCT_FUNCTION_NAME: `${PREFIX}-ProductFunction`,
+  LAMBDA_ENDPOINT: 'http://127.0.0.1:1',
   EVENT_BUS_NAME: '',
   AWS_ENDPOINT: endpoint,
   AWS_REGION: 'us-east-1',
@@ -98,10 +108,11 @@ for (const method of ['log', 'warn', 'error']) {
 const products = (await import(`${ROOT}/src/ecommerce/products/index.mjs`)).handler;
 const orders = (await import(`${ROOT}/src/ecommerce/orders/index.mjs`)).handler;
 const stock = (await import(`${ROOT}/src/ecommerce/stock/index.mjs`)).handler;
+const saga = (await import(`${ROOT}/src/ecommerce/saga-orchestrator/index.mjs`)).handler;
 
-const ev = (method, path, body) => ({ version: '2.0', rawPath: `/dev${path}`, headers: {},
+const ev = (method, path, body, headers = {}) => ({ version: '2.0', rawPath: `/dev${path}`, headers,
   requestContext: { stage: 'dev', http: { method } }, body: body && JSON.stringify(body) });
-const call = async (fn, ...a) => { const r = await fn(ev(...a)); return { status: r.statusCode, body: JSON.parse(r.body) }; };
+const call = async (fn, ...a) => { const r = await fn(ev(...a)); return { status: r.statusCode, headers: r.headers, body: JSON.parse(r.body) }; };
 const productCreated = detail => ({ source: 'products', 'detail-type': 'ProductCreated', detail });
 
 let failures = 0;
@@ -178,6 +189,32 @@ check(`responde 500 sem vazar detalhes (${JSON.stringify(r.body)})`, r.status ==
 [line] = lines('UNEXPECTED_ERROR');
 check('log error UNEXPECTED_ERROR com errorType e stack', line?.status === 'error' && line.errorType === 'ResourceNotFoundException' && line.stack);
 
+// ---------- 6 ----------
+lines = scenario('6) Dependência fora do ar: compras com o serviço de Products indisponível (circuit breaker)');
+// O breaker abre depois de N falhas seguidas (mesmo padrão do ProductClient)
+const THRESHOLD = Number(process.env.PRODUCT_CIRCUIT_FAILURE_THRESHOLD) || 5;
+const buy = () => call(saga, 'POST', '/saga/execute', { productId: 'p-qualquer', quantity: 1 }, { 'idempotency-key': randomUUID() });
+const beforeOpen = [];
+for (let i = 0; i < THRESHOLD; i++) beforeOpen.push(await buy());
+check(`as ${THRESHOLD} primeiras compras respondem 503 com Retry-After (Products indisponível)`,
+  beforeOpen.every(b => b.status === 503 && b.headers['Retry-After'] && /Product service unavailable/.test(b.body.error)));
+const started = Date.now();
+const whileOpen = await buy();
+const openMs = Date.now() - started;
+check(`com o circuito aberto responde 503 na hora, sem invocar a Lambda (${openMs} ms, Retry-After ${whileOpen.headers['Retry-After']}s)`,
+  whileOpen.status === 503 && /circuit open/.test(whileOpen.body.error) && Number(whileOpen.headers['Retry-After']) > 0);
+const opened = lines('CIRCUIT_STATE_CHANGED');
+check(`log error CIRCUIT_STATE_CHANGED closed -> open, com a causa (${opened[0]?.error})`,
+  opened.length === 1 && opened[0].status === 'error' && opened[0].data?.to === 'open' && /ECONNREFUSED/.test(opened[0].error));
+check('métrica EMF CircuitOpened com Circuit=products (e não BusinessErrors)',
+  opened[0]?.CircuitOpened === 1 && opened[0].Circuit === 'products' && !opened[0].BusinessErrors);
+const unavailable = lines('DEPENDENCY_UNAVAILABLE');
+check(`cada falha da Lambda gera log error DEPENDENCY_UNAVAILABLE (${unavailable.filter(l => l.status === 'error').length})`,
+  unavailable.filter(l => l.status === 'error').length === THRESHOLD);
+check('a recusa com o circuito aberto é só info (a abertura já é o error)',
+  unavailable.filter(l => l.status === 'info').length === 1);
+const responses5xx = [r, ...beforeOpen, whileOpen].filter(x => x.status >= 500).length;
+
 await removeTables(aws, T);
 
 // ---------- Resumo ----------
@@ -193,6 +230,8 @@ out(`${warns} warn (tratados: métrica BusinessErrors) · ${errors} error (não 
 // O que o CloudWatch extrairia na AWS: uma entrada por métrica × conjunto de dimensões
 const emfData = logLines.flatMap(extractEmfMetrics);
 const emfTotal = name => emfData.filter(d => d.MetricName === name && !d.Dimensions.length).reduce((a, d) => a + d.Value, 0);
+const circuitOpened = emfData.filter(d => d.MetricName === 'CircuitOpened' && d.Dimensions.some(x => x.Name === 'Circuit' && x.Value === 'products'))
+  .reduce((a, d) => a + d.Value, 0);
 check(`EMF: BusinessErrors=${emfTotal('BusinessErrors')} igual aos warn, UnhandledErrors=${emfTotal('UnhandledErrors')} igual aos error`,
   emfTotal('BusinessErrors') === warns && emfTotal('UnhandledErrors') === errors);
 
@@ -216,10 +255,11 @@ const observed = {
   ProductEventsDlqMessages: dlqTotal,
   SagaExecutionsFailed: 0,
   SagaCompensationRate: 0,
-  Api5xx: r.status >= 500 ? 1 : 0
+  Api5xx: responses5xx,
+  CircuitOpened: circuitOpened
 };
-const alarm = (AlarmName, AlarmDescription, MetricName, Threshold = 0) => ({
-  AlarmName, AlarmDescription, Namespace: 'Ecommerce/local', MetricName, Statistic: 'Sum',
+const alarm = (AlarmName, AlarmDescription, MetricName, Threshold = 0, Dimensions) => ({
+  AlarmName, AlarmDescription, Namespace: 'Ecommerce/local', MetricName, Statistic: 'Sum', ...(Dimensions && { Dimensions }),
   Period: 60, EvaluationPeriods: 15, DatapointsToAlarm: 1,
   ComparisonOperator: 'GreaterThanThreshold', Threshold, TreatMissingData: 'notBreaching'
 });
@@ -230,7 +270,9 @@ const definitions = [
   alarm(ALARMS.sagaFailed, 'Saga que nem a compensação conseguiu fechar: CompensationFailed/SagaFailed/timeout', 'SagaExecutionsFailed'),
   alarm(ALARMS.sagaCompensationRate, 'Mais de 5% das sagas compensadas (cartão recusado, falta de estoque...): fora do patamar normal',
     'SagaCompensationRate', 5),
-  alarm(ALARMS.api5xx, 'Respostas 5xx da API', 'Api5xx')
+  alarm(ALARMS.api5xx, 'Respostas 5xx da API', 'Api5xx'),
+  alarm(ALARMS.circuitOpen, 'Circuit breaker products aberto: compras recusadas com 503 (ver CIRCUIT_STATE_CHANGED nos logs e a saúde da ProductFunction)',
+    'CircuitOpened', 0, [{ Name: 'Circuit', Value: 'products' }])
 ];
 try {
   // EMF das linhas (como o agente do local-server faz) + métricas nativas observadas
@@ -258,7 +300,7 @@ try {
   for (const a of alarms) {
     out(`  ${a.StateValue === 'ALARM' ? color(31, 'ALARM') : color(32, a.StateValue.padEnd(5))} ${a.AlarmName}: ${a.StateReason}`);
   }
-  check('alarmes no estado esperado (4 em ALARM; saga-failed e saga-compensation-rate OK)', alarms.length === definitions.length && alarms.every(a => a.StateValue === expected[a.AlarmName]));
+  check('alarmes no estado esperado (5 em ALARM; saga-failed e saga-compensation-rate OK)', alarms.length === definitions.length && alarms.every(a => a.StateValue === expected[a.AlarmName]));
   out('\nVeja nas abas 🩺 Monitoramento e 📊 Métricas: npm run local-server e abra http://localhost:3001');
   out('Os alarmes voltam a OK sozinhos ~15 min depois. Para limpar: npm run test:e2e:errors -- --cleanup');
 } catch (error) {
