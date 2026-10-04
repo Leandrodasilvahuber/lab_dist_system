@@ -278,9 +278,25 @@ alterar o fluxo, rode `npm run generate:workflow`.
 
 ## Dashboard
 
-`ecommerce-dashboard.html`, servido pelo `local-server.mjs`, permite comprar e
+O dashboard (`dashboard/`), servido pelo `local-server.mjs`, permite comprar e
 acompanhar cada saga em tempo real: os passos concluídos, o que falhou e as
-compensações executadas.
+compensações executadas. As telas ficam agrupadas por assunto: **Loja**
+(comprar, produtos, estoque, pedidos, resumo), **Observabilidade**
+(monitoramento, métricas, logs, rastreio, desempenho, SLOs) e **Operação**
+(DLQ, admin). A tela atual fica na URL (`#/slo`), e há tema claro e escuro.
+
+Sem build: são módulos ES carregados direto pelo navegador.
+
+| Pasta | Conteúdo |
+| --- | --- |
+| `dashboard/index.html` | Esqueleto: barra lateral, topo e área das telas |
+| `dashboard/css/` | `tokens.css` (cores dos temas e dos grupos), `layout.css`, `components.css` |
+| `dashboard/js/core/` | API, sessão de admin, eventos entre telas, navegação (router) |
+| `dashboard/js/components/` | Peças reutilizáveis: ícones, cartões, tabelas, selos, gráfico, cartão da saga |
+| `dashboard/js/views/` | Uma tela por arquivo; `index.js` define os grupos do menu |
+
+Para criar uma tela, crie um módulo em `views/` com `{ id, label, icon,
+template(), mount(), refresh() }` e coloque-o num grupo em `views/index.js`.
 
 O `local-server.mjs` funciona como um API Gateway local: monta o mesmo evento
 que o HttpApi envia e chama os handlers reais dos serviços, com o DynamoDB e a

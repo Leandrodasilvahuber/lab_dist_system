@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-commerce Dashboard</title>
+    <script>
+        // Tema escolhido antes do primeiro paint (sem piscar o claro no modo escuro)
+        try {
+            const theme = JSON.parse(localStorage.getItem('theme'));
+            if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+        } catch { /* sem storage: segue o sistema */ }
+    </script>
+    <link rel="stylesheet" href="/dashboard/css/tokens.css">
+    <link rel="stylesheet" href="/dashboard/css/layout.css">
+    <link rel="stylesheet" href="/dashboard/css/components.css">
+    <script type="module" src="/dashboard/js/main.js"></script>
+</head>
+<body>
+    <!--
+        Só o esqueleto: a navegação (#nav) e as telas (#views) são montadas pelo
+        js/core/router.js a partir de js/views/index.js. Cada tela é um módulo em
+        js/views/ e as peças repetidas ficam em js/components/.
+    -->
+    <div class="app" id="app">
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <span class="brand-mark" id="brandMark"></span>
+                <div>
+                    <div class="brand-name">E-commerce</div>
+                    <div class="brand-sub">Saga · Lab distribuído</div>
+                </div>
+            </div>
+            <nav class="nav" id="nav" aria-label="Seções"></nav>
+            <div class="sidebar-foot" id="sidebarEndpoint"></div>
+        </aside>
+        <div class="scrim" id="scrim"></div>
+
+        <div class="main">
+            <header class="topbar">
+                <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-label="Abrir menu" aria-controls="sidebar" aria-expanded="false"></button>
+                <div class="page-heading">
+                    <span class="page-icon" id="pageIcon"></span>
+                    <div class="page-text">
+                        <span class="crumb" id="pageGroup"></span>
+                        <h1 id="pageTitle"></h1>
+                    </div>
+                </div>
+                <div class="topbar-actions">
+                    <button type="button" class="status-pill" id="statusLink" data-nav="monitoring" title="Ver monitoramento">
+                        <span class="connection-dot" id="connectionDot"></span>
+                        <span id="connectionStatus">Conectando...</span>
+                    </button>
+                    <button type="button" class="icon-btn" id="themeBtn"></button>
+                    <div class="admin-menu">
+                        <button type="button" class="btn btn-secondary btn-sm" id="adminBtn" aria-haspopup="dialog" aria-expanded="false"></button>
+                        <div class="popover" id="adminPopover" role="dialog" aria-label="Login de admin" hidden>
+                            <form id="adminForm" class="form">
+                                <h3>Acesso de admin</h3>
+                                <p>Chave (X-Api-Key) para criar produtos e ver alarmes, métricas e DLQ. Fica só neste navegador.</p>
+                                <input type="password" id="adminKey" class="input" autocomplete="off" placeholder="Chave de admin">
+                                <div class="popover-actions">
+                                    <button type="submit" class="btn btn-primary">Entrar</button>
+                                    <button type="button" class="btn btn-ghost" id="adminLogout">Sair</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <main class="views" id="views"></main>
+        </div>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

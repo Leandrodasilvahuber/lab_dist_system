@@ -1,0 +1,201 @@
+/*
+ * Cores e medidas do dashboard. Tudo o mais usa estas variáveis, então o tema
+ * escuro só redefine os valores (pelo sistema ou pelo botão do topo).
+ *
+ * Cada grupo da navegação tem uma cor: Loja (teal), Observabilidade (azul),
+ * Operação (âmbar). Os status seguem o semáforo: ok verde, atenção âmbar,
+ * falha vermelho, em andamento azul.
+ */
+:root {
+    color-scheme: light;
+
+    --bg: #f4f5f9;
+    --surface: #ffffff;
+    --surface-2: #f7f8fb;
+    --surface-hover: #f1f3f9;
+    --border: #e3e6ee;
+    --border-strong: #cfd4df;
+    --text: #1b1f2e;
+    --text-2: #545b6e;
+    --text-3: #868c9e;
+
+    --brand: #4f46e5;
+    --brand-hover: #4338ca;
+    --brand-soft: #eef0ff;
+    --on-brand: #ffffff;
+
+    --store: #0d9488;
+    --store-soft: #e0f5f2;
+    --observe: #2563eb;
+    --observe-soft: #e5edff;
+    --ops: #d97706;
+    --ops-soft: #fdf1dc;
+
+    --ok: #16a34a;
+    --ok-soft: #e3f6e9;
+    --ok-text: #166534;
+    --warn: #d97706;
+    --warn-soft: #fdf1dc;
+    --warn-text: #92400e;
+    --bad: #dc2626;
+    --bad-soft: #fde8e8;
+    --bad-text: #991b1b;
+    --info: #2563eb;
+    --info-soft: #e5edff;
+    --info-text: #1e40af;
+    --neutral: #8a90a2;
+    --neutral-soft: #eef0f4;
+    --neutral-text: #4b5263;
+
+    /* Séries dos gráficos (ordem fixa: o maior volume pega a 1ª cor) */
+    --series-1: #4f46e5;
+    --series-2: #d97706;
+    --series-3: #dc2626;
+    --series-4: #0d9488;
+    --series-5: #9333ea;
+    --series-6: #db2777;
+    --series-7: #0891b2;
+    --series-8: #64748b;
+
+    /* A barra lateral é escura nos dois temas */
+    --sidebar-bg: #141729;
+    --sidebar-text: #a9afc4;
+    --sidebar-muted: #6b7190;
+    --sidebar-strong: #ffffff;
+    --sidebar-hover: rgba(255, 255, 255, 0.06);
+    --sidebar-active: rgba(255, 255, 255, 0.1);
+    --store-nav: #2dd4bf;
+    --observe-nav: #60a5fa;
+    --ops-nav: #fbbf24;
+
+    --code-bg: #121626;
+    --code-text: #dfe3ee;
+
+    --radius: 12px;
+    --radius-sm: 8px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+    --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.18);
+    --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sidebar-w: 248px;
+}
+
+/* Tema escuro: escolhido no botão do topo ou, sem escolha, pelo sistema */
+:root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --bg: #0e1016;
+    --surface: #171a23;
+    --surface-2: #1d212c;
+    --surface-hover: #222736;
+    --border: #2a2f3d;
+    --border-strong: #3a4052;
+    --text: #e6e8ef;
+    --text-2: #a5abba;
+    --text-3: #757b8d;
+
+    --brand: #818cf8;
+    --brand-hover: #a5b4fc;
+    --brand-soft: rgba(129, 140, 248, 0.15);
+    --on-brand: #11132a;
+
+    --store: #2dd4bf;
+    --store-soft: rgba(45, 212, 191, 0.13);
+    --observe: #60a5fa;
+    --observe-soft: rgba(96, 165, 250, 0.14);
+    --ops: #fbbf24;
+    --ops-soft: rgba(251, 191, 36, 0.13);
+
+    --ok: #4ade80;
+    --ok-soft: rgba(74, 222, 128, 0.13);
+    --ok-text: #86efac;
+    --warn: #fbbf24;
+    --warn-soft: rgba(251, 191, 36, 0.13);
+    --warn-text: #fcd34d;
+    --bad: #f87171;
+    --bad-soft: rgba(248, 113, 113, 0.14);
+    --bad-text: #fca5a5;
+    --info: #60a5fa;
+    --info-soft: rgba(96, 165, 250, 0.14);
+    --info-text: #93c5fd;
+    --neutral: #7c8293;
+    --neutral-soft: #262a36;
+    --neutral-text: #b4b9c6;
+
+    --series-1: #818cf8;
+    --series-2: #fbbf24;
+    --series-3: #f87171;
+    --series-4: #2dd4bf;
+    --series-5: #c084fc;
+    --series-6: #f472b6;
+    --series-7: #22d3ee;
+    --series-8: #94a3b8;
+
+    --sidebar-bg: #0a0c12;
+    --code-bg: #0a0c12;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+
+        --bg: #0e1016;
+        --surface: #171a23;
+        --surface-2: #1d212c;
+        --surface-hover: #222736;
+        --border: #2a2f3d;
+        --border-strong: #3a4052;
+        --text: #e6e8ef;
+        --text-2: #a5abba;
+        --text-3: #757b8d;
+
+        --brand: #818cf8;
+        --brand-hover: #a5b4fc;
+        --brand-soft: rgba(129, 140, 248, 0.15);
+        --on-brand: #11132a;
+
+        --store: #2dd4bf;
+        --store-soft: rgba(45, 212, 191, 0.13);
+        --observe: #60a5fa;
+        --observe-soft: rgba(96, 165, 250, 0.14);
+        --ops: #fbbf24;
+        --ops-soft: rgba(251, 191, 36, 0.13);
+
+        --ok: #4ade80;
+        --ok-soft: rgba(74, 222, 128, 0.13);
+        --ok-text: #86efac;
+        --warn: #fbbf24;
+        --warn-soft: rgba(251, 191, 36, 0.13);
+        --warn-text: #fcd34d;
+        --bad: #f87171;
+        --bad-soft: rgba(248, 113, 113, 0.14);
+        --bad-text: #fca5a5;
+        --info: #60a5fa;
+        --info-soft: rgba(96, 165, 250, 0.14);
+        --info-text: #93c5fd;
+        --neutral: #7c8293;
+        --neutral-soft: #262a36;
+        --neutral-text: #b4b9c6;
+
+        --series-1: #818cf8;
+        --series-2: #fbbf24;
+        --series-3: #f87171;
+        --series-4: #2dd4bf;
+        --series-5: #c084fc;
+        --series-6: #f472b6;
+        --series-7: #22d3ee;
+        --series-8: #94a3b8;
+
+        --sidebar-bg: #0a0c12;
+        --code-bg: #0a0c12;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
+    }
+}
+
+/* Cor do grupo da tela atual (navegação e cabeçalho da página) */
+[data-group="store"] { --accent: var(--store); --accent-soft: var(--store-soft); --accent-nav: var(--store-nav); }
+[data-group="observe"] { --accent: var(--observe); --accent-soft: var(--observe-soft); --accent-nav: var(--observe-nav); }
+[data-group="ops"] { --accent: var(--ops); --accent-soft: var(--ops-soft); --accent-nav: var(--ops-nav); }

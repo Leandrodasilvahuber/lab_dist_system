@@ -218,6 +218,29 @@ function send(res, statusCode, headers, body) {
   res.end(body);
 }
 
+const DASHBOARD_DIR = path.join(ROOT, 'dashboard');
+const STATIC_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml'
+};
+
+// Arquivo do dashboard para o caminho pedido: '/' é o index; os assets ficam em
+// /dashboard/*. Só serve o que está dentro de dashboard/ e tem tipo conhecido
+function dashboardFile(pathname) {
+  if (pathname === '/' || pathname === '/index.html') return path.join(DASHBOARD_DIR, 'index.html');
+  if (!pathname.startsWith('/dashboard/')) return null;
+  let relative;
+  try {
+    relative = decodeURIComponent(pathname.slice('/dashboard/'.length));
+  } catch {
+    return null;
+  }
+  const file = path.resolve(DASHBOARD_DIR, relative);
+  return file.startsWith(DASHBOARD_DIR + path.sep) && STATIC_TYPES[path.extname(file)] ? file : null;
+}
+
 // Host sem a porta: 'localhost:3001' -> 'localhost', '[::1]:3001' -> '[::1]'
 function hostname(hostHeader = '') {
   return hostHeader.replace(/:\d+$/, '').toLowerCase();
@@ -237,10 +260,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   // O dashboard é servido pelo próprio servidor (evita problemas de CORS com file://)
-  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-    const html = fs.readFileSync(path.join(ROOT, 'ecommerce-dashboard.html'));
+  const staticFile = req.method === 'GET' && dashboardFile(url.pathname);
+  if (staticFile) {
+    let body;
+    try {
+      body = fs.readFileSync(staticFile);
+    } catch {
+      return send(res, 404, { 'Content-Type': 'application/json' }, JSON.stringify({ error: 'Not found' }));
+    }
     // no-store: o navegador nunca reaproveita uma versão antiga do dashboard
-    return send(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, html);
+    return send(res, 200, { 'Content-Type': STATIC_TYPES[path.extname(staticFile)], 'Cache-Control': 'no-store' }, body);
   }
 
   if (ADMIN_AUTH_ENABLED && isAdminRoute(req.method, url.pathname) && !(await isAuthorizedAdmin(req.headers))) {
