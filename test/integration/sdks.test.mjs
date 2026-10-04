@@ -50,7 +50,7 @@ describe('SDKs (DynamoDB)', { skip: !available && `DynamoDB indisponível em ${e
   const stockOf = async productId => (await stock.getStock(productId)).available;
 
   before(async () => {
-    // Mesmos índices do template.yaml (ex.: StatusIndex das reservas)
+    // Mesmos índices do template.yaml (ex.: ActiveReservationsIndex das reservas)
     for (const [envKey, TableName] of Object.entries(TABLES)) {
       await ensureTable(client, logicalName(envKey), TableName);
     }
@@ -220,7 +220,7 @@ describe('SDKs (DynamoDB)', { skip: !available && `DynamoDB indisponível em ${e
     it('pedido nunca criado vira voided e barra o CreateOrder atrasado', async () => {
       assert.strictEqual((await orders.cancelOrder('order-voided')).status, 'voided');
       await assert.rejects(orders.createOrder({ id: 'order-voided', productId: 'p', quantity: 1, unitPrice: 1 }), InvalidStateError);
-      assert.ok(!(await orders.listOrders()).some(o => o.id === 'order-voided'));
+      assert.ok(!(await orders.listOrders()).orders.some(o => o.id === 'order-voided'));
       await assert.rejects(orders.getOrder('order-voided'), NotFoundError);
       // Cancelar de novo continua idempotente
       assert.strictEqual((await orders.cancelOrder('order-voided')).status, 'voided');

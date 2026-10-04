@@ -51,7 +51,7 @@ describe('eventos de domínio', () => {
     }
   });
 
-  it('falha transitória é relançada para o EventBridge repetir', async () => {
+  it('falha transitória é relançada (a Lambda repete e, no fim, manda para a DLQ)', async () => {
     const handlers = { 'products/ProductCreated': () => { throw new Error('ProvisionedThroughputExceeded'); } };
     await assert.rejects(runEventHandler(handlers, productCreated), /ProvisionedThroughputExceeded/);
   });
@@ -97,5 +97,25 @@ describe('EventBus com EventBridge', () => {
       bus.publish({ Source: 'products', DetailType: 'ProductCreated', Detail: {} }, { required: true }),
       /EventBridge indisponível/
     );
+  });
+});
+
+describe('redact (log das ações)', () => {
+  it('oculta campos sensíveis em objetos e arrays aninhados', async () => {
+    const { redact } = await import('../../../src/common/actions.mjs');
+    assert.deepStrictEqual(
+      redact({ orderId: 'o1', cvv: '123', payment: { cardNumber: '4111', amount: 10 }, cards: [{ token: 't' }] }),
+      { orderId: 'o1', cvv: '[REDACTED]', payment: { cardNumber: '[REDACTED]', amount: 10 }, cards: [{ token: '[REDACTED]' }] }
+    );
+  });
+});
+
+describe('initializeStock', () => {
+  it('recusa initialStock que só vira número por coerção (null, true, "")', async () => {
+    const { StockSDK } = await import('../../../src/common/sdks/StockSDK.js');
+    const stock = new StockSDK(null, { putItemIfNotExists: async () => assert.fail('não deveria gravar') });
+    for (const initialStock of [null, true, '']) {
+      await assert.rejects(stock.initializeStock({ productId: 'p1', initialStock }), ValidationError, JSON.stringify(initialStock));
+    }
   });
 });

@@ -119,24 +119,29 @@ Os erros de cada execução ficam no log group da state machine (output
 | GET | `/products` | Lista produtos, paginado (`?name=&priceMin=&priceMax=&limit=&nextToken=`) |
 | POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`price > 0`; `stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
-| GET | `/orders` | Lista pedidos (`?status=&productId=`) |
+| GET | `/orders` 🔑 | Lista pedidos, paginado (`?status=&productId=&limit=&nextToken=`) |
 | GET | `/orders/{id}` | Busca pedido |
 | GET | `/stock` | Estoque dos produtos, paginado (`?productId=&stockMin=&stockMax=&limit=&nextToken=`) |
 | GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento) |
 | POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir) |
 | **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` → 202 |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
-| GET | `/sagas` | Lista as compras (`?status=`) |
+| GET | `/sagas` 🔑 | Lista as compras, paginado (`?status=&limit=&nextToken=`) |
 
 🔑 Rota administrativa: exige o header `X-Api-Key` com a chave de admin, guardada
 no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) e
 conferida por um authorizer Lambda do HttpApi. As demais rotas são públicas; o
 stage tem throttling (100 req/s, rajada de 50).
 
-**Paginação:** `GET /products` e `GET /stock` devolvem até `limit` itens (padrão
+**Paginação:** `GET /products`, `GET /stock`, `GET /orders` e `GET /sagas` devolvem até `limit` itens (padrão
 50, máximo 100) e um `nextToken` quando há mais; repita a chamada com
 `?nextToken=<valor>` até ele não vir. Os filtros valem para cada página, que pode
-vir com menos de `limit` itens. Filtro numérico inválido (`priceMin=abc`) responde `400`.
+vir com menos de `limit` itens; em `/sagas` a ordem (mais recentes primeiro) vale
+dentro da página. Filtro numérico inválido (`priceMin=abc`) responde `400`.
+
+**Listagens de compras e pedidos são de admin:** `GET /sagas` e `GET /orders`
+expõem as compras de todos. O cliente acompanha a sua por `GET /saga/{sagaId}`
+(o id vem da resposta do `POST /saga/execute`) e `GET /orders/{id}`.
 
 ### Exposição
 
@@ -148,7 +153,9 @@ vir com menos de `limit` itens. Filtro numérico inválido (`priceMin=abc`) resp
   nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
 - **O dashboard usa só** `/health`, `/alarms`, `/logs`, `/dlq`, `GET/POST /products`, `GET /stock`,
   `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. A
-  chave de admin (campo no topo da página) só é pedida para criar produtos, ver os logs e a DLQ.
+  chave de admin (campo no topo da página) só é pedida para criar produtos, listar todos os
+  pedidos e compras, ver os logs e a DLQ. Sem ela, a aba de compra mostra as compras feitas
+  naquele navegador (ids guardados no `localStorage`), consultadas uma a uma em `GET /saga/{id}`.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
   rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem
   nenhuma rota pública.
@@ -272,9 +279,11 @@ Para usar o dashboard com a API publicada na AWS, abra
 - Eventos de domínio são publicados depois da escrita no banco, sem *outbox*
   transacional. Eventos informativos que falharem ficam só no log.
   `ProductCreated` é obrigatório: se não puder ser publicado, o produto é
-  desfeito e a criação falha. Só falhas transitórias na entrega ao Stock são
-  repetidas e, esgotadas as tentativas, vão para a DLQ `ProductEventsDlq`
-  (alarme `product-events-dlq`). Erro de negócio não vai para a DLQ: fica no
+  desfeito e a criação falha. Só falhas transitórias no Stock são repetidas
+  (pela própria Lambda, que o EventBridge invoca de forma assíncrona) e,
+  esgotadas as tentativas, vão para a DLQ `ProductEventsDlq` pelo destino
+  `OnFailure` da `StockFunction` (alarme `product-events-dlq`). Falhas de
+  entrega à Lambda chegam à mesma DLQ pelo `DeadLetterConfig` da regra. Erro de negócio não vai para a DLQ: fica no
   log como `DOMAIN_EVENT_REJECTED`. Reprocesse pela aba 📭 DLQ do dashboard ou
   ajuste à mão com
   `POST /stock/{id}/adjust { delta, name }`. Sem inventário, a compra falha no
@@ -282,7 +291,8 @@ Para usar o dashboard com a API publicada na AWS, abra
 - O inventário é criado de forma assíncrona: logo após `POST /products`, o estoque
   pode levar um instante para aparecer em `/stock` (consistência eventual).
 - A saga depende de forma síncrona do serviço de Products ao iniciar a compra.
-- As listagens administrativas (`/orders`, `/sagas`, `/products`, `/stock`)
-  usam `Scan`, sem paginação. As consultas em caminhos críticos usam chave ou
-  GSI (`StatusIndex` nas reservas).
+- As listagens (`/orders`, `/sagas`, `/products`, `/stock`) usam `Scan`
+  paginado, com os filtros aplicados por página. As consultas em caminhos
+  críticos usam chave ou GSI (`ActiveReservationsIndex`, índice esparso das
+  reservas ativas por produto).
 - A autenticação é uma chave única de admin, sem usuários.

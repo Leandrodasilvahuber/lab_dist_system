@@ -1,5 +1,6 @@
 import { StockController } from '../controllers/StockController.js';
 import { notFoundResponse } from '../../../../common/response.mjs';
+import { decodePathSegment } from '../../../../common/http-event.mjs';
 
 export async function setupRoutes(event) {
   const method = event.method;
@@ -8,7 +9,7 @@ export async function setupRoutes(event) {
   const match = path.match(/^\/stock\/([^/]+)(?:\/(adjust))?$/);
 
   if (match) {
-    event.pathParameters = { ...event.pathParameters, productId: decodeURIComponent(match[1]) };
+    event.pathParameters = { ...event.pathParameters, productId: decodePathSegment(match[1]) };
   }
 
   // GET /stock

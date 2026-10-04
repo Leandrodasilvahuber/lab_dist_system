@@ -1,12 +1,13 @@
 import { OrderSDK } from '../../../../common/sdks/index.mjs';
 import { eventBus } from '../../../../common/event-bus.mjs';
 import { successResponse, sdkErrorResponse } from '../../../../common/response.mjs';
+import { parsePagination } from '../../../../common/pagination.mjs';
 
 const orderSDK = new OrderSDK(eventBus);
 
 export class OrderController {
   /**
-   * GET /orders e GET /orders/{id}
+   * GET /orders (admin, paginado: ?limit=&nextToken=) e GET /orders/{id}
    */
   static async getOrders(event, params = {}) {
     try {
@@ -15,8 +16,8 @@ export class OrderController {
         return successResponse(order);
       }
 
-      const orders = await orderSDK.listOrders(params);
-      return successResponse({ orders });
+      const page = await orderSDK.listOrders(params, parsePagination(params));
+      return successResponse(page);
     } catch (error) {
       return sdkErrorResponse(error, 'Failed to get orders');
     }

@@ -25,6 +25,11 @@
  *
  * Escuta só em 127.0.0.1 (as rotas de admin podem estar abertas). Para expor
  * na rede local, defina HOST=0.0.0.0 junto com a chave de admin.
+ *
+ * O dashboard é servido daqui (mesma origem), então o servidor não manda
+ * Access-Control-Allow-Origin: outro site aberto no navegador não consegue
+ * chamar a API local. Para liberar uma origem, defina CORS_ALLOW_ORIGIN.
+ * Sem chave de admin, só aceita o header Host de loopback (barra DNS rebinding).
  */
 import http from 'node:http';
 import fs from 'node:fs';
@@ -42,6 +47,9 @@ const STATE_MACHINE_NAME = 'local-purchase-saga';
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
 const ADMIN_API_KEY_HASH = process.env.ADMIN_API_KEY_HASH;
 const ADMIN_AUTH_ENABLED = Boolean(ADMIN_API_KEY_HASH || ADMIN_API_KEY);
+// Só com opt-in explícito: o padrão '*' de response.mjs vale para a AWS, não aqui
+const ALLOWED_ORIGIN = process.env.CORS_ALLOW_ORIGIN;
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 // O hash tem prioridade: com ele, a chave em texto puro não precisa estar em lugar nenhum
 const isAuthorizedAdmin = async headers => ADMIN_API_KEY_HASH
@@ -129,12 +137,17 @@ function buildEvent({ method, url, headers = {}, body = null }) {
   };
 }
 
-// Compras de exemplo: três concluídas e uma do Server (pagamento recusado → compensação)
+// Compras de exemplo, com os dois tipos de falha para a aba Desempenho:
+// concluídas, uma do Server (pagamento recusado → estorno do estoque e do
+// pedido) e uma acima do estoque (falha na reserva → cancela o pedido)
 const SAMPLE_ORDERS = [
   { productId: 'apple', quantity: 2 },
   { productId: 'banana', quantity: 3 },
   { productId: 'grape', quantity: 1 },
-  { productId: 'server', quantity: 1 }
+  { productId: 'server', quantity: 1 },
+  { productId: 'orange', quantity: 2 },
+  { productId: 'orange', quantity: 999 },
+  { productId: 'banana', quantity: 1 }
 ];
 
 async function seedSampleOrders() {
@@ -166,11 +179,26 @@ async function seedSampleOrders() {
 }
 
 function send(res, statusCode, headers, body) {
-  res.writeHead(statusCode, { ...CORS_HEADERS, ...headers });
+  const merged = { ...CORS_HEADERS, ...headers };
+  // Os handlers devolvem os headers de CORS da AWS; aqui a origem é decidida pelo servidor
+  delete merged['Access-Control-Allow-Origin'];
+  if (ALLOWED_ORIGIN) merged['Access-Control-Allow-Origin'] = ALLOWED_ORIGIN;
+  res.writeHead(statusCode, merged);
   res.end(body);
 }
 
+// Host sem a porta: 'localhost:3001' -> 'localhost', '[::1]:3001' -> '[::1]'
+function hostname(hostHeader = '') {
+  return hostHeader.replace(/:\d+$/, '').toLowerCase();
+}
+
 const server = http.createServer(async (req, res) => {
+  // Sem chave de admin o servidor só escuta em loopback; um Host de fora indica
+  // DNS rebinding (um site resolvendo o próprio domínio para 127.0.0.1)
+  if (!ADMIN_AUTH_ENABLED && !LOOPBACK_HOSTS.has(hostname(req.headers.host))) {
+    return send(res, 403, { 'Content-Type': 'application/json' }, JSON.stringify({ error: 'Host não permitido' }));
+  }
+
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
   if (req.method === 'OPTIONS') {

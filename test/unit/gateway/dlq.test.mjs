@@ -54,11 +54,39 @@ describe('DlqClient', () => {
     assert.strictEqual(result.approximateTotal, 2);
     assert.deepStrictEqual(result.messages.map(m => m.messageId), ['a', 'b']);
     assert.deepStrictEqual(result.messages[0], {
-      messageId: 'a', sentAt: '2026-10-04T10:00:00.000Z', receiveCount: 2, source: 'products', detailType: 'ProductCreated',
+      messageId: 'a', sentAt: '2026-10-04T10:00:00.000Z', attempts: null, source: 'products', detailType: 'ProductCreated',
       detail: { productId: 'a', name: 'Produto a', initialStock: 5 }, errorCode: 'SDK_CLIENT_ERROR', errorMessage: 'Lambda timed out'
     });
     // Espiar não esconde as mensagens
     assert.ok(sqs.calls.filter(c => c.name === 'ReceiveMessageCommand').every(c => c.input.VisibilityTimeout === 0));
+  });
+
+  it('entende o registro do destino OnFailure da Lambda e reprocessa o evento de dentro dele', async () => {
+    const event = { source: 'products', 'detail-type': 'ProductDeleted', detail: { productId: 'p9' } };
+    const record = {
+      MessageId: 'l1',
+      ReceiptHandle: 'rh-l1',
+      Body: JSON.stringify({
+        version: '1.0',
+        requestContext: { condition: 'RetriesExhausted', approximateInvokeCount: 3 },
+        requestPayload: event,
+        responsePayload: { errorType: 'ProvisionedThroughputExceededException', errorMessage: 'Rate exceeded' }
+      }),
+      Attributes: { SentTimestamp: String(Date.parse('2026-10-04T12:00:00Z')) }
+    };
+    const sqs = fakeSqs([record]);
+    const bus = fakeBus();
+    const client = new DlqClient({ queueUrl: QUEUE, client: sqs, eventBus: bus });
+
+    const [entry] = (await client.listMessages()).messages;
+    assert.deepStrictEqual(entry, {
+      messageId: 'l1', sentAt: '2026-10-04T12:00:00.000Z', attempts: 3, source: 'products', detailType: 'ProductDeleted',
+      detail: { productId: 'p9' }, errorCode: 'ProvisionedThroughputExceededException', errorMessage: 'Rate exceeded'
+    });
+
+    await client.redrive('l1');
+    assert.deepStrictEqual(bus.published[0].event, { Source: 'products', DetailType: 'ProductDeleted', Detail: { productId: 'p9' } });
+    assert.strictEqual(sqs.queue.length, 0);
   });
 
   it('fila local inexistente: lista vazia', async () => {

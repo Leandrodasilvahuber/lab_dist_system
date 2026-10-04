@@ -2,11 +2,13 @@ import { Database } from '../database.mjs';
 import { NotFoundError, InsufficientStockError, InvalidStateError, ValidationError } from '../errors.mjs';
 import { generateId } from '../ids.mjs';
 import { encodeToken } from '../pagination.mjs';
-import { optionalNumber } from '../validation.mjs';
+import { optionalNumber, toNumber } from '../validation.mjs';
 
-// GSI da tabela de reservas (status, productId): consulta as reservas ativas
-// sem varrer a tabela. Depois do commit, só as compras em andamento ficam ativas.
-const STATUS_INDEX = 'StatusIndex';
+// GSI esparso da tabela de reservas, chave `activeProductId`: o atributo só
+// existe enquanto a reserva está ativa (é removido no commit e na liberação).
+// O índice guarda só as compras em andamento, particionadas por produto, sem
+// concentrar escritas numa partição de status com poucos valores.
+const ACTIVE_INDEX = 'ActiveReservationsIndex';
 
 /**
  * SDK Público - Interface uniforme para operações de estoque
@@ -38,7 +40,7 @@ export class StockSDK {
    * Idempotente: um evento ProductCreated repetido não altera o estoque.
    */
   async initializeStock({ productId, name, initialStock = 0 }) {
-    const quantity = Number(initialStock);
+    const quantity = toNumber(initialStock);
     if (!productId) {
       throw new ValidationError('productId is required');
     }
@@ -70,6 +72,7 @@ export class StockSDK {
       productId,
       quantity,
       status: 'active',
+      activeProductId: productId,
       correlationId: correlationId || generateId('corr'),
       reservedAt: now
     };
@@ -143,7 +146,7 @@ export class StockSDK {
       const committed = await this.db.updateItem(
         'stockReservations',
         { id: reservationId },
-        'SET #status = :committed, committedAt = :now',
+        'SET #status = :committed, committedAt = :now REMOVE activeProductId',
         { ':committed': 'committed', ':active': 'active', ':now': new Date().toISOString() },
         {
           conditionExpression: '#status = :active',
@@ -200,7 +203,7 @@ export class StockSDK {
           Update: {
             table: 'stockReservations',
             Key: { id: reservationId },
-            UpdateExpression: 'SET #status = :released, releasedAt = :now',
+            UpdateExpression: 'SET #status = :released, releasedAt = :now REMOVE activeProductId',
             ConditionExpression: '#status IN (:active, :committed)',
             ExpressionAttributeNames: { '#status': 'status' },
             ExpressionAttributeValues: { ':released': 'released', ':active': 'active', ':committed': 'committed', ':now': now }
@@ -232,6 +235,7 @@ export class StockSDK {
     }
 
     const released = { ...reservation, status: 'released', releasedAt: now };
+    delete released.activeProductId;
 
     await this.publish('StockReleased', {
       reservationId,
@@ -251,7 +255,7 @@ export class StockSDK {
       const released = await this.db.updateItem(
         'stockReservations',
         { id: reservation.id },
-        'SET #status = :released, releasedAt = :now, inventoryMissing = :true',
+        'SET #status = :released, releasedAt = :now, inventoryMissing = :true REMOVE activeProductId',
         { ':released': 'released', ':active': 'active', ':committed': 'committed', ':now': now, ':true': true },
         {
           conditionExpression: '#status IN (:active, :committed)',
@@ -398,15 +402,17 @@ export class StockSDK {
   }
 
   /**
-   * Reservas ativas (compras em andamento), de um produto ou de todos,
-   * consultadas pelo GSI de status.
+   * Reservas ativas (compras em andamento), de um produto (Query) ou de todos
+   * (Scan do índice esparso, que só contém as reservas ativas).
    */
   async activeReservations(productId) {
+    if (!productId) {
+      return this.db.scanItems('stockReservations', { indexName: ACTIVE_INDEX });
+    }
     return this.db.queryItems('stockReservations', {
-      IndexName: STATUS_INDEX,
-      KeyConditionExpression: productId ? '#status = :active AND productId = :productId' : '#status = :active',
-      ExpressionAttributeNames: { '#status': 'status' },
-      ExpressionAttributeValues: { ':active': 'active', ...(productId && { ':productId': productId }) }
+      IndexName: ACTIVE_INDEX,
+      KeyConditionExpression: 'activeProductId = :productId',
+      ExpressionAttributeValues: { ':productId': productId }
     });
   }
 

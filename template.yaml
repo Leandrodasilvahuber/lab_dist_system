@@ -106,11 +106,19 @@ Resources:
           ALARM_PREFIX: !Sub '${Environment}-ecommerce-'
           LOG_GROUP_NAME: !Ref ServicesLogGroup
           DLQ_URL: !Ref ProductEventsDlq
+          SAGA_STATE_MACHINE_ARN: !Ref SagaStateMachine
       Policies:
         - Statement:
             - Effect: Allow
               Action: cloudwatch:DescribeAlarms
               Resource: '*'
+            # Aba Desempenho: lê o histórico das últimas execuções da saga
+            - Effect: Allow
+              Action: states:ListExecutions
+              Resource: !Ref SagaStateMachine
+            - Effect: Allow
+              Action: states:GetExecutionHistory
+              Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:${SagaStateMachine.Name}:*'
             - Effect: Allow
               Action: logs:FilterLogEvents
               Resource: !GetAtt ServicesLogGroup.Arn
@@ -142,6 +150,14 @@ Resources:
           Properties:
             ApiId: !Ref ApiGateway
             Path: /logs
+            Method: GET
+            Auth:
+              Authorizer: AdminApiKey
+        SagaMetrics:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /metrics/sagas
             Method: GET
             Auth:
               Authorizer: AdminApiKey
@@ -236,6 +252,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /orders
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         GetOrder:
           Type: HttpApi
           Properties:
@@ -290,6 +308,18 @@ Resources:
       Environment:
         Variables:
           SERVICE_TYPE: stock
+      # O EventBridge invoca esta função de forma assíncrona: erro da função não
+      # volta para a regra (o RetryPolicy/DeadLetterConfig dela só cobrem falhas
+      # de entrega). Quem repete é a Lambda; esgotadas as tentativas, o evento
+      # vai para a mesma DLQ. Só vale para invocações assíncronas: Step Functions
+      # e HttpApi chamam de forma síncrona e recebem o erro.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        MaximumEventAgeInSeconds: 21600
+        DestinationConfig:
+          OnFailure:
+            Type: SQS
+            Destination: !GetAtt ProductEventsDlq.Arn
       Events:
         GetStock:
           Type: HttpApi
@@ -316,6 +346,8 @@ Resources:
             TableName: !Ref StockReservationsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref InventoryTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ProductEventsDlq.QueueName
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref EventBus
     Metadata:
@@ -358,6 +390,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /sagas
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SagasTable
@@ -451,6 +485,8 @@ Resources:
   # Produto criado/excluído -> serviço de Stock cria/remove o inventário.
   # Só falhas transitórias chegam à DLQ (reprocessamento manual): erro de negócio
   # é registrado no log e o evento é confirmado (runEventHandler em src/common/actions.mjs).
+  # Duas entradas na DLQ: o DeadLetterConfig abaixo (falha de entrega à Lambda)
+  # e o OnFailure do EventInvokeConfig da StockFunction (a função falhou).
   ProductEventsToStockRule:
     Type: AWS::Events::Rule
     Properties:
@@ -624,7 +660,9 @@ Resources:
         - AttributeName: id
           KeyType: HASH
 
-  # StatusIndex: reservas ativas (compras em andamento) por produto, sem scan
+  # ActiveReservationsIndex: índice esparso das reservas ativas (compras em
+  # andamento) por produto. activeProductId só existe enquanto a reserva está
+  # ativa, então o índice fica pequeno e não concentra escritas numa partição.
   StockReservationsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -633,20 +671,16 @@ Resources:
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
-        - AttributeName: status
-          AttributeType: S
-        - AttributeName: productId
+        - AttributeName: activeProductId
           AttributeType: S
       KeySchema:
         - AttributeName: id
           KeyType: HASH
       GlobalSecondaryIndexes:
-        - IndexName: StatusIndex
+        - IndexName: ActiveReservationsIndex
           KeySchema:
-            - AttributeName: status
+            - AttributeName: activeProductId
               KeyType: HASH
-            - AttributeName: productId
-              KeyType: RANGE
           Projection:
             ProjectionType: ALL
 

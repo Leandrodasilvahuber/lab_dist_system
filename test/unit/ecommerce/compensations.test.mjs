@@ -112,19 +112,55 @@ describe('ciclo de vida da reserva', () => {
     await assert.rejects(stock.commitReservation({ reservationId: 'r2' }), InvalidStateError);
   });
 
-  it('reservas ativas vêm do GSI de status, sem scan', async () => {
+  it('reservas ativas de um produto vêm do índice esparso, sem scan', async () => {
     const queries = [];
     const db = {
       getItem: async () => ({ id: 'p1', name: 'Teclado', stock: 5 }),
       queryItems: async (table, params) => { queries.push([table, params]); return [{ quantity: 2 }, { quantity: 1 }]; },
-      scanItems: async (table) => { if (table !== 'inventory') throw new Error(`scan em ${table}`); return []; }
+      scanItems: async (table) => { throw new Error(`scan em ${table}`); }
     };
     const stock = new StockSDK(null, db);
     const result = await stock.getStock('p1');
 
     assert.strictEqual(result.reserved, 3);
-    assert.strictEqual(queries[0][1].IndexName, 'StatusIndex');
-    assert.deepStrictEqual(queries[0][1].ExpressionAttributeValues, { ':active': 'active', ':productId': 'p1' });
+    assert.strictEqual(queries[0][1].IndexName, 'ActiveReservationsIndex');
+    assert.strictEqual(queries[0][1].KeyConditionExpression, 'activeProductId = :productId');
+    assert.deepStrictEqual(queries[0][1].ExpressionAttributeValues, { ':productId': 'p1' });
+  });
+
+  it('listagem sem productId varre só o índice esparso, não a tabela de reservas', async () => {
+    const scans = [];
+    const db = {
+      scanPage: async () => ({ items: [{ id: 'p1', name: 'A', stock: 5 }, { id: 'p2', name: 'B', stock: 1 }] }),
+      scanItems: async (table, options) => { scans.push([table, options]); return [{ productId: 'p1', quantity: 2 }]; },
+      queryItems: async () => assert.fail('não deveria consultar por produto')
+    };
+    const { stock } = await new StockSDK(null, db).listStock({}, { limit: 10 });
+
+    assert.deepStrictEqual(scans, [['stockReservations', { indexName: 'ActiveReservationsIndex' }]]);
+    assert.deepStrictEqual(stock.map(s => [s.productId, s.reserved]), [['p1', 2], ['p2', 0]]);
+  });
+
+  it('a reserva sai do índice ao ser confirmada ou liberada', async () => {
+    const operations = [];
+    const db = new MapDb();
+    db.transactWrite = async ops => {
+      operations.push(...ops);
+      if (ops[0].Put) db.table('stockReservations').set(ops[0].Put.Item.id, structuredClone(ops[0].Put.Item));
+    };
+    const updates = [];
+    const update = db.updateItem.bind(db);
+    db.updateItem = async (table, key, expression, ...rest) => { updates.push(expression); return update(table, key, expression, ...rest); };
+    const stock = new StockSDK(null, db);
+
+    const reservation = await stock.reserveStock({ id: 'r9', productId: 'p1', quantity: 1 });
+    assert.strictEqual(reservation.activeProductId, 'p1');
+    await stock.commitReservation({ reservationId: 'r9' });
+    assert.match(updates[0], /REMOVE activeProductId/);
+
+    const released = await stock.releaseStock({ reservationId: 'r9' });
+    assert.match(operations.at(-2).Update.UpdateExpression, /REMOVE activeProductId/);
+    assert.strictEqual(released.activeProductId, undefined);
   });
 });
 

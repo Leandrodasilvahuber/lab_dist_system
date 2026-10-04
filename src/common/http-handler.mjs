@@ -2,6 +2,7 @@ import { log } from './logger.mjs';
 import { normalizeHttpEvent } from './http-event.mjs';
 import { isActionInvocation, runAction, isDomainEvent, runEventHandler } from './actions.mjs';
 import { errorResponse, notFoundResponse } from './response.mjs';
+import { DomainError } from './errors.mjs';
 
 function errorMessage(response) {
   try {
@@ -48,6 +49,11 @@ export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers 
       }
       return response;
     } catch (error) {
+      // Erro de negócio lançado fora dos controllers (ex.: path mal codificado): 4xx, não alarme
+      if (error instanceof DomainError) {
+        log({ event: 'API_REJECTED', correlationId, status: 'warn', message: `${event.method} ${event.path} -> ${error.statusCode}: ${error.message}`, error });
+        return errorResponse(error.message, error.statusCode);
+      }
       log({ event: 'API_ERROR', correlationId, status: 'error', message: 'API request error', error });
       return errorResponse('Internal server error', 500);
     }

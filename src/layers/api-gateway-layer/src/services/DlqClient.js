@@ -18,8 +18,13 @@ const LOCK_SECONDS = 30;
  * Lista, reprocessa e descarta os eventos da ProductEventsDlq para a aba DLQ
  * do dashboard.
  *
- * O EventBridge grava na DLQ o evento original como body e o motivo da falha
- * nos atributos ERROR_CODE / ERROR_MESSAGE.
+ * A fila recebe mensagens de duas origens:
+ *  - DeadLetterConfig da regra do EventBridge (falha ao entregar à Lambda):
+ *    o body é o evento original e o motivo vem nos atributos ERROR_CODE /
+ *    ERROR_MESSAGE;
+ *  - destino OnFailure da StockFunction (a Lambda falhou em todas as
+ *    tentativas): o body é o registro da invocação, com o evento em
+ *    `requestPayload` e o erro em `responsePayload`.
  */
 export class DlqClient {
   constructor({ queueUrl = process.env.DLQ_URL, queueName = process.env.DLQ_NAME, client, eventBus = defaultEventBus } = {}) {
@@ -145,23 +150,27 @@ export class DlqClient {
 }
 
 function toEntry(message) {
-  let event = {};
+  let body = {};
   try {
-    event = JSON.parse(message.Body);
+    body = JSON.parse(message.Body) ?? {};
   } catch {
     // body que não é JSON: mostrado como está, sem evento para reprocessar
   }
+  // Registro do destino OnFailure da Lambda: o evento está em requestPayload
+  const invocation = body.requestPayload && typeof body.requestPayload === 'object' ? body : null;
+  const event = invocation ? invocation.requestPayload : body;
   const attribute = name => message.MessageAttributes?.[name]?.StringValue ?? null;
   const sent = Number(message.Attributes?.SentTimestamp);
+  // Sem ApproximateReceiveCount: a própria listagem (ReceiveMessage) o incrementa
   return {
     messageId: message.MessageId,
     sentAt: Number.isFinite(sent) ? new Date(sent).toISOString() : null,
-    receiveCount: Number(message.Attributes?.ApproximateReceiveCount || 0),
+    attempts: invocation?.requestContext?.approximateInvokeCount ?? null,
     source: event.source ?? null,
     detailType: event['detail-type'] ?? null,
     detail: event.detail ?? null,
-    errorCode: attribute('ERROR_CODE'),
-    errorMessage: attribute('ERROR_MESSAGE'),
+    errorCode: attribute('ERROR_CODE') ?? invocation?.responsePayload?.errorType ?? invocation?.requestContext?.condition ?? null,
+    errorMessage: attribute('ERROR_MESSAGE') ?? invocation?.responsePayload?.errorMessage ?? null,
     ...(!event.source && { body: message.Body })
   };
 }

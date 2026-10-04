@@ -9,8 +9,13 @@ import { promisify } from 'node:util';
 export const ADMIN_ROUTES = [
   ['POST', /^\/products$/],
   ['POST', /^\/stock\/[^/]+\/adjust$/],
+  // Listagens de todas as compras e pedidos (o cliente consulta as suas por id)
+  ['GET', /^\/orders$/],
+  ['GET', /^\/sagas$/],
   // Logs têm ids, correlationId e mensagens internas
   ['GET', /^\/logs$/],
+  // Métricas da saga: ids das compras e erros internos de cada passo
+  ['GET', /^\/metrics\/sagas$/],
   // DLQ: o body tem dados do produto e as ações mudam estado
   ['GET', /^\/dlq$/],
   ['POST', /^\/dlq\/[^/]+\/(redrive|discard)$/]

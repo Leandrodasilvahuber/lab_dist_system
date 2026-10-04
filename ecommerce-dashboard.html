@@ -683,6 +683,47 @@
             overflow-wrap: anywhere;
         }
 
+        /* Aba Desempenho: linha do tempo de cada compra */
+        .timeline {
+            position: relative;
+            height: 22px;
+            min-width: 260px;
+            background: #f1f3f5;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .timeline .bar {
+            position: absolute;
+            top: 3px;
+            bottom: 3px;
+            min-width: 3px;
+            border-radius: 4px;
+            background: #38ef7d;
+        }
+
+        .timeline .bar.compensation { background: #f0ad4e; }
+        .timeline .bar.failed { background: #f45c43; }
+        .timeline .bar.running { background: #adb5bd; }
+
+        .timeline-legend {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            color: #888;
+            font-size: 0.8em;
+            margin: 6px 0 10px;
+        }
+
+        .timeline-legend i {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            margin-right: 4px;
+            vertical-align: -1px;
+        }
+
         .log-level-warn { background: #fff3cd; color: #856404; }
         .log-level-error { background: #f8d7da; color: #721c24; }
 
@@ -746,6 +787,7 @@
             <button class="tab-btn" data-tab="summary">📈 Resumo</button>
             <button class="tab-btn" data-tab="monitoring">🩺 Monitoramento</button>
             <button class="tab-btn" data-tab="logs">📜 Logs</button>
+            <button class="tab-btn" data-tab="performance">⏱️ Desempenho</button>
             <button class="tab-btn" data-tab="dlq">📭 DLQ</button>
             <button class="tab-btn" data-tab="admin" id="adminTabBtn" hidden>🛠️ Admin</button>
         </div>
@@ -865,6 +907,31 @@
             <div class="alarms-wrapper" id="logsTable"></div>
         </div>
 
+        <div class="tab-content" id="performance-tab">
+            <h2>⏱️ Desempenho da saga</h2>
+            <div class="log-toolbar">
+                <span id="perfUpdated">Carregando...</span>
+                <span class="spacer"></span>
+                <button type="button" class="btn-primary" id="perfRefresh">🔄 Atualizar</button>
+            </div>
+            <p style="color:#888;font-size:0.85em;margin-bottom:10px;">Últimas 10 compras, calculado na hora a partir do histórico do Step Functions (nada é gravado). Com só 10 amostras, mostramos média e máximo em vez de p95. Exige a chave de admin.</p>
+            <div class="monitor-grid" id="perfSummary"></div>
+            <div class="alarms-section">
+                <h3>Por passo</h3>
+                <div class="alarms-wrapper" id="perfSteps"></div>
+            </div>
+            <div class="alarms-section">
+                <h3>Linha do tempo das compras</h3>
+                <div class="timeline-legend">
+                    <span><i style="background:#38ef7d"></i>passo ok</span>
+                    <span><i style="background:#f45c43"></i>passo falhou</span>
+                    <span><i style="background:#f0ad4e"></i>compensação</span>
+                    <span><i style="background:#adb5bd"></i>em andamento</span>
+                </div>
+                <div class="alarms-wrapper" id="perfSagas"></div>
+            </div>
+        </div>
+
         <div class="tab-content" id="dlq-tab">
             <h2>📭 DLQ dos eventos de produto</h2>
             <div class="log-toolbar">
@@ -971,7 +1038,7 @@
             return body;
         }
 
-        // Listagens paginadas (GET /products, GET /stock): segue o nextToken até o fim
+        // Listagens paginadas (GET /products, /stock, /orders, /sagas): segue o nextToken até o fim
         async function apiAll(path, key) {
             const items = [];
             let nextToken;
@@ -1139,6 +1206,105 @@
             row.after(detail);
         });
 
+        // ---------- Desempenho ----------
+        const EXECUTION_STATUS = {
+            SUCCEEDED: ['✅ Concluída', 'status-completed'],
+            RUNNING: ['⏳ Em andamento', 'status-processing'],
+            FAILED: ['❌ Falhou / desfeita', 'status-failed'],
+            TIMED_OUT: ['⌛ Timeout', 'status-failed'],
+            ABORTED: ['⛔ Abortada', 'status-failed']
+        };
+
+        function ms(value) {
+            if (value === null || value === undefined) return '—';
+            return value >= 1000 ? `${(value / 1000).toFixed(2)} s` : `${value} ms`;
+        }
+
+        function timelineBars(saga) {
+            const start = Date.parse(saga.startedAt);
+            const total = saga.durationMs ?? Math.max(Date.now() - start, 1);
+            return saga.steps.map(step => {
+                const offset = Math.max(Date.parse(step.startedAt) - start, 0);
+                const width = step.durationMs ?? Math.max(start + total - Date.parse(step.startedAt), 0);
+                const kind = step.ok === null ? 'running' : step.ok === false ? 'failed' : step.compensation ? 'compensation' : '';
+                const title = `${step.name}: ${ms(step.durationMs)}` +
+                    (step.attempts > 1 ? ` · ${step.attempts} tentativas` : '') +
+                    (step.error ? ` · ${step.error}` : '');
+                return `<div class="bar ${kind}" title="${escapeHtml(title)}"
+                    style="left:${(offset / total * 100).toFixed(2)}%;width:${(width / total * 100).toFixed(2)}%"></div>`;
+            }).join('');
+        }
+
+        async function fetchPerformance() {
+            const summaryEl = document.getElementById('perfSummary');
+            const stepsEl = document.getElementById('perfSteps');
+            const sagasEl = document.getElementById('perfSagas');
+            let data;
+            try {
+                data = await api('/metrics/sagas');
+            } catch (error) {
+                summaryEl.innerHTML = '';
+                stepsEl.innerHTML = `<div class="empty">Não foi possível ler as métricas: ${escapeHtml(error.message)}</div>`;
+                sagasEl.innerHTML = '';
+                document.getElementById('perfUpdated').textContent = '';
+                return;
+            }
+            const { summary, steps, sagas } = data;
+            document.getElementById('perfUpdated').textContent = `${summary.total} compras · às ${time(new Date().toISOString())}`;
+
+            const cards = [
+                ['Compras analisadas', summary.total, null],
+                ['Concluídas', summary.succeeded, true],
+                ['Falharam / desfeitas', summary.failed, summary.failed === 0],
+                ['Em andamento', summary.running, null],
+                ['Tempo médio', ms(summary.avgMs), null],
+                ['Mais lenta', ms(summary.maxMs), null]
+            ];
+            summaryEl.innerHTML = cards.map(([label, value, ok]) => `
+                <div class="monitor-card ${ok === true ? 'ok' : ok === false ? 'fail' : ''}">
+                    <div class="label">${escapeHtml(label)}</div>
+                    <div class="value">${escapeHtml(value)}</div>
+                </div>`).join('');
+
+            if (!sagas.length) {
+                stepsEl.innerHTML = '<div class="empty">Nenhuma compra executada ainda.</div>';
+                sagasEl.innerHTML = '';
+                return;
+            }
+
+            stepsEl.innerHTML = `
+                <table class="data-table">
+                    <thead><tr><th>Passo</th><th>Execuções</th><th>Média</th><th>Máximo</th><th>Falhas</th><th>Retries</th></tr></thead>
+                    <tbody>${steps.map(step => `
+                        <tr class="${step.failed ? 'alarm-firing' : ''}">
+                            <td><strong>${escapeHtml(step.name)}</strong>${step.compensation ? ' <span class="alarm-description">(compensação)</span>' : ''}</td>
+                            <td>${escapeHtml(step.count)}</td>
+                            <td>${escapeHtml(ms(step.avgMs))}</td>
+                            <td>${escapeHtml(ms(step.maxMs))}</td>
+                            <td>${escapeHtml(step.failed)}</td>
+                            <td>${escapeHtml(step.retries)}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+
+            sagasEl.innerHTML = `
+                <table class="data-table">
+                    <thead><tr><th>Início</th><th>Saga</th><th>Status</th><th>Duração</th><th style="width:45%">Passos</th></tr></thead>
+                    <tbody>${sagas.map(saga => {
+                        const [label, cls] = EXECUTION_STATUS[saga.status] || [saga.status, ''];
+                        return `
+                        <tr>
+                            <td title="${escapeHtml(saga.startedAt)}">${escapeHtml(time(saga.startedAt))}</td>
+                            <td class="alarm-description" title="${escapeHtml(saga.sagaId)}">${escapeHtml(saga.sagaId)}</td>
+                            <td><span class="status-badge ${cls}">${escapeHtml(label)}</span></td>
+                            <td>${escapeHtml(ms(saga.durationMs))}</td>
+                            <td><div class="timeline">${timelineBars(saga)}</div></td>
+                        </tr>`;
+                    }).join('')}
+                    </tbody>
+                </table>`;
+        }
+
         // ---------- DLQ ----------
         let dlqMessages = [];
 
@@ -1161,14 +1327,14 @@
             }
             container.innerHTML = `
                 <table class="data-table">
-                    <thead><tr><th>Enviado em</th><th>Evento</th><th>Produto</th><th>Erro</th><th>Leituras</th><th>Ações</th></tr></thead>
+                    <thead><tr><th>Enviado em</th><th>Evento</th><th>Produto</th><th>Erro</th><th>Tentativas</th><th>Ações</th></tr></thead>
                     <tbody>${dlqMessages.map((m, index) => `
                         <tr class="log-row level-error" data-index="${index}">
                             <td>${m.sentAt ? new Date(m.sentAt).toLocaleString('pt-BR') : '—'}</td>
                             <td><strong>${escapeHtml(m.detailType || 'mensagem inválida')}</strong></td>
                             <td>${escapeHtml(m.detail?.productId || '—')}${m.detail?.name ? `<div class="alarm-description">${escapeHtml(m.detail.name)}</div>` : ''}</td>
                             <td class="alarm-reason">${escapeHtml(m.errorMessage || m.errorCode || '—')}</td>
-                            <td>${m.receiveCount}</td>
+                            <td>${escapeHtml(m.attempts ?? '—')}</td>
                             <td class="dlq-actions">
                                 <button type="button" class="btn-success" data-action="redrive" data-id="${escapeHtml(m.messageId)}" ${m.detailType ? '' : 'disabled'}>♻️ Reprocessar</button>
                                 <button type="button" class="btn-danger" data-action="discard" data-id="${escapeHtml(m.messageId)}">🗑️ Descartar</button>
@@ -1232,6 +1398,7 @@
                 summary: fetchSummary,
                 monitoring: runMonitors,
                 logs: fetchLogs,
+                performance: fetchPerformance,
                 dlq: fetchDlq
             };
             return actions[name]?.();
@@ -1315,6 +1482,7 @@
                 });
                 showToast('Compra iniciada! Acompanhe o andamento ao lado.', 'info');
                 document.getElementById('buyQuantity').value = 1;
+                rememberSaga(result.sagaId);
                 await fetchSagas();
                 highlight(result.sagaId);
             } catch (error) {
@@ -1330,28 +1498,54 @@
         }
 
         let lastStatuses = {};
+        // Sagas exibidas, por id. O polling atualiza só as que estão em andamento
+        let sagaCache = new Map();
 
-        async function fetchSagas() {
-            let sagas = [];
+        // GET /sagas é de admin; sem a chave, a lista mostra as compras feitas
+        // neste navegador, consultadas uma a uma em GET /saga/{id} (público)
+        const MAX_MY_SAGAS = 20;
+        let mySagaIds = storage.get('mySagas', []);
+
+        function rememberSaga(sagaId) {
+            mySagaIds = [sagaId, ...mySagaIds.filter(id => id !== sagaId)].slice(0, MAX_MY_SAGAS);
+            storage.set('mySagas', mySagaIds);
+        }
+
+        const getSaga = sagaId => api(`/saga/${encodeURIComponent(sagaId)}`);
+
+        async function loadSagaList() {
+            if (adminKey) return (await apiAll('/sagas', 'sagas')).sagas;
+            const sagas = await Promise.all(mySagaIds.map(id => getSaga(id).catch(() => null)));
+            return sagas.filter(Boolean);
+        }
+
+        async function fetchSagas({ onlyRunning = false } = {}) {
             try {
-                ({ sagas } = await api('/sagas'));
+                if (onlyRunning) {
+                    const running = [...sagaCache.values()].filter(s => !TERMINAL.includes(s.status));
+                    const updated = await Promise.all(running.map(s => getSaga(s.id).catch(() => s)));
+                    updated.forEach(s => sagaCache.set(s.id, s));
+                } else {
+                    sagaCache = new Map((await loadSagaList()).map(s => [s.id, s]));
+                }
             } catch (error) {
                 document.getElementById('sagaList').innerHTML =
                     `<div class="empty">Não foi possível carregar as compras: ${escapeHtml(error.message)}</div>`;
                 return;
             }
 
+            const sagas = [...sagaCache.values()].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
             notifyFinished(sagas);
             const productNames = Object.fromEntries(products.map(p => [p.id, p.name]));
             document.getElementById('sagaList').innerHTML = sagas.length
                 ? sagas.slice(0, 20).map(s => renderSaga(s, productNames)).join('')
-                : '<div class="empty">Nenhuma compra ainda.</div>';
+                : `<div class="empty">${adminKey ? 'Nenhuma compra ainda.' : 'Nenhuma compra neste navegador ainda.'}</div>`;
 
-            // Continua atualizando enquanto houver saga em andamento
+            // Continua atualizando (só as em andamento) enquanto houver saga rodando
             clearTimeout(pollTimer);
             if (sagas.some(s => !TERMINAL.includes(s.status))) {
                 pollTimer = setTimeout(() => {
-                    fetchSagas();
+                    fetchSagas({ onlyRunning: true });
                     fetchProducts();
                 }, 1000);
             }
@@ -1426,7 +1620,7 @@
         async function fetchOrders() {
             const list = document.getElementById('orderList');
             try {
-                const [{ orders }] = await Promise.all([api('/orders'), products.length ? null : fetchProducts()]);
+                const [{ orders }] = await Promise.all([apiAll('/orders', 'orders'), products.length ? null : fetchProducts()]);
                 const productNames = Object.fromEntries(products.map(p => [p.id, p.name]));
                 orders.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
                 list.innerHTML = orders.length ? orders.map(order => `
@@ -1448,7 +1642,7 @@
             const content = document.getElementById('summaryContent');
             try {
                 const [{ products: all }, { stock }, { orders }, { sagas }] = await Promise.all([
-                    apiAll('/products', 'products'), apiAll('/stock', 'stock'), api('/orders'), api('/sagas')
+                    apiAll('/products', 'products'), apiAll('/stock', 'stock'), apiAll('/orders', 'orders'), apiAll('/sagas', 'sagas')
                 ]);
                 const totalStock = stock.reduce((sum, item) => sum + (item.available || 0), 0);
                 const confirmed = orders.filter(o => o.status === 'confirmed');
@@ -1539,6 +1733,7 @@
         document.getElementById('alarmsToDlq').addEventListener('click', () => showTab('dlq'));
         document.getElementById('dlqRefresh').addEventListener('click', fetchDlq);
         document.getElementById('logsRefresh').addEventListener('click', fetchLogs);
+        document.getElementById('perfRefresh').addEventListener('click', fetchPerformance);
         document.getElementById('logLevel').addEventListener('change', fetchLogs);
         document.getElementById('logHours').addEventListener('change', fetchLogs);
 

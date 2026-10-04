@@ -44,9 +44,9 @@ npm run test:e2e:errors    # provoca erros tratados/não tratados e cria alarmes
 npm run localstack:stop
 ```
 
-Com a saga publicada, cada subida do `local-server` envia 4 compras de exemplo
-(apple, banana, grape e server; a do server tem o pagamento recusado e termina em
-compensação). As chaves de idempotência são fixas, então elas só viram pedidos
+Com a saga publicada, cada subida do `local-server` envia 7 compras de exemplo
+(a do server tem o pagamento recusado e a de 999 oranges passa do estoque; as
+duas terminam em compensação e aparecem na aba ⏱️ Desempenho). As chaves de idempotência são fixas, então elas só viram pedidos
 novos enquanto essas sagas não existem na tabela Sagas do LocalStack: na 1ª
 subida após o deploy ou depois de recriar o LocalStack. Para não enviá-las, use
 `SAMPLE_ORDERS=false npm run local-server`.
@@ -113,7 +113,7 @@ seguintes são rápidas.
 | `PAYMENT_MAX_AMOUNT` | Valor máximo aprovado pelo pagamento simulado | `10000` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` ou `silent` | `info` (`warn` no `local-server`) |
 | `SAMPLE_ORDERS` | `false` desliga as compras de exemplo enviadas ao subir o `local-server` | ligado |
-| `CORS_ALLOW_ORIGIN` | Origem do header `Access-Control-Allow-Origin` no `local-server` e em invocações diretas (na AWS vale o parâmetro `AllowedOrigin`) | `*` |
+| `CORS_ALLOW_ORIGIN` | Origem do header `Access-Control-Allow-Origin`. No `local-server` só é enviado se definida (o dashboard é servido pelo próprio servidor, na mesma origem); em invocações diretas o padrão é `*` (na AWS vale o parâmetro `AllowedOrigin`) | — no `local-server` |
 | `ADMIN_API_KEY_HASH` | Hash scrypt da chave de admin do `local-server`, gerado por `npm run admin:hash` (tem prioridade sobre `ADMIN_API_KEY`) | — |
 | `HOST`, `PORT` | Endereço do `local-server` (`HOST=0.0.0.0` exige a chave de admin) | `127.0.0.1`, `3001` |
 | `LOCALSTACK_ENDPOINT` | Endpoint usado pelo `test:e2e` | `http://localhost:4566` |

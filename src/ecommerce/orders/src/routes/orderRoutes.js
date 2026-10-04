@@ -1,5 +1,6 @@
 import { OrderController } from '../controllers/OrderController.js';
 import { notFoundResponse } from '../../../../common/response.mjs';
+import { decodePathSegment } from '../../../../common/http-event.mjs';
 
 export async function setupRoutes(event) {
   const method = event.method;
@@ -14,7 +15,7 @@ export async function setupRoutes(event) {
 
   // GET /orders/{id}
   if (method === 'GET' && idMatch) {
-    return OrderController.getOrders(event, { id: decodeURIComponent(idMatch[1]) });
+    return OrderController.getOrders(event, { id: decodePathSegment(idMatch[1]) });
   }
 
   return notFoundResponse(path);

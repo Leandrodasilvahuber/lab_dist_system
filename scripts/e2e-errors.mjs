@@ -137,7 +137,8 @@ const dlqSize = async () => Number((await aws.Q.send(new sqs.GetQueueAttributesC
   QueueUrl: dlqUrl, AttributeNames: ['ApproximateNumberOfMessages'] }))).Attributes.ApproximateNumberOfMessages);
 const dlqBefore = await dlqSize();
 const event = productCreated({ productId: 'p-transitorio', name: 'Transitório', initialStock: 5 });
-// Imita a regra do EventBridge (RetryPolicy + DeadLetterConfig), com 3 tentativas em vez de 20
+// Imita a invocação assíncrona da AWS: a Lambda tenta 3 vezes (1 + MaximumRetryAttempts: 2
+// do EventInvokeConfig) e o destino OnFailure grava o registro da invocação na DLQ
 const ATTEMPTS = 3;
 let lastError;
 for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
@@ -146,8 +147,14 @@ for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
 }
 check(`as ${ATTEMPTS} tentativas falham com ${lastError?.name}`, lastError?.name === 'ResourceNotFoundException');
 if (lastError) {
-  await aws.Q.send(new sqs.SendMessageCommand({ QueueUrl: dlqUrl, MessageBody: JSON.stringify(event),
-    MessageAttributes: { ERROR_MESSAGE: { DataType: 'String', StringValue: lastError.message } } }));
+  await aws.Q.send(new sqs.SendMessageCommand({ QueueUrl: dlqUrl, MessageBody: JSON.stringify({
+    version: '1.0',
+    timestamp: new Date().toISOString(),
+    requestContext: { condition: 'RetriesExhausted', approximateInvokeCount: ATTEMPTS },
+    requestPayload: event,
+    responseContext: { statusCode: 200, functionError: 'Unhandled' },
+    responsePayload: { errorType: lastError.name, errorMessage: lastError.message }
+  }) }));
 }
 const failed = lines('ACTION_FAILED');
 check(`log error ACTION_FAILED em cada tentativa (${failed.length}), com errorType e stack`,

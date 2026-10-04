@@ -1,5 +1,10 @@
 import { ValidationError } from './errors.mjs';
 
+// Limites dos textos livres: bem abaixo dos 400 KB de um item do DynamoDB, para
+// que um texto grande seja 400 (validação) e não 500 (ValidationException do banco)
+export const MAX_NAME_LENGTH = 200;
+export const MAX_DESCRIPTION_LENGTH = 2000;
+
 /**
  * Converte um campo numérico vindo do JSON. Aceita número ou string numérica
  * não vazia; qualquer outra coisa (boolean, null, '', objeto) vira NaN, para

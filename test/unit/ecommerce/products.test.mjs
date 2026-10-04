@@ -73,6 +73,20 @@ describe('preço do produto', () => {
     }
   });
 
+  it('POST /products recusa name e description longos demais (400, não 500 do DynamoDB)', async () => {
+    const { ProductController } = await import('../../../src/ecommerce/products/src/controllers/ProductController.js');
+    const { MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH } = await import('../../../src/common/validation.mjs');
+    const cases = [
+      [{ name: 'x'.repeat(MAX_NAME_LENGTH + 1), price: 1 }, /name must have at most/],
+      [{ name: 'X', price: 1, description: 'x'.repeat(MAX_DESCRIPTION_LENGTH + 1) }, /description must have at most/]
+    ];
+    for (const [body, error] of cases) {
+      const response = await ProductController.createProduct({ body: JSON.stringify(body) });
+      assert.strictEqual(response.statusCode, 400);
+      assert.match(JSON.parse(response.body).error, error);
+    }
+  });
+
   it('updateProduct recusa preço zero', async () => {
     const ProductSDK = await loadProductSDK();
     const sdk = new ProductSDK(null, { updateItem: async () => assert.fail('não deveria gravar') });

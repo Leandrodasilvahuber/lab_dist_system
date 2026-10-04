@@ -117,7 +117,8 @@ async function transactWrite(operations) {
   await docClient.send(new TransactWriteCommand({ TransactItems }));
 }
 
-async function scanItems(tableType) {
+// `indexName`: varre um GSI (ex.: um índice esparso, bem menor que a tabela)
+async function scanItems(tableType, { indexName } = {}) {
   const items = [];
   let ExclusiveStartKey;
 
@@ -125,6 +126,7 @@ async function scanItems(tableType) {
   do {
     const result = await docClient.send(new ScanCommand({
       TableName: getTable(tableType),
+      ...(indexName && { IndexName: indexName }),
       ExclusiveStartKey
     }));
     items.push(...(result.Items || []));
@@ -185,8 +187,8 @@ export class Database {
     return transactWrite(operations);
   }
 
-  async scanItems(tableType) {
-    return scanItems(tableType);
+  async scanItems(tableType, options) {
+    return scanItems(tableType, options);
   }
 
   async scanPage(tableType, options) {

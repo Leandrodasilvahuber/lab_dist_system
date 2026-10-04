@@ -1,7 +1,7 @@
 import { ProductSDK } from '../../../../common/sdks/index.mjs';
 import { eventBus } from '../../../../common/event-bus.mjs';
 import { successResponse, errorResponse, parseBody, sdkErrorResponse } from '../../../../common/response.mjs';
-import { toNumber } from '../../../../common/validation.mjs';
+import { toNumber, MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH } from '../../../../common/validation.mjs';
 import { parsePagination } from '../../../../common/pagination.mjs';
 
 const productSDK = new ProductSDK(eventBus);
@@ -34,6 +34,9 @@ export class ProductController {
       if (typeof name !== 'string' || !name.trim()) {
         return errorResponse('name is required', 400);
       }
+      if (name.trim().length > MAX_NAME_LENGTH) {
+        return errorResponse(`name must have at most ${MAX_NAME_LENGTH} characters`, 400);
+      }
       const priceValue = toNumber(price);
       // Preço zero não é comprável: o pagamento exige valor maior que zero
       if (!Number.isFinite(priceValue) || priceValue <= 0) {
@@ -41,6 +44,9 @@ export class ProductController {
       }
       if (typeof description !== 'string') {
         return errorResponse('description must be a string', 400);
+      }
+      if (description.length > MAX_DESCRIPTION_LENGTH) {
+        return errorResponse(`description must have at most ${MAX_DESCRIPTION_LENGTH} characters`, 400);
       }
       const initialStock = toNumber(stock);
       if (!Number.isInteger(initialStock) || initialStock < 0) {

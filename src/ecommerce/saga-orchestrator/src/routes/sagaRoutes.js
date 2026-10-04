@@ -1,5 +1,6 @@
 import { SagaOrchestratorController } from '../controllers/SagaOrchestratorController.js';
 import { notFoundResponse } from '../../../../common/response.mjs';
+import { decodePathSegment } from '../../../../common/http-event.mjs';
 
 export async function setupRoutes(event) {
   const method = event.method;
@@ -13,7 +14,7 @@ export async function setupRoutes(event) {
 
   // GET /saga/{sagaId}
   if (method === 'GET' && sagaMatch) {
-    event.pathParameters = { ...event.pathParameters, sagaId: decodeURIComponent(sagaMatch[1]) };
+    event.pathParameters = { ...event.pathParameters, sagaId: decodePathSegment(sagaMatch[1]) };
     return SagaOrchestratorController.getSaga(event);
   }
 

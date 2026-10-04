@@ -8,9 +8,12 @@ import { ValidationError, isRetryable } from './errors.mjs';
 // Campos que nunca vão para o log (dados de pagamento/credenciais)
 const SENSITIVE_FIELDS = ['cardNumber', 'cvv', 'cardToken', 'token', 'password', 'apiKey'];
 
-function redact(input) {
-  return Object.fromEntries(Object.entries(input).map(([key, value]) =>
-    [key, SENSITIVE_FIELDS.includes(key) ? '[REDACTED]' : value]));
+// Percorre objetos e arrays aninhados: { payment: { cardNumber } } também é ocultado
+export function redact(value) {
+  if (Array.isArray(value)) return value.map(redact);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, inner]) =>
+    [key, SENSITIVE_FIELDS.includes(key) ? '[REDACTED]' : redact(inner)]));
 }
 
 export function isActionInvocation(event) {
@@ -61,8 +64,10 @@ export function isDomainEvent(event) {
 /**
  * Executa o handler registrado para `<source>/<detail-type>`.
  * Eventos sem handler são ignorados. Erro de negócio não melhora com retry:
- * fica no log e o evento é confirmado. Só falhas transitórias são relançadas
- * para o EventBridge repetir e, esgotadas as tentativas, mandar para a DLQ.
+ * fica no log e o evento é confirmado. Só falhas transitórias são relançadas:
+ * o EventBridge invoca a Lambda de forma assíncrona, então quem repete é a
+ * própria Lambda (EventInvokeConfig no template.yaml) e, esgotadas as
+ * tentativas, o destino OnFailure manda o evento para a DLQ.
  */
 export async function runEventHandler(handlers, event) {
   const key = `${event.source}/${event['detail-type']}`;

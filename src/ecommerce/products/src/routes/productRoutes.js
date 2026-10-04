@@ -1,5 +1,6 @@
 import { ProductController } from '../controllers/ProductController.js';
 import { notFoundResponse } from '../../../../common/response.mjs';
+import { decodePathSegment } from '../../../../common/http-event.mjs';
 
 export async function setupRoutes(event) {
   const method = event.method;
@@ -14,7 +15,7 @@ export async function setupRoutes(event) {
 
   // GET /products/{id}
   if (method === 'GET' && idMatch) {
-    return ProductController.getProducts(event, { id: decodeURIComponent(idMatch[1]) });
+    return ProductController.getProducts(event, { id: decodePathSegment(idMatch[1]) });
   }
 
   // POST /products

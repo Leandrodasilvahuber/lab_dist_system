@@ -1,13 +1,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { hashApiKey, isAdminRoute, isValidApiKey, isValidApiKeyHash } from '../../../src/common/auth.mjs';
+import { ADMIN_ROUTES, hashApiKey, isAdminRoute, isValidApiKey, isValidApiKeyHash } from '../../../src/common/auth.mjs';
 import { createHandler, createKeyProvider, CACHE_TTL_MS } from '../../../src/layers/api-gateway-layer/src/auth/adminAuthorizer.js';
 
 process.env.LOG_LEVEL = 'silent';
 
 describe('rotas de admin', () => {
-  it('protege as escritas, os logs e a DLQ', () => {
+  it('protege as escritas, as listagens de compras/pedidos, os logs e a DLQ', () => {
     assert.ok(isAdminRoute('POST', '/products'));
+    assert.ok(isAdminRoute('GET', '/orders'));
+    assert.ok(isAdminRoute('GET', '/sagas'));
     assert.ok(isAdminRoute('POST', '/stock/p1/adjust'));
     assert.ok(isAdminRoute('GET', '/logs'));
     assert.ok(isAdminRoute('GET', '/dlq'));
@@ -17,17 +19,30 @@ describe('rotas de admin', () => {
 
   it('deixa públicas a vitrine, a compra e as consultas', () => {
     for (const [method, path] of [['GET', '/products'], ['GET', '/products/p1'], ['GET', '/stock'],
-      ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/orders/o1'], ['GET', '/orders'], ['GET', '/sagas'], ['GET', '/health'], ['GET', '/alarms']]) {
+      ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/orders/o1'], ['GET', '/health'], ['GET', '/alarms']]) {
       assert.ok(!isAdminRoute(method, path), `${method} ${path}`);
     }
   });
 
-  it('o template.yaml aplica o authorizer exatamente nessas rotas', async () => {
+  // O local-server usa ADMIN_ROUTES; na AWS vale o Auth de cada rota do template
+  it('o template.yaml aplica o authorizer exatamente nas rotas de ADMIN_ROUTES', async () => {
     const fs = await import('node:fs');
     const template = fs.readFileSync(new URL('../../../template.yaml', import.meta.url), 'utf8');
-    const protectedRoutes = [...template.matchAll(/Path: (\S+)\n\s+Method: (\S+)\n\s+Auth:\n\s+Authorizer: AdminApiKey/g)]
-      .map(([, path, method]) => `${method} ${path}`).sort();
-    assert.deepStrictEqual(protectedRoutes, ['GET /dlq', 'GET /logs', 'POST /dlq/{messageId}/{action}', 'POST /products', 'POST /stock/{productId}/adjust']);
+    const routes = [...template.matchAll(/Path: (\S+)\n\s+Method: (\S+)(\n\s+Auth:\n\s+Authorizer: (\S+))?/g)]
+      .map(([, path, method, , authorizer]) => ({ path, method, admin: authorizer === 'AdminApiKey' }))
+      .filter(route => !route.path.includes('{proxy+}'));
+    assert.ok(routes.length > 10, 'rotas do template não encontradas');
+
+    // Parâmetros do path viram um valor de exemplo: /stock/{productId}/adjust -> /stock/x/adjust
+    const sample = path => path.replace(/\{(\w+)\}/g, (_, name) => (name === 'action' ? 'redrive' : 'x'));
+    for (const route of routes) {
+      assert.strictEqual(isAdminRoute(route.method, sample(route.path)), route.admin,
+        `${route.method} ${route.path}: template ${route.admin ? 'exige' : 'não exige'} admin`);
+    }
+    // E toda rota de ADMIN_ROUTES está protegida no template
+    for (const [method, pattern] of ADMIN_ROUTES) {
+      assert.ok(routes.some(r => r.admin && r.method === method && pattern.test(sample(r.path))), `${method} ${pattern}`);
+    }
   });
 });
 

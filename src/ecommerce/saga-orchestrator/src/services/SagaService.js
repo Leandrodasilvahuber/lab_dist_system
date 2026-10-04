@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Database } from '../../../../common/database.mjs';
 import { IdempotencyConflictError, NotFoundError, ValidationError } from '../../../../common/errors.mjs';
 import { log } from '../../../../common/logger.mjs';
+import { encodeToken } from '../../../../common/pagination.mjs';
 import { StepFunctionsClient } from './StepFunctionsClient.js';
 import { ProductClient } from './ProductClient.js';
 
@@ -179,12 +180,18 @@ export class SagaService {
     return withProgress(saga);
   }
 
-  async listSagas(filters = {}) {
-    const sagas = await this.db.scanItems('sagas');
-    return sagas
+  /**
+   * Lista as sagas, uma página por vez (`limit`, `startKey`). O Scan não tem
+   * ordem: a página vem ordenada (mais recentes primeiro), mas a ordem global
+   * fica a cargo de quem junta as páginas.
+   */
+  async listSagas(filters = {}, { limit, startKey } = {}) {
+    const { items, lastKey } = await this.db.scanPage('sagas', { limit, startKey });
+    const sagas = items
       .filter(saga => !filters.status || saga.status === filters.status)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
       .map(withProgress);
+    return { sagas, nextToken: encodeToken(lastKey) };
   }
 }
 

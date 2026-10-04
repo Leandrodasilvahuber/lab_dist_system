@@ -9,8 +9,8 @@ import {
 // Índices por nome lógico da tabela (as chaves de `tables` em src/common/database.mjs)
 const INDEXES = {
   stockreservations: [{
-    IndexName: 'StatusIndex',
-    KeySchema: [{ AttributeName: 'status', KeyType: 'HASH' }, { AttributeName: 'productId', KeyType: 'RANGE' }],
+    IndexName: 'ActiveReservationsIndex',
+    KeySchema: [{ AttributeName: 'activeProductId', KeyType: 'HASH' }],
     Projection: { ProjectionType: 'ALL' }
   }]
 };

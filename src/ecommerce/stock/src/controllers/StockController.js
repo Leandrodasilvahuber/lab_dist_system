@@ -1,7 +1,7 @@
 import { StockSDK } from '../../../../common/sdks/index.mjs';
 import { eventBus } from '../../../../common/event-bus.mjs';
 import { successResponse, errorResponse, parseBody, sdkErrorResponse } from '../../../../common/response.mjs';
-import { toNumber } from '../../../../common/validation.mjs';
+import { toNumber, MAX_NAME_LENGTH } from '../../../../common/validation.mjs';
 import { parsePagination } from '../../../../common/pagination.mjs';
 
 const stockSDK = new StockSDK(eventBus);
@@ -38,6 +38,9 @@ export class StockController {
       }
       if (name !== undefined && (typeof name !== 'string' || !name.trim())) {
         return errorResponse('name must be a non-empty string', 400);
+      }
+      if (name !== undefined && name.trim().length > MAX_NAME_LENGTH) {
+        return errorResponse(`name must have at most ${MAX_NAME_LENGTH} characters`, 400);
       }
 
       const result = await stockSDK.adjustStock(productId, deltaValue, { name: name?.trim() });

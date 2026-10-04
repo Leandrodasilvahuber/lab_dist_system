@@ -5,6 +5,7 @@ import { log } from '../../../../common/logger.mjs';
 import { AlarmsClient } from '../services/AlarmsClient.js';
 import { LogsClient } from '../services/LogsClient.js';
 import { DlqClient } from '../services/DlqClient.js';
+import { SagaMetricsClient } from '../services/SagaMetricsClient.js';
 import { parseLogQuery } from '../../../../common/log-query.mjs';
 
 /**
@@ -12,7 +13,8 @@ import { parseLogQuery } from '../../../../common/log-query.mjs';
  *
  * No HttpApi cada rota (/products, /orders, /payments, /stock, /saga...) é
  * ligada diretamente à Lambda do serviço. Esta função atende o health check,
- * os alarmes e os logs de erro (CloudWatch), a DLQ dos eventos de produto e
+ * os alarmes e os logs de erro (CloudWatch), a DLQ dos eventos de produto, as
+ * métricas de desempenho da saga (histórico do Step Functions) e
  * tudo o que não casar com nenhuma rota ({proxy+}), devolvendo a lista de
  * endpoints disponíveis.
  */
@@ -20,6 +22,7 @@ const AVAILABLE_ENDPOINTS = [
   'GET  /health',
   'GET  /alarms',
   'GET  /logs',
+  'GET  /metrics/sagas',
   'GET  /dlq',
   'POST /dlq/{messageId}/redrive',
   'POST /dlq/{messageId}/discard',
@@ -36,11 +39,16 @@ const AVAILABLE_ENDPOINTS = [
   'GET  /sagas'
 ];
 
-export function createAPIHandler({ alarms = new AlarmsClient(), logs = new LogsClient(), dlq = new DlqClient() } = {}) {
+export function createAPIHandler({
+  alarms = new AlarmsClient(),
+  logs = new LogsClient(),
+  dlq = new DlqClient(),
+  sagaMetrics = new SagaMetricsClient()
+} = {}) {
   return async function handleAPIRequest(rawEvent) {
     const event = normalizeHttpEvent(rawEvent);
 
-    if (event.path === '/health') {
+    if (event.method === 'GET' && event.path === '/health') {
       return successResponse({ status: 'healthy', timestamp: new Date().toISOString() });
     }
 
@@ -60,6 +68,16 @@ export function createAPIHandler({ alarms = new AlarmsClient(), logs = new LogsC
       } catch (error) {
         log({ event: 'LOGS_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: 'Could not read CloudWatch logs', error });
         return errorResponse('Logs unavailable', 503);
+      }
+    }
+
+    // Rota de admin: tempos por passo das últimas compras (ids das sagas e erros internos)
+    if (event.method === 'GET' && event.path === '/metrics/sagas') {
+      try {
+        return successResponse(await sagaMetrics.recentMetrics());
+      } catch (error) {
+        log({ event: 'SAGA_METRICS_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: 'Could not read Step Functions executions', error });
+        return errorResponse('Saga metrics unavailable', 503);
       }
     }
 

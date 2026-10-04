@@ -29,13 +29,21 @@ A chave antiga ainda é aceita por até ~6 minutos depois da troca: 1 minuto de
 cache no authorizer mais os 5 minutos em que o HttpApi guarda a decisão
 (`ReauthorizeEvery: 300` no template).
 As rotas
-`POST /products` e `POST /stock/{id}/adjust` exigem
-o header `X-Api-Key` com essa chave. Para restringir o CORS a uma origem, passe
+`POST /products`, `POST /stock/{id}/adjust`, `GET /orders`, `GET /sagas`, `GET /logs`
+e as de `/dlq` exigem o header `X-Api-Key` com essa chave. Para restringir o CORS a uma origem, passe
 também `AllowedOrigin=https://...` em `--parameter-overrides`.
 
 O `sam deploy` mostra o changeset e pede confirmação antes de criar os recursos
 (`confirm_changeset = true` no `samconfig.toml`). O bucket S3 dos artefatos é
 criado e gerenciado pelo SAM (`resolve_s3 = true`).
+
+**Stack criado antes do `ActiveReservationsIndex`:** a tabela de reservas trocou
+o GSI `StatusIndex` pelo `ActiveReservationsIndex`, e o CloudFormation não
+aceita remover e criar um GSI no mesmo update. Faça em dois deploys: primeiro
+com os dois índices em `StockReservationsTable` (adicione de volta o
+`StatusIndex` e o atributo `status`/`productId` ao lado do novo), depois sem o
+`StatusIndex`. Reservas ativas criadas antes da troca não têm `activeProductId`
+e não contam como "reservado" até terminarem; rode o deploy sem compras em andamento.
 
 Depois do deploy, popule o catálogo e o estoque (as tabelas já foram criadas pelo stack):
 
@@ -56,7 +64,7 @@ npm run seed -- --stage dev
 | `GatewayFunction` | `/health`, `/alarms` (lê os alarmes `dev-ecommerce-*`), `/logs` (admin: linhas warn/error do `ServicesLogGroup`), `/dlq` (admin: lista, reprocessa e descarta eventos da `ProductEventsDlq`) e 404 com a lista de endpoints |
 | Tabelas `dev-Products`, `dev-Orders`, `dev-Payments`, `dev-Inventory`, `dev-StockReservations`, `dev-Sagas` | DynamoDB on-demand, uma ou mais por serviço |
 | `EventBus` (`dev-ecommerce-events`) | Eventos de domínio dos serviços |
-| `ProductEventsToStockRule` | Entrega `ProductCreated`/`ProductDeleted` à `StockFunction` (cria/remove o inventário), com retry e DLQ `ProductEventsDlq` (só falhas transitórias; erro de negócio fica no log como `DOMAIN_EVENT_REJECTED`) |
+| `ProductEventsToStockRule` | Entrega `ProductCreated`/`ProductDeleted` à `StockFunction` (cria/remove o inventário), com DLQ `ProductEventsDlq` para falhas de entrega. Erros da função são repetidos pela própria Lambda (invocação assíncrona, `EventInvokeConfig` da `StockFunction`) e, esgotadas as tentativas, vão para a mesma DLQ pelo destino `OnFailure` (só falhas transitórias; erro de negócio fica no log como `DOMAIN_EVENT_REJECTED`) |
 | `OrderEventsArchive` (`dev-order-events`) | EventBridge Archive dos eventos `source: orders` (auditoria e replay, 10 dias) |
 | `ServicesLogGroup` (`/aws/lambda/dev-ecommerce`) | Logs de todas as Lambdas, 14 dias (campo `service` = função). Erro tratado sai com `status: warn`, não tratado com `status: error` + stack |
 | `UnhandledErrorsMetricFilter` | Conta as linhas `status: error` na métrica `Ecommerce/dev UnhandledErrors` |
@@ -89,9 +97,9 @@ curl -X POST $API/saga/execute -H "Idempotency-Key: $(uuidgen)" \
   -d '{"productId": "apple", "quantity": 2}'
 curl $API/saga/<sagaId da resposta>
 
-# Listagens (públicas)
-curl $API/orders
-curl $API/sagas
+# Listagens de todas as compras e pedidos (admin)
+curl -H "X-Api-Key: $ADMIN_API_KEY" $API/orders
+curl -H "X-Api-Key: $ADMIN_API_KEY" $API/sagas
 
 # Rota de admin
 curl -X POST -H "X-Api-Key: $ADMIN_API_KEY" $API/stock/apple/adjust -d '{"delta": 10}'

@@ -2,6 +2,7 @@ import { log } from '../../../../common/logger.mjs';
 import { successResponse, errorResponse, parseBody, sdkErrorResponse } from '../../../../common/response.mjs';
 import { SagaService } from '../services/SagaService.js';
 import { toNumber } from '../../../../common/validation.mjs';
+import { parsePagination } from '../../../../common/pagination.mjs';
 
 const sagaService = new SagaService();
 
@@ -71,12 +72,13 @@ export class SagaOrchestratorController {
   }
 
   /**
-   * GET /sagas?status=...
+   * GET /sagas?status=... (admin, paginado: ?limit=&nextToken=)
    */
   static async getSagas(event) {
     try {
-      const sagas = await sagaService.listSagas(event.queryStringParameters || {});
-      return successResponse({ sagas, count: sagas.length });
+      const query = event.queryStringParameters || {};
+      const { sagas, nextToken } = await sagaService.listSagas(query, parsePagination(query));
+      return successResponse({ sagas, count: sagas.length, nextToken });
     } catch (error) {
       return sdkErrorResponse(error, 'Failed to list sagas');
     }

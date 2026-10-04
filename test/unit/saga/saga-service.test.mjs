@@ -27,7 +27,10 @@ class FakeDb {
     if (expression.includes('startAttempts')) item.startAttempts = (item.startAttempts || 1) + 1;
     return structuredClone(item);
   }
-  async scanItems(table) { return [...this.tables[table].values()]; }
+  async scanPage(table, { limit } = {}) {
+    const items = [...this.tables[table].values()];
+    return { items: items.slice(0, limit), lastKey: limit < items.length ? { id: items[limit - 1].id } : undefined };
+  }
 }
 
 // Serviço de Products (na AWS, Lambda invoke via ProductClient)
@@ -156,6 +159,20 @@ describe('SagaService', () => {
     const result = await service.getSaga(saga.id);
     assert.strictEqual(result.progress.completed, 2);
     await assert.rejects(service.getSaga('x'), NotFoundError);
+  });
+
+  it('listSagas lê uma página por vez e devolve o nextToken', async () => {
+    for (let i = 0; i < 3; i++) await service.startSaga({ productId: 'apple', quantity: 1 });
+
+    const first = await service.listSagas({}, { limit: 2 });
+    assert.strictEqual(first.sagas.length, 2);
+    assert.ok(first.nextToken);
+    assert.ok(first.sagas.every(s => s.progress));
+
+    const all = await service.listSagas({}, { limit: 10 });
+    assert.strictEqual(all.sagas.length, 3);
+    assert.strictEqual(all.nextToken, undefined);
+    assert.strictEqual((await service.listSagas({ status: 'COMPLETED' }, { limit: 10 })).sagas.length, 0);
   });
 });
 

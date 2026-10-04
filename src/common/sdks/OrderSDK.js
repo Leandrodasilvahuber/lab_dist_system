@@ -2,6 +2,7 @@ import { Database } from '../database.mjs';
 import { NotFoundError, InvalidStateError, ValidationError } from '../errors.mjs';
 import { generateId } from '../ids.mjs';
 import { roundMoney } from '../validation.mjs';
+import { encodeToken } from '../pagination.mjs';
 
 /**
  * SDK Público - Interface uniforme para operações de pedido
@@ -148,11 +149,13 @@ export class OrderSDK {
   }
 
   /**
-   * Listar pedidos (sem os registros `voided`, que não são pedidos de fato)
+   * Listar pedidos, uma página por vez (`limit`, `startKey`), sem os registros
+   * `voided`, que não são pedidos de fato. Como em listProducts, os filtros
+   * valem para a página lida, que pode vir com menos de `limit` itens.
    */
-  async listOrders(filters = {}) {
-    const allOrders = await this.db.scanItems('orders');
-    return allOrders.filter(order => {
+  async listOrders(filters = {}, { limit, startKey } = {}) {
+    const { items, lastKey } = await this.db.scanPage('orders', { limit, startKey });
+    const orders = items.filter(order => {
       if (order.status === 'voided') {
         return false;
       }
@@ -167,6 +170,7 @@ export class OrderSDK {
       }
       return true;
     });
+    return { orders, nextToken: encodeToken(lastKey) };
   }
 
   async publish(detailType, detail) {

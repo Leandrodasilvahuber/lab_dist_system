@@ -85,3 +85,13 @@ describe('GET /logs', () => {
     assert.strictEqual(response.statusCode, 503);
   });
 });
+
+describe('GET /health', () => {
+  const req = method => ({ requestContext: { http: { method } }, rawPath: '/health', headers: {} });
+
+  it('responde só a GET; outros métodos caem no 404', async () => {
+    const handler = createAPIHandler({ alarms: {}, logs: {}, dlq: {} });
+    assert.strictEqual((await handler(req('GET'))).statusCode, 200);
+    assert.strictEqual((await handler(req('POST'))).statusCode, 404);
+  });
+});
