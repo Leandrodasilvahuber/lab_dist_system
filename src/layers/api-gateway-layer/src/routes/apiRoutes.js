@@ -33,7 +33,7 @@ export async function handleAPIRequest(rawEvent) {
 
   return successResponse({
     error: 'Not found',
-    message: `Endpoint ${event.httpMethod} ${event.path} not found`,
+    message: `Endpoint ${event.method} ${event.path} not found`,
     available: AVAILABLE_ENDPOINTS
   }, 404);
 }

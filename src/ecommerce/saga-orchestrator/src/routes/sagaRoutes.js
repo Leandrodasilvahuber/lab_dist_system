@@ -2,7 +2,7 @@ import { SagaOrchestratorController } from '../controllers/SagaOrchestratorContr
 import { notFoundResponse } from '../../../../common/response.mjs';
 
 export async function setupRoutes(event) {
-  const method = event.httpMethod;
+  const method = event.method;
   const path = event.path;
   const sagaMatch = path.match(/^\/saga\/([^/]+)$/);
 

@@ -2,7 +2,7 @@ import { StockController } from '../controllers/StockController.js';
 import { notFoundResponse } from '../../../../common/response.mjs';
 
 export async function setupRoutes(event) {
-  const method = event.httpMethod;
+  const method = event.method;
   const path = event.path;
   const queryStringParameters = event.queryStringParameters || {};
   const match = path.match(/^\/stock\/([^/]+)(?:\/(adjust))?$/);

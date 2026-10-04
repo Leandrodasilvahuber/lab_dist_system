@@ -11,7 +11,7 @@ describe('normalizeHttpEvent', () => {
       headers: { 'X-Correlation-Id': 'corr-1', 'Idempotency-Key': 'k1' }
     });
 
-    assert.strictEqual(event.httpMethod, 'GET');
+    assert.strictEqual(event.method, 'GET');
     assert.strictEqual(event.path, '/products/abc');
     assert.strictEqual(event.headers['idempotency-key'], 'k1');
     assert.strictEqual(event.headers.correlationId, 'corr-1');
@@ -33,9 +33,10 @@ describe('normalizeHttpEvent', () => {
     assert.strictEqual(event.body, '{"a":1}');
   });
 
-  it('aceita o formato 1.0 (httpMethod/path)', () => {
-    const event = normalizeHttpEvent({ httpMethod: 'DELETE', path: '/x', headers: null });
-    assert.strictEqual(event.httpMethod, 'DELETE');
+  it('aceita headers ausentes', () => {
+    const event = normalizeHttpEvent({ rawPath: '/x', requestContext: { http: { method: 'DELETE' } }, headers: null });
+    assert.strictEqual(event.method, 'DELETE');
     assert.strictEqual(event.path, '/x');
+    assert.strictEqual(event.headers.correlationId, undefined);
   });
 });

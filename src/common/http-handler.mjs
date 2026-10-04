@@ -27,7 +27,7 @@ export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers 
     }
 
     try {
-      log({ event: 'API_REQUEST', correlationId, status: 'info', message: `Incoming request: ${event.httpMethod} ${event.path}` });
+      log({ event: 'API_REQUEST', correlationId, status: 'info', message: `Incoming request: ${event.method} ${event.path}` });
       const response = await setupRoutes(event);
       log({ event: 'API_RESPONSE', correlationId, status: 'info', message: `Response status: ${response.statusCode}` });
       return response;

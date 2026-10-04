@@ -1,16 +1,15 @@
 /**
  * Normaliza eventos de entrada das Lambdas.
  *
- * O HttpApi envia o payload no formato 2.0 (requestContext.http.method, rawPath),
- * enquanto as rotas foram escritas para o formato 1.0 (httpMethod, path).
- * Esta função preenche os campos do formato 1.0 a partir do 2.0, remove o prefixo
- * do stage do path e decodifica bodies em base64.
+ * Converte o payload 2.0 do HttpApi (requestContext.http.method, rawPath) na forma
+ * usada pelas rotas: method, path sem o prefixo do stage, headers em minúsculas,
+ * query e body decodificado do base64.
  */
 export function normalizeHttpEvent(event = {}) {
   const http = event.requestContext?.http;
   const stage = event.requestContext?.stage;
 
-  let path = event.path ?? event.rawPath ?? http?.path ?? '/';
+  let path = event.rawPath ?? http?.path ?? '/';
   // Em stages nomeados (ex.: "dev") o rawPath vem como /dev/products
   if (stage && stage !== '$default' && path.startsWith(`/${stage}/`)) {
     path = path.slice(stage.length + 1);
@@ -28,7 +27,7 @@ export function normalizeHttpEvent(event = {}) {
 
   return {
     ...event,
-    httpMethod: event.httpMethod ?? http?.method,
+    method: http?.method,
     path,
     headers: {
       ...headers,
