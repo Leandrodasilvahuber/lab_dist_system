@@ -25,6 +25,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SFNClient, ListStateMachinesCommand } from '@aws-sdk/client-sfn';
 import { isAdminRoute, isValidApiKey } from './src/common/auth.mjs';
+import { createLogBuffer } from './src/common/log-query.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3001);
@@ -53,6 +54,8 @@ process.env.SAGA_STATE_MACHINE_ARN ||= await findStateMachineArn() || '';
 process.env.PRODUCT_FUNCTION_NAME ||= 'local-ProductFunction';
 // GET /alarms lista só os alarmes do ambiente local (mesmo padrão de nome do template.yaml)
 process.env.ALARM_PREFIX ||= 'local-ecommerce-';
+// GET /dlq lê a DLQ local (criada pelo npm run test:e2e:errors)
+process.env.DLQ_NAME ||= 'local-ProductEventsDlq';
 
 const handlers = {
   products: (await import('./src/ecommerce/products/index.mjs')).handler,
@@ -66,6 +69,17 @@ const handlers = {
 const { eventBus } = await import('./src/common/event-bus.mjs');
 eventBus.subscribe('products', 'ProductCreated', handlers.stock);
 eventBus.subscribe('products', 'ProductDeleted', handlers.stock);
+
+// Sem CloudWatch Logs aqui: os handlers rodam neste processo, então as linhas
+// warn/error do logger ficam num buffer em memória servido em GET /logs
+const logBuffer = createLogBuffer(500);
+for (const method of ['log', 'warn', 'error']) {
+  const original = console[method].bind(console);
+  console[method] = (first, ...rest) => {
+    logBuffer.capture(first);
+    original(first, ...rest);
+  };
+}
 
 // Mesmo roteamento do template.yaml
 function routeFor(pathname) {
@@ -112,6 +126,11 @@ const server = http.createServer(async (req, res) => {
 
   if (ADMIN_API_KEY && isAdminRoute(req.method, url.pathname) && !isValidApiKey(req.headers, ADMIN_API_KEY)) {
     return send(res, 401, { 'Content-Type': 'application/json' }, JSON.stringify({ error: 'Unauthorized: X-Api-Key inválida ou ausente' }));
+  }
+
+  if (req.method === 'GET' && url.pathname === '/logs') {
+    const logs = logBuffer.query(Object.fromEntries(url.searchParams));
+    return send(res, 200, { 'Content-Type': 'application/json' }, JSON.stringify({ logs }));
   }
 
   if (routeFor(url.pathname) === 'saga' && !process.env.SAGA_STATE_MACHINE_ARN && req.method === 'POST') {

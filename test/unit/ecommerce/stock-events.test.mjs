@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert';
 import { isDomainEvent, isActionInvocation, runEventHandler } from '../../../src/common/actions.mjs';
 import { EventBus } from '../../../src/common/event-bus.mjs';
@@ -37,6 +37,20 @@ describe('eventos de domínio', () => {
       { rejected: true, reason: 'initialStock must be a non-negative integer' });
   });
 
+  it('evento rejeitado gera uma linha de log só (DOMAIN_EVENT_REJECTED)', async () => {
+    const original = process.env.LOG_LEVEL;
+    process.env.LOG_LEVEL = 'info';
+    const warn = mock.method(console, 'warn', () => {});
+    try {
+      const handlers = { 'products/ProductCreated': () => { throw new ValidationError('inválido'); } };
+      await runEventHandler(handlers, productCreated);
+      assert.deepStrictEqual(warn.mock.calls.map(c => JSON.parse(c.arguments[0]).event), ['DOMAIN_EVENT_REJECTED']);
+    } finally {
+      process.env.LOG_LEVEL = original;
+      mock.restoreAll();
+    }
+  });
+
   it('falha transitória é relançada para o EventBridge repetir', async () => {
     const handlers = { 'products/ProductCreated': () => { throw new Error('ProvisionedThroughputExceeded'); } };
     await assert.rejects(runEventHandler(handlers, productCreated), /ProvisionedThroughputExceeded/);
@@ -56,6 +70,16 @@ describe('eventos de domínio', () => {
     const bus = new EventBus({ eventBusName: '' });
     bus.subscribe('products', 'ProductCreated', () => { throw new Error('falhou'); });
     await bus.publish({ Source: 'products', DetailType: 'ProductCreated', Detail: {} });
+  });
+
+  it('strictLocalDelivery relança a falha do assinante local (reprocessamento da DLQ)', async () => {
+    const bus = new EventBus({ eventBusName: '' });
+    bus.subscribe('products', 'ProductCreated', () => { throw new Error('falhou'); });
+    await bus.publish({ Source: 'products', DetailType: 'ProductCreated', Detail: {} }, { required: true });
+    await assert.rejects(
+      bus.publish({ Source: 'products', DetailType: 'ProductCreated', Detail: {} }, { strictLocalDelivery: true }),
+      /falhou/
+    );
   });
 });
 

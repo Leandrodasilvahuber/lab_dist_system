@@ -21,19 +21,20 @@
     "localstack:start": "bash scripts/localstack-start.sh",
     "localstack:stop": "bash scripts/localstack-stop.sh",
     "localstack:deploy": "node scripts/localstack-deploy.mjs",
-    "local-server": "LOG_LEVEL=${LOG_LEVEL:-error} node --env-file-if-exists=.env local-server.mjs"
+    "local-server": "LOG_LEVEL=${LOG_LEVEL:-warn} node --env-file-if-exists=.env local-server.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch": "^3.1146.0",
+    "@aws-sdk/client-cloudwatch-logs": "^3.1146.0",
     "@aws-sdk/client-dynamodb": "^3.578.0",
     "@aws-sdk/client-eventbridge": "^3.578.0",
     "@aws-sdk/client-lambda": "^3.1146.0",
     "@aws-sdk/client-sfn": "^3.578.0",
+    "@aws-sdk/client-sqs": "^3.1146.0",
     "@aws-sdk/client-ssm": "^3.1146.0",
     "@aws-sdk/lib-dynamodb": "^3.1141.0"
   },
   "devDependencies": {
-    "@aws-sdk/client-sqs": "^3.1146.0",
     "c8": "^8.0.1",
     "esbuild": "^0.28.2",
     "eslint": "^8.57.0"

@@ -37,7 +37,13 @@ export class EventBus {
     this.subscribers.push({ source, detailType, fn });
   }
 
-  async publish({ Source, DetailType, Detail }, { required = false } = {}) {
+  /**
+   * `strictLocalDelivery` (só sem EVENT_BUS_NAME): relança a falha do assinante
+   * local. Usado pelo reprocessamento da DLQ, que precisa saber se o Stock
+   * processou antes de apagar a mensagem. Na AWS a entrega à regra é assíncrona
+   * e não afeta quem publicou, por isso não é o padrão.
+   */
+  async publish({ Source, DetailType, Detail }, { required = false, strictLocalDelivery = false } = {}) {
     const detail = typeof Detail === 'string' ? JSON.parse(Detail) : Detail;
 
     if (!this.client) {
@@ -48,7 +54,7 @@ export class EventBus {
         message: `${Source}/${DetailType} (EVENT_BUS_NAME não definido, entregue só a assinantes locais)`,
         data: detail
       });
-      await this.deliverLocally(Source, DetailType, detail);
+      await this.deliverLocally(Source, DetailType, detail, { rethrow: strictLocalDelivery });
       return;
     }
 
@@ -76,7 +82,7 @@ export class EventBus {
     }
   }
 
-  async deliverLocally(source, detailType, detail) {
+  async deliverLocally(source, detailType, detail, { rethrow = false } = {}) {
     const event = { source, 'detail-type': detailType, detail };
     for (const sub of this.subscribers) {
       if (sub.source !== source || sub.detailType !== detailType) continue;
@@ -90,6 +96,7 @@ export class EventBus {
           message: `Local subscriber failed for ${source}/${detailType}`,
           error
         });
+        if (rethrow) throw error;
       }
     }
   }

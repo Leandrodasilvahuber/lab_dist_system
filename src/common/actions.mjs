@@ -17,7 +17,11 @@ export function isActionInvocation(event) {
   return Boolean(event && typeof event.action === 'string' && !event.requestContext);
 }
 
-export async function runAction(actions, { action, input = {} }) {
+/**
+ * `logRejection: false` deixa o registro do erro de negócio para quem chamou
+ * (runEventHandler grava DOMAIN_EVENT_REJECTED; evita linha duplicada).
+ */
+export async function runAction(actions, { action, input = {} }, { logRejection = true } = {}) {
   const fn = actions[action];
   if (!fn) {
     throw new ValidationError(`Unknown action: ${action}`);
@@ -26,20 +30,23 @@ export async function runAction(actions, { action, input = {} }) {
   log({
     event: 'ACTION_STARTED',
     correlationId: input.correlationId,
-    status: 'info',
+    status: 'debug',
     message: `Running action ${action}`,
     data: redact(input)
   });
 
+  const started = Date.now();
   try {
     const result = await fn(input);
-    log({ event: 'ACTION_COMPLETED', correlationId: input.correlationId, status: 'info', message: `Action ${action} completed` });
+    log({ event: 'ACTION_COMPLETED', correlationId: input.correlationId, status: 'info', message: `Action ${action} completed`, data: { durationMs: Date.now() - started } });
     return result;
   } catch (error) {
     // Erro de negócio é esperado (warn); o resto é falha não tratada (error)
-    log(isRetryable(error)
-      ? { event: 'ACTION_FAILED', correlationId: input.correlationId, status: 'error', message: `Action ${action} failed: ${error.message}`, error }
-      : { event: 'ACTION_REJECTED', correlationId: input.correlationId, status: 'warn', message: `Action ${action} rejected: ${error.message}`, error });
+    if (isRetryable(error)) {
+      log({ event: 'ACTION_FAILED', correlationId: input.correlationId, status: 'error', message: `Action ${action} failed: ${error.message}`, error });
+    } else if (logRejection) {
+      log({ event: 'ACTION_REJECTED', correlationId: input.correlationId, status: 'warn', message: `Action ${action} rejected: ${error.message}`, error });
+    }
     throw error;
   }
 }
@@ -65,7 +72,7 @@ export async function runEventHandler(handlers, event) {
     return { ignored: true };
   }
   try {
-    return await runAction({ [key]: fn }, { action: key, input: event.detail || {} });
+    return await runAction({ [key]: fn }, { action: key, input: event.detail || {} }, { logRejection: false });
   } catch (error) {
     if (isRetryable(error)) throw error;
     log({ event: 'DOMAIN_EVENT_REJECTED', correlationId: event.detail?.correlationId, status: 'warn', message: `Event ${key} rejected: ${error.message}`, error });

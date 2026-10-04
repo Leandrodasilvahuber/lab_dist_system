@@ -70,6 +70,14 @@ período de 60 s e ficam ~15 min em ALARM. Abra `npm run local-server` → aba
 🩺 Monitoramento para ver a tabela. Para apagar alarmes e DLQ:
 `npm run test:e2e:errors -- --cleanup`.
 
+A aba 📭 **DLQ** lista os eventos que o teste deixou na `local-ProductEventsDlq`
+(o `ProductCreated` de `p-transitorio`). ♻️ Reprocessar entrega o evento de novo
+ao Stock (cria o item "Transitório" no estoque local); 🗑️ Descartar só apaga.
+
+A aba 📜 **Logs** mostra as linhas warn/error. No `local-server` elas vêm de um
+buffer em memória (últimas 500, desde que o servidor subiu); na AWS, do
+CloudWatch Logs. Exige a chave de admin quando `ADMIN_API_KEY` está definida.
+
 O CloudWatch precisa estar em `SERVICES` no `docker-compose.yml`. Se o
 container subiu antes dessa mudança, recrie-o (apaga os dados locais):
 `npm run localstack:stop && npm run localstack:start && npm run seed:local`.
@@ -96,7 +104,7 @@ seguintes são rápidas.
 | `SAGA_STATE_MACHINE_ARN` | State machine da saga | — |
 | `EVENT_BUS_NAME` | Barramento de eventos (sem ele, os eventos vão para o log e para assinantes locais, ex.: `ProductCreated` → Stock) | — |
 | `PAYMENT_MAX_AMOUNT` | Valor máximo aprovado pelo pagamento simulado | `10000` |
-| `LOG_LEVEL` | `debug`, `info`, `error` ou `silent` | `info` |
+| `LOG_LEVEL` | `debug`, `info`, `warn`, `error` ou `silent` | `info` (`warn` no `local-server`) |
 | `HOST`, `PORT` | Endereço do `local-server` (`HOST=0.0.0.0` exige `ADMIN_API_KEY`) | `127.0.0.1`, `3001` |
 | `LOCALSTACK_ENDPOINT` | Endpoint usado pelo `test:e2e` | `http://localhost:4566` |
 

@@ -622,34 +622,99 @@
             overflow-x: auto;
         }
 
-        .alarm-table {
+        .data-table {
             width: 100%;
             border-collapse: collapse;
             background: white;
             font-size: 0.9em;
         }
 
-        .alarm-table th,
-        .alarm-table td {
+        .data-table th,
+        .data-table td {
             padding: 10px 12px;
             text-align: left;
             border-bottom: 1px solid #eee;
             vertical-align: top;
         }
 
-        .alarm-table th {
+        .data-table th {
             background: #f8f9fa;
             color: #555;
             font-weight: 600;
         }
 
-        .alarm-table tr.alarm-firing td { background: #fff5f5; }
+        .data-table tr.alarm-firing td { background: #fff5f5; }
 
-        .alarm-table .alarm-description,
-        .alarm-table .alarm-reason {
+        .data-table .alarm-description,
+        .data-table .alarm-reason {
             color: #888;
             font-size: 0.85em;
             overflow-wrap: anywhere;
+        }
+
+        .log-toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .log-toolbar select {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+
+        .log-toolbar .spacer { flex: 1; }
+
+        .log-toolbar button {
+            width: auto;
+            padding: 8px 16px;
+        }
+
+        .data-table tr.log-row { cursor: pointer; }
+        .data-table tr.log-row:hover td { background: #f5f7ff; }
+        .data-table tr.log-row.level-error td:first-child { box-shadow: inset 3px 0 #f45c43; }
+        .data-table tr.log-row.level-warn td:first-child { box-shadow: inset 3px 0 #f0ad4e; }
+
+        .log-detail pre {
+            margin: 0;
+            padding: 12px;
+            background: #1e1e2e;
+            color: #e0e0e0;
+            border-radius: 8px;
+            font-size: 0.8em;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .log-level-warn { background: #fff3cd; color: #856404; }
+        .log-level-error { background: #f8d7da; color: #721c24; }
+
+        .link-btn {
+            width: auto;
+            padding: 0;
+            background: none;
+            border: none;
+            color: #667eea;
+            cursor: pointer;
+            font-size: 0.75em;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .link-btn:hover { transform: none; box-shadow: none; text-decoration: underline; }
+
+        .dlq-actions { white-space: nowrap; }
+
+        .dlq-actions button {
+            width: auto;
+            padding: 6px 10px;
+            font-size: 0.8em;
+            margin-right: 4px;
         }
 
         .alarm-state-OK { background: #d4edda; color: #155724; }
@@ -688,6 +753,8 @@
             <button class="tab-btn" data-tab="orders">🧾 Pedidos</button>
             <button class="tab-btn" data-tab="summary">📈 Resumo</button>
             <button class="tab-btn" data-tab="monitoring">🩺 Monitoramento</button>
+            <button class="tab-btn" data-tab="logs">📜 Logs</button>
+            <button class="tab-btn" data-tab="dlq">📭 DLQ</button>
         </div>
 
         <div class="tab-content active" id="buy-tab">
@@ -780,9 +847,44 @@
             </div>
             <div class="monitor-grid" id="monitorGrid"></div>
             <div class="alarms-section">
-                <h3>🚨 Alarmes (CloudWatch)</h3>
+                <h3>🚨 Alarmes (CloudWatch) <button type="button" class="link-btn" id="alarmsToLogs">📜 ver logs de erro</button> <button type="button" class="link-btn" id="alarmsToDlq">📭 ver DLQ</button></h3>
                 <div class="alarms-wrapper" id="alarmsTable"></div>
             </div>
+        </div>
+
+        <div class="tab-content" id="logs-tab">
+            <h2>📜 Logs de erro</h2>
+            <div class="log-toolbar">
+                <label>Nível
+                    <select id="logLevel">
+                        <option value="warn">warn + error</option>
+                        <option value="error">só error (não tratados)</option>
+                    </select>
+                </label>
+                <label>Período
+                    <select id="logHours">
+                        <option value="1">última hora</option>
+                        <option value="24" selected>últimas 24 h</option>
+                        <option value="168">últimos 7 dias</option>
+                    </select>
+                </label>
+                <span class="spacer"></span>
+                <span id="logsUpdated"></span>
+                <button type="button" class="btn-primary" id="logsRefresh">🔄 Atualizar</button>
+            </div>
+            <p style="color:#888;font-size:0.85em;margin-bottom:10px;">warn = erro tratado (validação/regra de negócio) · error = não tratado (conta no alarme). Clique numa linha para ver o JSON completo. Exige a chave de admin.</p>
+            <div class="alarms-wrapper" id="logsTable"></div>
+        </div>
+
+        <div class="tab-content" id="dlq-tab">
+            <h2>📭 DLQ dos eventos de produto</h2>
+            <div class="log-toolbar">
+                <span id="dlqSummary">Carregando...</span>
+                <span class="spacer"></span>
+                <button type="button" class="btn-primary" id="dlqRefresh">🔄 Atualizar</button>
+            </div>
+            <p style="color:#888;font-size:0.85em;margin-bottom:10px;">Eventos <code>ProductCreated</code>/<code>ProductDeleted</code> que o Stock não processou por falha transitória, depois de todas as tentativas. ♻️ Reprocessar republica o evento (o Stock tenta de novo); 🗑️ Descartar apaga. Clique numa linha para ver o evento. Exige a chave de admin.</p>
+            <div class="alarms-wrapper" id="dlqTable"></div>
         </div>
     </div>
 
@@ -984,7 +1086,7 @@
                 return;
             }
             container.innerHTML = `
-                <table class="alarm-table">
+                <table class="data-table">
                     <thead><tr><th>Alarme</th><th>Estado</th><th>Motivo</th><th>Atualizado</th></tr></thead>
                     <tbody>${lastAlarms.items.map(alarm => `
                         <tr class="${alarm.state === 'ALARM' ? 'alarm-firing' : ''}">
@@ -999,6 +1101,124 @@
                     </tbody>
                 </table>`;
         }
+
+        // ---------- Logs ----------
+        let logEntries = [];
+
+        async function fetchLogs() {
+            const container = document.getElementById('logsTable');
+            const level = document.getElementById('logLevel').value;
+            const hours = document.getElementById('logHours').value;
+            try {
+                logEntries = (await api(`/logs?level=${level}&hours=${hours}`)).logs || [];
+            } catch (error) {
+                container.innerHTML = `<div class="empty">Não foi possível ler os logs: ${escapeHtml(error.message)}</div>`;
+                return;
+            }
+            document.getElementById('logsUpdated').textContent = `${logEntries.length} linhas · às ${time(new Date().toISOString())}`;
+            if (!logEntries.length) {
+                container.innerHTML = '<div class="empty">Nenhum erro no período 🎉</div>';
+                return;
+            }
+            container.innerHTML = `
+                <table class="data-table">
+                    <thead><tr><th>Hora</th><th>Nível</th><th>Evento</th><th>Mensagem</th><th>Tipo</th><th>Serviço</th></tr></thead>
+                    <tbody>${logEntries.map((entry, index) => `
+                        <tr class="log-row level-${escapeHtml(entry.status)}" data-index="${index}">
+                            <td title="${escapeHtml(entry.timestamp)}">${new Date(entry.timestamp).toLocaleString('pt-BR')}</td>
+                            <td><span class="status-badge log-level-${escapeHtml(entry.status)}">${escapeHtml(entry.status)}</span></td>
+                            <td><strong>${escapeHtml(entry.event)}</strong></td>
+                            <td class="alarm-reason">${escapeHtml(entry.message || entry.error || '')}</td>
+                            <td>${escapeHtml(entry.errorType || '—')}</td>
+                            <td>${escapeHtml(entry.service || '—')}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        // Clique numa linha abre/fecha o JSON completo logo abaixo
+        document.getElementById('logsTable').addEventListener('click', event => {
+            const row = event.target.closest('tr.log-row');
+            if (!row) return;
+            if (row.nextElementSibling?.classList.contains('log-detail')) {
+                row.nextElementSibling.remove();
+                return;
+            }
+            const detail = document.createElement('tr');
+            detail.className = 'log-detail';
+            detail.innerHTML = `<td colspan="6"><pre>${escapeHtml(JSON.stringify(logEntries[row.dataset.index], null, 2))}</pre></td>`;
+            row.after(detail);
+        });
+
+        // ---------- DLQ ----------
+        let dlqMessages = [];
+
+        async function fetchDlq() {
+            const container = document.getElementById('dlqTable');
+            const summary = document.getElementById('dlqSummary');
+            let result;
+            try {
+                result = await api('/dlq');
+            } catch (error) {
+                summary.textContent = '';
+                container.innerHTML = `<div class="empty">Não foi possível ler a DLQ: ${escapeHtml(error.message)}</div>`;
+                return;
+            }
+            dlqMessages = result.messages || [];
+            summary.textContent = `${result.approximateTotal} mensagem(ns) na ${result.queue} · às ${time(new Date().toISOString())}`;
+            if (!dlqMessages.length) {
+                container.innerHTML = '<div class="empty">DLQ vazia 🎉</div>';
+                return;
+            }
+            container.innerHTML = `
+                <table class="data-table">
+                    <thead><tr><th>Enviado em</th><th>Evento</th><th>Produto</th><th>Erro</th><th>Leituras</th><th>Ações</th></tr></thead>
+                    <tbody>${dlqMessages.map((m, index) => `
+                        <tr class="log-row level-error" data-index="${index}">
+                            <td>${m.sentAt ? new Date(m.sentAt).toLocaleString('pt-BR') : '—'}</td>
+                            <td><strong>${escapeHtml(m.detailType || 'mensagem inválida')}</strong></td>
+                            <td>${escapeHtml(m.detail?.productId || '—')}${m.detail?.name ? `<div class="alarm-description">${escapeHtml(m.detail.name)}</div>` : ''}</td>
+                            <td class="alarm-reason">${escapeHtml(m.errorMessage || m.errorCode || '—')}</td>
+                            <td>${m.receiveCount}</td>
+                            <td class="dlq-actions">
+                                <button type="button" class="btn-success" data-action="redrive" data-id="${escapeHtml(m.messageId)}" ${m.detailType ? '' : 'disabled'}>♻️ Reprocessar</button>
+                                <button type="button" class="btn-danger" data-action="discard" data-id="${escapeHtml(m.messageId)}">🗑️ Descartar</button>
+                            </td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        const DLQ_ACTIONS = {
+            redrive: { confirm: 'Reprocessar este evento? Ele será republicado e o Stock tentará de novo.', done: 'Evento reprocessado' },
+            discard: { confirm: 'Descartar este evento? Ele será apagado da DLQ e não poderá ser recuperado.', done: 'Evento descartado' }
+        };
+
+        document.getElementById('dlqTable').addEventListener('click', async event => {
+            const button = event.target.closest('button[data-action]');
+            if (button) {
+                const { action, id } = button.dataset;
+                if (!confirm(DLQ_ACTIONS[action].confirm)) return;
+                button.disabled = true;
+                try {
+                    await api(`/dlq/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+                    showToast(DLQ_ACTIONS[action].done, 'success');
+                } catch (error) {
+                    showToast(`Falhou: ${error.message}`, 'error');
+                }
+                return fetchDlq();
+            }
+            const row = event.target.closest('tr.log-row');
+            if (!row) return;
+            if (row.nextElementSibling?.classList.contains('log-detail')) {
+                row.nextElementSibling.remove();
+                return;
+            }
+            const detail = document.createElement('tr');
+            detail.className = 'log-detail';
+            detail.innerHTML = `<td colspan="6"><pre>${escapeHtml(JSON.stringify(dlqMessages[row.dataset.index], null, 2))}</pre></td>`;
+            row.after(detail);
+        });
 
         function setupTabs() {
             document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1019,7 +1239,9 @@
                 stock: fetchStock,
                 orders: fetchOrders,
                 summary: fetchSummary,
-                monitoring: runMonitors
+                monitoring: runMonitors,
+                logs: fetchLogs,
+                dlq: fetchDlq
             };
             return actions[name]?.();
         }
@@ -1319,6 +1541,12 @@
         });
         document.getElementById('statusLink').addEventListener('click', () => showTab('monitoring'));
         document.getElementById('monitorRefresh').addEventListener('click', runMonitors);
+        document.getElementById('alarmsToLogs').addEventListener('click', () => showTab('logs'));
+        document.getElementById('alarmsToDlq').addEventListener('click', () => showTab('dlq'));
+        document.getElementById('dlqRefresh').addEventListener('click', fetchDlq);
+        document.getElementById('logsRefresh').addEventListener('click', fetchLogs);
+        document.getElementById('logLevel').addEventListener('change', fetchLogs);
+        document.getElementById('logHours').addEventListener('change', fetchLogs);
 
         renderAdminButton();
         setupTabs();

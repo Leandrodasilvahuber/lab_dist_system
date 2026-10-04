@@ -6,14 +6,18 @@ import { createHandler, createKeyProvider, CACHE_TTL_MS } from '../../../src/lay
 process.env.LOG_LEVEL = 'silent';
 
 describe('rotas de admin', () => {
-  it('protege as escritas', () => {
+  it('protege as escritas, os logs e a DLQ', () => {
     assert.ok(isAdminRoute('POST', '/products'));
     assert.ok(isAdminRoute('POST', '/stock/p1/adjust'));
+    assert.ok(isAdminRoute('GET', '/logs'));
+    assert.ok(isAdminRoute('GET', '/dlq'));
+    assert.ok(isAdminRoute('POST', '/dlq/m1/redrive'));
+    assert.ok(isAdminRoute('POST', '/dlq/m1/discard'));
   });
 
   it('deixa públicas a vitrine, a compra e as consultas', () => {
     for (const [method, path] of [['GET', '/products'], ['GET', '/products/p1'], ['GET', '/stock'],
-      ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/orders/o1'], ['GET', '/orders'], ['GET', '/sagas'], ['GET', '/health']]) {
+      ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/orders/o1'], ['GET', '/orders'], ['GET', '/sagas'], ['GET', '/health'], ['GET', '/alarms']]) {
       assert.ok(!isAdminRoute(method, path), `${method} ${path}`);
     }
   });
@@ -23,7 +27,7 @@ describe('rotas de admin', () => {
     const template = fs.readFileSync(new URL('../../../template.yaml', import.meta.url), 'utf8');
     const protectedRoutes = [...template.matchAll(/Path: (\S+)\n\s+Method: (\S+)\n\s+Auth:\n\s+Authorizer: AdminApiKey/g)]
       .map(([, path, method]) => `${method} ${path}`).sort();
-    assert.deepStrictEqual(protectedRoutes, ['POST /products', 'POST /stock/{productId}/adjust']);
+    assert.deepStrictEqual(protectedRoutes, ['GET /dlq', 'GET /logs', 'POST /dlq/{messageId}/{action}', 'POST /products', 'POST /stock/{productId}/adjust']);
   });
 });
 

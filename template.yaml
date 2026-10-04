@@ -95,7 +95,7 @@ Resources:
         EntryPoints: [src/layers/api-gateway-layer/src/auth/adminAuthorizer.js]
         External: ['@aws-sdk/*']
 
-  # Gateway Function - health check, alarmes e roteamento de fallback
+  # Gateway Function - health check, alarmes, logs de erro, DLQ e roteamento de fallback
   GatewayFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -104,11 +104,26 @@ Resources:
       Environment:
         Variables:
           ALARM_PREFIX: !Sub '${Environment}-ecommerce-'
+          LOG_GROUP_NAME: !Ref ServicesLogGroup
+          DLQ_URL: !Ref ProductEventsDlq
       Policies:
         - Statement:
             - Effect: Allow
               Action: cloudwatch:DescribeAlarms
               Resource: '*'
+            - Effect: Allow
+              Action: logs:FilterLogEvents
+              Resource: !GetAtt ServicesLogGroup.Arn
+            # Aba DLQ: listar, reprocessar (republica no EventBus) e descartar
+            - Effect: Allow
+              Action:
+                - sqs:ReceiveMessage
+                - sqs:DeleteMessage
+                - sqs:ChangeMessageVisibility
+                - sqs:GetQueueAttributes
+              Resource: !GetAtt ProductEventsDlq.Arn
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
       Events:
         Health:
           Type: HttpApi
@@ -122,6 +137,30 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /alarms
             Method: GET
+        Logs:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /logs
+            Method: GET
+            Auth:
+              Authorizer: AdminApiKey
+        ListDlq:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /dlq
+            Method: GET
+            Auth:
+              Authorizer: AdminApiKey
+        DlqAction:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /dlq/{messageId}/{action}
+            Method: POST
+            Auth:
+              Authorizer: AdminApiKey
         Proxy:
           Type: HttpApi
           Properties:
@@ -389,7 +428,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub '/aws/vendedlogs/states/${Environment}-purchase-saga'
-      RetentionInDays: 30
+      RetentionInDays: 14
 
   # EventBridge - eventos de domínio (OrderCreated, PaymentRefunded...) para quem quiser ouvir
   EventBus:
@@ -407,7 +446,7 @@ Resources:
       SourceArn: !GetAtt EventBus.Arn
       EventPattern:
         source: ['orders']
-      RetentionDays: 30
+      RetentionDays: 10
 
   # Produto criado/excluído -> serviço de Stock cria/remove o inventário.
   # Só falhas transitórias chegam à DLQ (reprocessamento manual): erro de negócio
@@ -465,7 +504,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub '/aws/lambda/${Environment}-ecommerce'
-      RetentionInDays: 30
+      RetentionInDays: 14
 
   # Linhas com status "error" (src/common/logger.mjs) = erros não tratados.
   # Erros de negócio saem com status "warn" e não contam.

@@ -3,12 +3,6 @@ import { normalizeHttpEvent } from './http-event.mjs';
 import { isActionInvocation, runAction, isDomainEvent, runEventHandler } from './actions.mjs';
 import { errorResponse, notFoundResponse } from './response.mjs';
 
-/**
- * Handler padrão das Lambdas de serviço. Atende os três tipos de invocação:
- *  - ação da saga (Step Functions): { action, input }
- *  - evento de domínio (EventBridge): { source, detail-type, detail }
- *  - requisição HTTP (HttpApi), roteada por `setupRoutes`
- */
 function errorMessage(response) {
   try {
     return JSON.parse(response.body).error ?? '';
@@ -17,6 +11,12 @@ function errorMessage(response) {
   }
 }
 
+/**
+ * Handler padrão das Lambdas de serviço. Atende os três tipos de invocação:
+ *  - ação da saga (Step Functions): { action, input }
+ *  - evento de domínio (EventBridge): { source, detail-type, detail }
+ *  - requisição HTTP (HttpApi), roteada por `setupRoutes`
+ */
 export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers = {} }) {
   return async function handler(rawEvent) {
     if (isActionInvocation(rawEvent)) {
@@ -34,15 +34,17 @@ export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers 
       return notFoundResponse(event.path);
     }
 
+    const started = Date.now();
     try {
-      log({ event: 'API_REQUEST', correlationId, status: 'info', message: `Incoming request: ${event.method} ${event.path}` });
       const response = await setupRoutes(event);
-      // 4xx = erro tratado (validação/regra de negócio): fica no log como warn.
-      // 5xx já foi registrado como error por quem o gerou (sdkErrorResponse).
-      if (response.statusCode >= 400 && response.statusCode < 500) {
-        log({ event: 'API_REJECTED', correlationId, status: 'warn', message: `${event.method} ${event.path} -> ${response.statusCode}: ${errorMessage(response)}`, data: { statusCode: response.statusCode } });
+      // Uma linha por request. 4xx = erro tratado (validação/regra de negócio):
+      // warn. 5xx já foi registrado como error por quem o gerou (sdkErrorResponse).
+      const { statusCode } = response;
+      const data = { method: event.method, path: event.path, statusCode, durationMs: Date.now() - started };
+      if (statusCode >= 400 && statusCode < 500) {
+        log({ event: 'API_REJECTED', correlationId, status: 'warn', message: `${event.method} ${event.path} -> ${statusCode}: ${errorMessage(response)}`, data });
       } else {
-        log({ event: 'API_RESPONSE', correlationId, status: 'info', message: `Response status: ${response.statusCode}` });
+        log({ event: 'API_RESPONSE', correlationId, status: 'info', message: `${event.method} ${event.path} -> ${statusCode}`, data });
       }
       return response;
     } catch (error) {

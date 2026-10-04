@@ -112,6 +112,10 @@ Os erros de cada execução ficam no log group da state machine (output
 |---|---|---|
 | GET | `/health` | Health check |
 | GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) |
+| GET | `/logs?level=warn\|error&hours=24` | Linhas de log warn/error, mais recentes primeiro (aba Logs) — **admin** |
+| GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) — **admin** |
+| POST | `/dlq/{messageId}/redrive` | Republica o evento (o Stock tenta de novo) e apaga da DLQ — **admin** |
+| POST | `/dlq/{messageId}/discard` | Apaga o evento da DLQ — **admin** |
 | GET | `/products` | Lista produtos, paginado (`?name=&priceMin=&priceMax=&limit=&nextToken=`) |
 | POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`price > 0`; `stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
@@ -142,9 +146,9 @@ vir com menos de `limit` itens. Filtro numérico inválido (`priceMin=abc`) resp
   Step Functions → Orders/Payments/Stock (`{ action, input }`), Saga → Products
   (`getProduct`), EventBridge → Stock (`ProductCreated`, `ProductDeleted`) e → Archive. Um request HTTP
   nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
-- **O dashboard usa só** `/health`, `/alarms`, `GET/POST /products`, `GET /stock`,
+- **O dashboard usa só** `/health`, `/alarms`, `/logs`, `/dlq`, `GET/POST /products`, `GET /stock`,
   `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. A
-  chave de admin (campo no topo da página) só é pedida para criar produtos.
+  chave de admin (campo no topo da página) só é pedida para criar produtos, ver os logs e a DLQ.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
   rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem
   nenhuma rota pública.
@@ -177,7 +181,7 @@ src/
 │   ├── http-event.mjs      # Normaliza eventos do HttpApi (payload 2.0)
 │   ├── actions.mjs         # Despacho de ações ({ action, input }) e eventos do EventBridge
 │   ├── response.mjs        # Respostas HTTP
-│   ├── logger.mjs          # Logs JSON (LOG_LEVEL = debug | info | error | silent)
+│   ├── logger.mjs          # Logs JSON (LOG_LEVEL = debug | info | warn | error | silent)
 │   └── sdks/               # ProductSDK, OrderSDK, PaymentSDK, StockSDK
 ├── ecommerce/
 │   ├── products/ orders/ payments/ stock/
@@ -187,7 +191,7 @@ src/
 │       ├── index.mjs
 │       ├── src/            # routes, controller, SagaService, ProductClient, StepFunctionsClient
 │       └── workflow/saga-workflow.asl.json   # gerado por scripts/generate-saga-workflow.py
-└── layers/api-gateway-layer/   # /health, /alarms e fallback 404
+└── layers/api-gateway-layer/   # /health, /alarms, /logs, /dlq e fallback 404
 
 scripts/       # seed, deploy, LocalStack, teste e2e, gerador do workflow
 test/
@@ -262,7 +266,8 @@ Para usar o dashboard com a API publicada na AWS, abra
   desfeito e a criação falha. Só falhas transitórias na entrega ao Stock são
   repetidas e, esgotadas as tentativas, vão para a DLQ `ProductEventsDlq`
   (alarme `product-events-dlq`). Erro de negócio não vai para a DLQ: fica no
-  log como `DOMAIN_EVENT_REJECTED`. Recupere com
+  log como `DOMAIN_EVENT_REJECTED`. Reprocesse pela aba 📭 DLQ do dashboard ou
+  ajuste à mão com
   `POST /stock/{id}/adjust { delta, name }`. Sem inventário, a compra falha no
   `ReserveStock`, antes de cobrar.
 - O inventário é criado de forma assíncrona: logo após `POST /products`, o estoque

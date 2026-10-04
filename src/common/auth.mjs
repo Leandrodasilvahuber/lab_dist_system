@@ -7,7 +7,12 @@ import { createHash, timingSafeEqual } from 'node:crypto';
  */
 export const ADMIN_ROUTES = [
   ['POST', /^\/products$/],
-  ['POST', /^\/stock\/[^/]+\/adjust$/]
+  ['POST', /^\/stock\/[^/]+\/adjust$/],
+  // Logs têm ids, correlationId e mensagens internas
+  ['GET', /^\/logs$/],
+  // DLQ: o body tem dados do produto e as ações mudam estado
+  ['GET', /^\/dlq$/],
+  ['POST', /^\/dlq\/[^/]+\/(redrive|discard)$/]
 ];
 
 export function isAdminRoute(method, path) {

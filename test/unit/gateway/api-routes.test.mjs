@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { AlarmsClient } from '../../../src/layers/api-gateway-layer/src/services/AlarmsClient.js';
 import { createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
+import { LogsClient } from '../../../src/layers/api-gateway-layer/src/services/LogsClient.js';
 
 process.env.LOG_LEVEL = 'silent';
 
@@ -49,5 +50,38 @@ describe('GET /alarms', () => {
     const response = await handler(getAlarms);
     assert.strictEqual(response.statusCode, 503);
     assert.deepStrictEqual(JSON.parse(response.body), { error: 'Alarms unavailable' });
+  });
+});
+
+describe('GET /logs', () => {
+  const getLogs = query => ({ requestContext: { http: { method: 'GET' } }, rawPath: '/logs', headers: {}, queryStringParameters: query });
+
+  it('LogsClient filtra warn/error no log group e devolve as linhas parseadas, mais recentes primeiro', async () => {
+    const now = Date.parse('2026-10-04T12:00:00Z');
+    const client = fakeCloudWatch({ events: [
+      { message: JSON.stringify({ timestamp: '2026-10-04T11:00:00Z', event: 'A', status: 'warn' }) },
+      { message: 'START RequestId: abc' },
+      { message: `${JSON.stringify({ timestamp: '2026-10-04T11:30:00Z', event: 'B', status: 'error' })}\n` }
+    ] });
+    const logs = await new LogsClient({ logGroupName: '/aws/lambda/dev-ecommerce', client }).listLogs({ levels: ['warn', 'error'], hours: 2 }, now);
+
+    assert.strictEqual(client.sent[0].logGroupName, '/aws/lambda/dev-ecommerce');
+    assert.strictEqual(client.sent[0].filterPattern, '{ ($.status = "warn") || ($.status = "error") }');
+    assert.strictEqual(client.sent[0].startTime, now - 2 * 3600 * 1000);
+    assert.deepStrictEqual(logs.map(l => l.event), ['B', 'A']);
+  });
+
+  it('repassa level e hours da query', async () => {
+    let received;
+    const handler = createAPIHandler({ logs: { listLogs: async query => { received = query; return []; } } });
+    const response = await handler(getLogs({ level: 'error', hours: '1' }));
+    assert.strictEqual(response.statusCode, 200);
+    assert.deepStrictEqual(received, { levels: ['error'], hours: 1 });
+  });
+
+  it('CloudWatch Logs indisponível vira 503', async () => {
+    const handler = createAPIHandler({ logs: { listLogs: async () => { throw new Error('AccessDenied'); } } });
+    const response = await handler(getLogs({}));
+    assert.strictEqual(response.statusCode, 503);
   });
 });

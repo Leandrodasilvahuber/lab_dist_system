@@ -1,11 +1,12 @@
 // LOG_LEVEL: debug | info (padrão) | warn | error (só erros) | silent
 const LEVELS = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 };
 
-// status 'warn' = erro tratado (regra de negócio); 'error' = erro não tratado.
+// status 'warn' = erro tratado (regra de negócio); 'error' = erro não tratado;
+// 'debug' = detalhe para investigação (só com LOG_LEVEL=debug).
 // Com `error` e sem status explícito, o registro é tratado como 'error'.
 function severityOf(status, error) {
   const normalized = String(status || '').toLowerCase();
-  if (normalized === 'error' || normalized === 'warn') return normalized;
+  if (normalized === 'error' || normalized === 'warn' || normalized === 'debug') return normalized;
   return error ? 'error' : 'info';
 }
 
@@ -15,7 +16,7 @@ function shouldLog(severity) {
 }
 
 // Resolvido na chamada (não no carregamento) para os testes poderem trocar o console
-const WRITERS = { error: 'error', warn: 'warn', info: 'log' };
+const WRITERS = { error: 'error', warn: 'warn', info: 'log', debug: 'log' };
 
 export function log({ event, orderId, correlationId, status, message, data = null, error = null }) {
   const severity = severityOf(status, error);

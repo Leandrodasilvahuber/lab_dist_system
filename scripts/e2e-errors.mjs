@@ -128,6 +128,7 @@ const rejected = await stock(productCreated({ productId: 'p-invalido', name: 'In
 check('evento confirmado com { rejected: true } (não vai para a DLQ)', rejected?.rejected === true);
 [line] = lines('DOMAIN_EVENT_REJECTED');
 check('log warn DOMAIN_EVENT_REJECTED, errorType ValidationError', line?.status === 'warn' && line.errorType === 'ValidationError');
+check('uma linha só (sem ACTION_REJECTED duplicado)', logLines.filter(l => l.scenario === currentScenario && l.status === 'warn').length === 1);
 
 // ---------- 4 ----------
 lines = scenario('4) Evento, falha transitória: ProductCreated sem a tabela de inventário');

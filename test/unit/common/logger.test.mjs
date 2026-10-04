@@ -54,6 +54,11 @@ describe('log', () => {
     assert.strictEqual(out.length + err.length, 0);
   });
 
+  it('debug só sai com LOG_LEVEL=debug', () => {
+    assert.strictEqual(capture('info', { event: 'X', status: 'debug' }).out.length, 0);
+    assert.strictEqual(capture('debug', { event: 'X', status: 'debug' }).out[0].status, 'debug');
+  });
+
   it('LOG_LEVEL=debug inclui info', () => {
     assert.strictEqual(capture('debug', { event: 'X', status: 'info' }).out.length, 1);
   });
