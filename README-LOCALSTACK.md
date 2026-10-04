@@ -38,6 +38,7 @@ npm run local-server       # http://localhost:3001
 # 4. Testes contra o LocalStack
 npm run test:integration   # SDKs contra o DynamoDB
 npm run test:e2e           # saga completa: Lambda + Step Functions + DynamoDB
+npm run test:e2e:errors    # provoca erros tratados/não tratados e cria alarmes locais
 
 # 5. Para tudo
 npm run localstack:stop
@@ -46,6 +47,32 @@ npm run localstack:stop
 O `test:e2e` cria funções, tabelas e a state machine com um prefixo próprio
 (`e2e-<timestamp>`), roda os cenários de compra e remove tudo ao final, sem
 interferir nos dados do seed.
+
+## Ver erros e alarmes
+
+`npm run test:e2e:errors` provoca cada tipo de erro com os handlers reais e
+mostra as linhas de log geradas:
+
+| Cenário | Resultado | Log |
+|---|---|---|
+| `POST /products` com preço 0 | 400 | `warn API_REJECTED` |
+| Ação `confirmOrder` de pedido inexistente | lança `NotFound` | `warn ACTION_REJECTED` |
+| `ProductCreated` com `initialStock: -1` | evento confirmado, **sem DLQ** | `warn DOMAIN_EVENT_REJECTED` |
+| `ProductCreated` sem a tabela de inventário | 3 tentativas e depois DLQ `local-ProductEventsDlq` | `error ACTION_FAILED` + stack |
+| `GET /stock` sem a tabela de inventário | 500 sem detalhes | `error UNEXPECTED_ERROR` + stack |
+
+No fim, ele cria os alarmes `local-ecommerce-*` (os mesmos do `template.yaml`)
+no CloudWatch do LocalStack e espera o LocalStack avaliá-los. Como o LocalStack
+não aplica metric filters nem publica métricas de SQS/API Gateway/Step
+Functions, o script publica em `Ecommerce/local` os valores observados (erros
+`error` no log, mensagens na DLQ, respostas 5xx). Os alarmes locais usam
+período de 60 s e ficam ~15 min em ALARM. Abra `npm run local-server` → aba
+🩺 Monitoramento para ver a tabela. Para apagar alarmes e DLQ:
+`npm run test:e2e:errors -- --cleanup`.
+
+O CloudWatch precisa estar em `SERVICES` no `docker-compose.yml`. Se o
+container subiu antes dessa mudança, recrie-o (apaga os dados locais):
+`npm run localstack:stop && npm run localstack:start && npm run seed:local`.
 
 ## Dashboard
 

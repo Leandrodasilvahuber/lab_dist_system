@@ -9,6 +9,7 @@
     "test:coverage": "c8 node --test 'test/unit/**/*.test.mjs'",
     "test:integration": "LOG_LEVEL=silent node --test 'test/integration/**/*.test.mjs'",
     "test:e2e": "node scripts/e2e-localstack.mjs",
+    "test:e2e:errors": "node scripts/e2e-errors.mjs",
     "lint": "eslint --ext .js,.mjs src/ test/ scripts/ local-server.mjs",
     "lint:fix": "eslint --ext .js,.mjs src/ test/ scripts/ local-server.mjs --fix",
     "build": "sam build",
@@ -23,6 +24,7 @@
     "local-server": "LOG_LEVEL=${LOG_LEVEL:-error} node --env-file-if-exists=.env local-server.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.1146.0",
     "@aws-sdk/client-dynamodb": "^3.578.0",
     "@aws-sdk/client-eventbridge": "^3.578.0",
     "@aws-sdk/client-lambda": "^3.1146.0",
@@ -31,6 +33,7 @@
     "@aws-sdk/lib-dynamodb": "^3.1141.0"
   },
   "devDependencies": {
+    "@aws-sdk/client-sqs": "^3.1146.0",
     "c8": "^8.0.1",
     "esbuild": "^0.28.2",
     "eslint": "^8.57.0"

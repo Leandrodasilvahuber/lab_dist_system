@@ -36,3 +36,11 @@ export class IdempotencyConflictError extends DomainError {
     super(message, 'IdempotencyConflict', 409);
   }
 }
+
+/**
+ * Erro de negócio não muda numa nova tentativa; só falhas de infraestrutura
+ * (rede, throttling, timeout) valem retry e DLQ.
+ */
+export function isRetryable(error) {
+  return !(error instanceof DomainError);
+}

@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { isDomainEvent, isActionInvocation, runEventHandler } from '../../../src/common/actions.mjs';
 import { EventBus } from '../../../src/common/event-bus.mjs';
+import { ValidationError } from '../../../src/common/errors.mjs';
 
 process.env.LOG_LEVEL = 'silent';
 
@@ -28,6 +29,17 @@ describe('eventos de domínio', () => {
 
   it('evento sem handler é ignorado', async () => {
     assert.deepStrictEqual(await runEventHandler({}, { ...productCreated, 'detail-type': 'Other' }), { ignored: true });
+  });
+
+  it('erro de negócio no handler fica no log e o evento é confirmado (não vai para a DLQ)', async () => {
+    const handlers = { 'products/ProductCreated': () => { throw new ValidationError('initialStock must be a non-negative integer'); } };
+    assert.deepStrictEqual(await runEventHandler(handlers, productCreated),
+      { rejected: true, reason: 'initialStock must be a non-negative integer' });
+  });
+
+  it('falha transitória é relançada para o EventBridge repetir', async () => {
+    const handlers = { 'products/ProductCreated': () => { throw new Error('ProvisionedThroughputExceeded'); } };
+    await assert.rejects(runEventHandler(handlers, productCreated), /ProvisionedThroughputExceeded/);
   });
 
   it('EventBus sem EVENT_BUS_NAME entrega aos assinantes locais no formato do EventBridge', async () => {

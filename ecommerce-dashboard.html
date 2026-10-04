@@ -612,6 +612,49 @@
             font-size: 0.8em;
             overflow-wrap: anywhere;
         }
+
+        .alarms-section h3 {
+            margin: 25px 0 10px;
+            color: #333;
+        }
+
+        .alarms-wrapper {
+            overflow-x: auto;
+        }
+
+        .alarm-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            font-size: 0.9em;
+        }
+
+        .alarm-table th,
+        .alarm-table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+            vertical-align: top;
+        }
+
+        .alarm-table th {
+            background: #f8f9fa;
+            color: #555;
+            font-weight: 600;
+        }
+
+        .alarm-table tr.alarm-firing td { background: #fff5f5; }
+
+        .alarm-table .alarm-description,
+        .alarm-table .alarm-reason {
+            color: #888;
+            font-size: 0.85em;
+            overflow-wrap: anywhere;
+        }
+
+        .alarm-state-OK { background: #d4edda; color: #155724; }
+        .alarm-state-ALARM { background: #f8d7da; color: #721c24; }
+        .alarm-state-INSUFFICIENT_DATA { background: #e9ecef; color: #555; }
     </style>
 </head>
 <body>
@@ -736,6 +779,10 @@
                 <button type="button" class="btn-primary" id="monitorRefresh">🔄 Atualizar</button>
             </div>
             <div class="monitor-grid" id="monitorGrid"></div>
+            <div class="alarms-section">
+                <h3>🚨 Alarmes (CloudWatch)</h3>
+                <div class="alarms-wrapper" id="alarmsTable"></div>
+            </div>
         </div>
     </div>
 
@@ -850,6 +897,7 @@
         // Cada métrica é um item de MONITORS: check() devolve { value, ok, detail? }.
         // Para uma métrica nova, basta acrescentar um item (ok: null = só informativo).
         let lastHealth = null;
+        let lastAlarms = null;
         const MONITORS = [
             {
                 id: 'api',
@@ -876,6 +924,22 @@
                     : { value: '—', ok: false, detail: 'sem resposta' }
             },
             {
+                id: 'alarms',
+                label: 'Alarmes',
+                async check() {
+                    try {
+                        lastAlarms = { ok: true, items: (await api('/alarms')).alarms || [] };
+                    } catch (error) {
+                        lastAlarms = { ok: false, error };
+                        return { value: 'indisponível', ok: false, detail: error.message };
+                    }
+                    const firing = lastAlarms.items.filter(a => a.state === 'ALARM').length;
+                    return lastAlarms.items.length
+                        ? { value: `${firing} em alarme`, ok: firing === 0, detail: `${lastAlarms.items.length} configurados` }
+                        : { value: 'nenhum', ok: null, detail: 'Nenhum alarme configurado' };
+                }
+            },
+            {
                 id: 'endpoint',
                 label: 'Endpoint',
                 check: () => ({ value: API_BASE.replace(/^https?:\/\//, ''), ok: null, detail: API_BASE })
@@ -898,12 +962,42 @@
                     <div class="value">${escapeHtml(value)}</div>
                     ${detail ? `<div class="detail">${escapeHtml(detail)}</div>` : ''}
                 </div>`).join('');
+            renderAlarms();
             document.getElementById('monitorUpdated').textContent = `Última verificação às ${checkedAt} · a cada 30 s`;
 
             const healthy = lastHealth?.ok;
             document.getElementById('connectionDot').className = `connection-dot ${healthy ? 'connected' : 'disconnected'}`;
             document.getElementById('connectionStatus').textContent = healthy ? 'Conectado' : 'Desconectado';
             document.getElementById('statusLink').title = `${healthy ? 'Sistema saudável' : 'API indisponível'} · ver monitoramento`;
+        }
+
+        const ALARM_STATES = { OK: 'OK', ALARM: 'Em alarme', INSUFFICIENT_DATA: 'Sem dados' };
+
+        function renderAlarms() {
+            const container = document.getElementById('alarmsTable');
+            if (!lastAlarms?.ok) {
+                container.innerHTML = `<div class="empty">Não foi possível ler os alarmes${lastAlarms?.error ? `: ${escapeHtml(lastAlarms.error.message)}` : ''}</div>`;
+                return;
+            }
+            if (!lastAlarms.items.length) {
+                container.innerHTML = '<div class="empty">Nenhum alarme configurado neste ambiente</div>';
+                return;
+            }
+            container.innerHTML = `
+                <table class="alarm-table">
+                    <thead><tr><th>Alarme</th><th>Estado</th><th>Motivo</th><th>Atualizado</th></tr></thead>
+                    <tbody>${lastAlarms.items.map(alarm => `
+                        <tr class="${alarm.state === 'ALARM' ? 'alarm-firing' : ''}">
+                            <td>
+                                <strong>${escapeHtml(alarm.name)}</strong>
+                                ${alarm.description ? `<div class="alarm-description">${escapeHtml(alarm.description)}</div>` : ''}
+                            </td>
+                            <td><span class="status-badge alarm-state-${escapeHtml(alarm.state)}">${escapeHtml(ALARM_STATES[alarm.state] || alarm.state)}</span></td>
+                            <td class="alarm-reason">${escapeHtml(alarm.reason || '—')}</td>
+                            <td>${alarm.updatedAt ? time(alarm.updatedAt) : '—'}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
         }
 
         function setupTabs() {

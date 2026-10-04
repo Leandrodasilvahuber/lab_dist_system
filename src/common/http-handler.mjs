@@ -9,6 +9,14 @@ import { errorResponse, notFoundResponse } from './response.mjs';
  *  - evento de domínio (EventBridge): { source, detail-type, detail }
  *  - requisição HTTP (HttpApi), roteada por `setupRoutes`
  */
+function errorMessage(response) {
+  try {
+    return JSON.parse(response.body).error ?? '';
+  } catch {
+    return '';
+  }
+}
+
 export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers = {} }) {
   return async function handler(rawEvent) {
     if (isActionInvocation(rawEvent)) {
@@ -29,7 +37,13 @@ export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers 
     try {
       log({ event: 'API_REQUEST', correlationId, status: 'info', message: `Incoming request: ${event.method} ${event.path}` });
       const response = await setupRoutes(event);
-      log({ event: 'API_RESPONSE', correlationId, status: 'info', message: `Response status: ${response.statusCode}` });
+      // 4xx = erro tratado (validação/regra de negócio): fica no log como warn.
+      // 5xx já foi registrado como error por quem o gerou (sdkErrorResponse).
+      if (response.statusCode >= 400 && response.statusCode < 500) {
+        log({ event: 'API_REJECTED', correlationId, status: 'warn', message: `${event.method} ${event.path} -> ${response.statusCode}: ${errorMessage(response)}`, data: { statusCode: response.statusCode } });
+      } else {
+        log({ event: 'API_RESPONSE', correlationId, status: 'info', message: `Response status: ${response.statusCode}` });
+      }
       return response;
     } catch (error) {
       log({ event: 'API_ERROR', correlationId, status: 'error', message: 'API request error', error });

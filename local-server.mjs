@@ -51,6 +51,8 @@ async function findStateMachineArn() {
 process.env.SAGA_STATE_MACHINE_ARN ||= await findStateMachineArn() || '';
 // A saga consulta o produto invocando a Lambda publicada por `npm run localstack:deploy`
 process.env.PRODUCT_FUNCTION_NAME ||= 'local-ProductFunction';
+// GET /alarms lista só os alarmes do ambiente local (mesmo padrão de nome do template.yaml)
+process.env.ALARM_PREFIX ||= 'local-ecommerce-';
 
 const handlers = {
   products: (await import('./src/ecommerce/products/index.mjs')).handler,

@@ -1,5 +1,5 @@
 import { log } from './logger.mjs';
-import { ValidationError } from './errors.mjs';
+import { ValidationError, isRetryable } from './errors.mjs';
 
 /**
  * Invocação direta da Lambda pelo Step Functions: { action, input }.
@@ -36,7 +36,10 @@ export async function runAction(actions, { action, input = {} }) {
     log({ event: 'ACTION_COMPLETED', correlationId: input.correlationId, status: 'info', message: `Action ${action} completed` });
     return result;
   } catch (error) {
-    log({ event: 'ACTION_FAILED', correlationId: input.correlationId, status: 'error', message: `Action ${action} failed: ${error.message}`, error });
+    // Erro de negócio é esperado (warn); o resto é falha não tratada (error)
+    log(isRetryable(error)
+      ? { event: 'ACTION_FAILED', correlationId: input.correlationId, status: 'error', message: `Action ${action} failed: ${error.message}`, error }
+      : { event: 'ACTION_REJECTED', correlationId: input.correlationId, status: 'warn', message: `Action ${action} rejected: ${error.message}`, error });
     throw error;
   }
 }
@@ -50,7 +53,9 @@ export function isDomainEvent(event) {
 
 /**
  * Executa o handler registrado para `<source>/<detail-type>`.
- * Eventos sem handler são ignorados; erros são relançados para o EventBridge repetir.
+ * Eventos sem handler são ignorados. Erro de negócio não melhora com retry:
+ * fica no log e o evento é confirmado. Só falhas transitórias são relançadas
+ * para o EventBridge repetir e, esgotadas as tentativas, mandar para a DLQ.
  */
 export async function runEventHandler(handlers, event) {
   const key = `${event.source}/${event['detail-type']}`;
@@ -59,5 +64,11 @@ export async function runEventHandler(handlers, event) {
     log({ event: 'DOMAIN_EVENT_IGNORED', status: 'info', message: `No handler for ${key}` });
     return { ignored: true };
   }
-  return runAction({ [key]: fn }, { action: key, input: event.detail || {} });
+  try {
+    return await runAction({ [key]: fn }, { action: key, input: event.detail || {} });
+  } catch (error) {
+    if (isRetryable(error)) throw error;
+    log({ event: 'DOMAIN_EVENT_REJECTED', correlationId: event.detail?.correlationId, status: 'warn', message: `Event ${key} rejected: ${error.message}`, error });
+    return { rejected: true, reason: error.message };
+  }
 }

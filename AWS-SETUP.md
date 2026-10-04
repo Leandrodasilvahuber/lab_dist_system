@@ -47,17 +47,20 @@ npm run seed -- --stage dev
 
 | Recurso | Descrição |
 |---|---|
-| `ApiGateway` (HttpApi, stage `dev`) | Rotas de cada serviço + `/health` e fallback na GatewayFunction |
+| `ApiGateway` (HttpApi, stage `dev`) | Rotas de cada serviço + `/health`, `/alarms` e fallback na GatewayFunction |
 | `ProductFunction`, `OrderFunction`, `StockFunction` | Serviços (HTTP + ações/eventos internos) |
 | `PaymentFunction` | Só ações da saga (sem rota HTTP) |
 | `SagaOrchestratorFunction` | `/saga/execute`, `/saga/{id}`, `/sagas` |
 | `AdminAuthorizerFunction` | Authorizer das rotas de admin (`X-Api-Key`) |
 | `SagaStateMachine` (`dev-purchase-saga`) | Saga de compra (Step Functions Standard) |
-| `GatewayFunction` | `/health` e 404 com a lista de endpoints |
+| `GatewayFunction` | `/health`, `/alarms` (lê os alarmes `dev-ecommerce-*`) e 404 com a lista de endpoints |
 | Tabelas `dev-Products`, `dev-Orders`, `dev-Payments`, `dev-Inventory`, `dev-StockReservations`, `dev-Sagas` | DynamoDB on-demand, uma ou mais por serviço |
 | `EventBus` (`dev-ecommerce-events`) | Eventos de domínio dos serviços |
-| `ProductEventsToStockRule` | Entrega `ProductCreated`/`ProductDeleted` à `StockFunction` (cria/remove o inventário), com retry e DLQ `ProductEventsDlq` |
-| `OrderEventsQueue` + `OrderEventsDlq` | Recebe os eventos `source: orders` (auditoria) |
+| `ProductEventsToStockRule` | Entrega `ProductCreated`/`ProductDeleted` à `StockFunction` (cria/remove o inventário), com retry e DLQ `ProductEventsDlq` (só falhas transitórias; erro de negócio fica no log como `DOMAIN_EVENT_REJECTED`) |
+| `OrderEventsArchive` (`dev-order-events`) | EventBridge Archive dos eventos `source: orders` (auditoria e replay, 30 dias) |
+| `ServicesLogGroup` (`/aws/lambda/dev-ecommerce`) | Logs de todas as Lambdas (campo `service` = função). Erro tratado sai com `status: warn`, não tratado com `status: error` + stack |
+| `UnhandledErrorsMetricFilter` | Conta as linhas `status: error` na métrica `Ecommerce/dev UnhandledErrors` |
+| Alarmes `dev-ecommerce-*` | `unhandled-errors`, `product-events-dlq` (mensagens na DLQ), `saga-failed` (execuções com falha), `api-5xx`; aparecem na aba Monitoramento do dashboard |
 
 Cada função recebe só as permissões de que precisa, e cada serviço acessa apenas
 as próprias tabelas:

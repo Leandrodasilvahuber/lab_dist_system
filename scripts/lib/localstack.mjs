@@ -1,7 +1,7 @@
 /**
  * Publica a saga no LocalStack: tabelas, Lambdas dos passos e de produtos (do `sam build`)
  * e a state machine real (workflow/saga-workflow.asl.json).
- * Usado por scripts/localstack-deploy.mjs e scripts/e2e-localstack.mjs.
+ * Usado por scripts/localstack-deploy.mjs, scripts/e2e-localstack.mjs e scripts/e2e-errors.mjs.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 import * as ddb from '@aws-sdk/client-dynamodb';
 import * as lambda from '@aws-sdk/client-lambda';
 import * as sfn from '@aws-sdk/client-sfn';
+import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
+import { SQSClient } from '@aws-sdk/client-sqs';
 import { ensureTable, logicalName } from './tables.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -27,7 +29,13 @@ export function templateRuntime() {
 
 export function clients(endpoint) {
   const cfg = { region: 'us-east-1', endpoint, credentials: { accessKeyId: 'test', secretAccessKey: 'test' } };
-  return { D: new ddb.DynamoDBClient(cfg), L: new lambda.LambdaClient(cfg), F: new sfn.SFNClient(cfg) };
+  return {
+    D: new ddb.DynamoDBClient(cfg),
+    L: new lambda.LambdaClient(cfg),
+    F: new sfn.SFNClient(cfg),
+    CW: new CloudWatchClient(cfg),
+    Q: new SQSClient(cfg)
+  };
 }
 
 export function assertBuilt() {
@@ -109,7 +117,11 @@ export async function removeSaga({ D, L, F }, { prefix, tables }) {
   for (const fn of STEP_FUNCTIONS) {
     await L.send(new lambda.DeleteFunctionCommand({ FunctionName: `${prefix}-${fn}` })).catch(ignore);
   }
+  await removeTables({ D }, tables);
+}
+
+export async function removeTables({ D }, tables) {
   for (const TableName of Object.values(tables || {})) {
-    await D.send(new ddb.DeleteTableCommand({ TableName })).catch(ignore);
+    await D.send(new ddb.DeleteTableCommand({ TableName })).catch(() => {});
   }
 }

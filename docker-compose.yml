@@ -7,7 +7,7 @@ services:
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=dynamodb,lambda,stepfunctions,events,sqs,iam,sts,logs
+      - SERVICES=dynamodb,lambda,stepfunctions,events,sqs,iam,sts,logs,cloudwatch
       - PERSISTENCE=0
     volumes:
       - ./localstack-data:/var/lib/localstack

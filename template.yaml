@@ -26,6 +26,11 @@ Globals:
     Architectures: [arm64]
     MemorySize: 256
     Timeout: 15
+    # Todas as Lambdas escrevem no mesmo log group (o campo `service` de cada
+    # linha diz qual função gerou), onde o metric filter conta os erros não tratados
+    LoggingConfig:
+      LogFormat: Text
+      LogGroup: !Ref ServicesLogGroup
     Environment:
       Variables:
         ENVIRONMENT: !Ref Environment
@@ -90,18 +95,32 @@ Resources:
         EntryPoints: [src/layers/api-gateway-layer/src/auth/adminAuthorizer.js]
         External: ['@aws-sdk/*']
 
-  # Gateway Function - health check e roteamento de fallback
+  # Gateway Function - health check, alarmes e roteamento de fallback
   GatewayFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: .
       Handler: apiRoutes.handler
+      Environment:
+        Variables:
+          ALARM_PREFIX: !Sub '${Environment}-ecommerce-'
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: cloudwatch:DescribeAlarms
+              Resource: '*'
       Events:
         Health:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /health
+            Method: GET
+        Alarms:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /alarms
             Method: GET
         Proxy:
           Type: HttpApi
@@ -378,52 +397,21 @@ Resources:
     Properties:
       Name: !Sub '${Environment}-ecommerce-events'
 
-  # SQS com Dead-letter Queue para eventos de pedidos. Não tem consumidor de
-  # propósito: guarda os eventos por 14 dias para auditoria e reprocessamento
-  OrderEventsDlq:
-    Type: AWS::SQS::Queue
+  # Auditoria e replay dos eventos de pedidos. Não é fila de erro: erro vai
+  # para o log, e só falha transitória de entrega vai para DLQ.
+  OrderEventsArchive:
+    Type: AWS::Events::Archive
     Properties:
-      QueueName: !Sub '${Environment}-OrderEventsDlq'
-      MessageRetentionPeriod: 1209600
-
-  OrderEventsQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub '${Environment}-OrderEventsQueue'
-      VisibilityTimeout: 300
-      MessageRetentionPeriod: 1209600
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt OrderEventsDlq.Arn
-        maxReceiveCount: 5
-
-  OrderEventsQueuePolicy:
-    Type: AWS::SQS::QueuePolicy
-    Properties:
-      Queues:
-        - !Ref OrderEventsQueue
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: events.amazonaws.com
-            Action: "sqs:SendMessage"
-            Resource: !GetAtt OrderEventsQueue.Arn
-
-  # Todos os eventos de pedidos também vão para a fila (auditoria / reprocessamento)
-  OrderEventsToQueueRule:
-    Type: AWS::Events::Rule
-    Properties:
-      EventBusName: !Ref EventBus
+      ArchiveName: !Sub '${Environment}-order-events'
+      Description: 'Eventos de pedidos (source: orders) para auditoria e replay'
+      SourceArn: !GetAtt EventBus.Arn
       EventPattern:
         source: ['orders']
-      State: ENABLED
-      Targets:
-        - Arn: !GetAtt OrderEventsQueue.Arn
-          Id: OrderEventsQueueTarget
+      RetentionDays: 30
 
   # Produto criado/excluído -> serviço de Stock cria/remove o inventário.
-  # Entregas que falharem após as tentativas vão para a DLQ (reprocessamento manual).
+  # Só falhas transitórias chegam à DLQ (reprocessamento manual): erro de negócio
+  # é registrado no log e o evento é confirmado (runEventHandler em src/common/actions.mjs).
   ProductEventsToStockRule:
     Type: AWS::Events::Rule
     Properties:
@@ -471,6 +459,94 @@ Resources:
             Condition:
               ArnEquals:
                 aws:SourceArn: !GetAtt ProductEventsToStockRule.Arn
+
+  # ---------- Logs e alarmes ----------
+  ServicesLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${Environment}-ecommerce'
+      RetentionInDays: 30
+
+  # Linhas com status "error" (src/common/logger.mjs) = erros não tratados.
+  # Erros de negócio saem com status "warn" e não contam.
+  UnhandledErrorsMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ServicesLogGroup
+      FilterPattern: '{ $.status = "error" }'
+      MetricTransformations:
+        - MetricNamespace: !Sub 'Ecommerce/${Environment}'
+          MetricName: UnhandledErrors
+          MetricValue: '1'
+          DefaultValue: 0
+
+  # Os alarmes começam com ${Environment}-ecommerce- (ALARM_PREFIX do GET /alarms)
+  UnhandledErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${Environment}-ecommerce-unhandled-errors'
+      AlarmDescription: 'Erros não tratados nos logs das Lambdas'
+      Namespace: !Sub 'Ecommerce/${Environment}'
+      MetricName: UnhandledErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  ProductEventsDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${Environment}-ecommerce-product-events-dlq'
+      AlarmDescription: 'Eventos de produto na DLQ: inventário não criado/removido, reprocessar'
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductEventsDlq.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  SagaExecutionsFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${Environment}-ecommerce-saga-failed'
+      AlarmDescription: 'Execuções da saga de compra que falharam (ver SagaStateMachineLogGroup)'
+      Namespace: AWS/States
+      MetricName: ExecutionsFailed
+      Dimensions:
+        - Name: StateMachineArn
+          Value: !Ref SagaStateMachine
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  ApiServerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${Environment}-ecommerce-api-5xx'
+      AlarmDescription: 'Respostas 5xx da API'
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref ApiGateway
+        - Name: Stage
+          Value: !Ref Environment
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
 
   # DynamoDB Tables
   ProductsTable:
@@ -574,9 +650,13 @@ Outputs:
     Description: "EventBridge bus name"
     Value: !Ref EventBus
 
-  OrderEventsQueueUrl:
-    Description: "Fila de auditoria dos eventos de pedidos (sem consumidor)"
-    Value: !Ref OrderEventsQueue
+  OrderEventsArchive:
+    Description: "Archive dos eventos de pedidos (auditoria e replay)"
+    Value: !Ref OrderEventsArchive
+
+  ServicesLogGroup:
+    Description: "Logs das Lambdas (erros não tratados com status error)"
+    Value: !Ref ServicesLogGroup
 
   SagaStateMachineLogGroup:
     Description: "Logs de erro das execuções da saga"

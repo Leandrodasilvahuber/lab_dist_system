@@ -111,6 +111,7 @@ Os erros de cada execução ficam no log group da state machine (output
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/health` | Health check |
+| GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) |
 | GET | `/products` | Lista produtos, paginado (`?name=&priceMin=&priceMax=&limit=&nextToken=`) |
 | POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`price > 0`; `stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
@@ -139,9 +140,9 @@ vir com menos de `limit` itens. Filtro numérico inválido (`priceMin=abc`) resp
   HTTP apenas pelas rotas acima.
 - **Invocações internas** (exigem permissão IAM, inacessíveis pela internet):
   Step Functions → Orders/Payments/Stock (`{ action, input }`), Saga → Products
-  (`getProduct`), EventBridge → Stock (`ProductCreated`, `ProductDeleted`) e → SQS. Um request HTTP
+  (`getProduct`), EventBridge → Stock (`ProductCreated`, `ProductDeleted`) e → Archive. Um request HTTP
   nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
-- **O dashboard usa só** `/health`, `GET/POST /products`, `GET /stock`,
+- **O dashboard usa só** `/health`, `/alarms`, `GET/POST /products`, `GET /stock`,
   `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. A
   chave de admin (campo no topo da página) só é pedida para criar produtos.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
@@ -186,7 +187,7 @@ src/
 │       ├── index.mjs
 │       ├── src/            # routes, controller, SagaService, ProductClient, StepFunctionsClient
 │       └── workflow/saga-workflow.asl.json   # gerado por scripts/generate-saga-workflow.py
-└── layers/api-gateway-layer/   # /health e fallback 404
+└── layers/api-gateway-layer/   # /health, /alarms e fallback 404
 
 scripts/       # seed, deploy, LocalStack, teste e2e, gerador do workflow
 test/
@@ -258,8 +259,10 @@ Para usar o dashboard com a API publicada na AWS, abra
 - Eventos de domínio são publicados depois da escrita no banco, sem *outbox*
   transacional. Eventos informativos que falharem ficam só no log.
   `ProductCreated` é obrigatório: se não puder ser publicado, o produto é
-  desfeito e a criação falha. Entregas ao Stock que falharem após as tentativas
-  vão para a DLQ `ProductEventsDlq`; recupere com
+  desfeito e a criação falha. Só falhas transitórias na entrega ao Stock são
+  repetidas e, esgotadas as tentativas, vão para a DLQ `ProductEventsDlq`
+  (alarme `product-events-dlq`). Erro de negócio não vai para a DLQ: fica no
+  log como `DOMAIN_EVENT_REJECTED`. Recupere com
   `POST /stock/{id}/adjust { delta, name }`. Sem inventário, a compra falha no
   `ReserveStock`, antes de cobrar.
 - O inventário é criado de forma assíncrona: logo após `POST /products`, o estoque
