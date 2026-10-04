@@ -3,6 +3,7 @@ import { Database } from '../../../../common/database.mjs';
 import { DependencyUnavailableError, IdempotencyConflictError, NotFoundError, ValidationError } from '../../../../common/errors.mjs';
 import { log } from '../../../../common/logger.mjs';
 import { encodeToken } from '../../../../common/pagination.mjs';
+import { sagaDayShard } from '../../../../common/saga-day-index.mjs';
 import { StepFunctionsClient } from './StepFunctionsClient.js';
 import { ProductClient } from './ProductClient.js';
 
@@ -86,7 +87,9 @@ export class SagaService {
       executionName: sagaId,
       steps: {},
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      // Chave do SagasByDayIndex (aba SLOs)
+      dayShard: sagaDayShard(sagaId, now)
     };
 
     const created = await this.db.putItemIfNotExists('sagas', saga);

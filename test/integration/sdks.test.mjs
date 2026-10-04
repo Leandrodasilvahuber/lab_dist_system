@@ -33,6 +33,9 @@ const available = await client.send(new ListTablesCommand({})).then(() => true, 
 const { ProductSDK, OrderSDK, PaymentSDK, StockSDK } = await import('../../src/common/sdks/index.mjs');
 const { InsufficientStockError, InvalidStateError, PaymentDeclinedError, NotFoundError, ValidationError } = await import('../../src/common/errors.mjs');
 const { parsePagination } = await import('../../src/common/pagination.mjs');
+const { putItem } = await import('../../src/common/database.mjs');
+const { sagaDayShard } = await import('../../src/common/saga-day-index.mjs');
+const { SloClient } = await import('../../src/layers/api-gateway-layer/src/services/SloClient.js');
 
 describe('SDKs (DynamoDB)', { skip: !available && `DynamoDB indisponível em ${endpoint}` }, () => {
   const stock = new StockSDK(null);
@@ -250,6 +253,27 @@ describe('SDKs (DynamoDB)', { skip: !available && `DynamoDB indisponível em ${e
       // repetir a mesma tentativa continua recusada (idempotente)
       await assert.rejects(payments.processPayment({ id: 'pay-caro', orderId: 'o2', amount: 5000 }), PaymentDeclinedError);
       assert.strictEqual((await payments.getPayment('pay-caro')).status, 'declined');
+    });
+  });
+
+  describe('SagasByDayIndex (aba SLOs)', () => {
+    it('lê as sagas da janela pelo índice, sem as anteriores a ela', async () => {
+      const now = Date.now();
+      const sagaAt = async (id, agoMs, status) => {
+        const createdAt = new Date(now - agoMs).toISOString();
+        const updatedAt = new Date(now - agoMs + 500).toISOString();
+        await putItem('sagas', { id, status, createdAt, updatedAt, dayShard: sagaDayShard(id, createdAt) });
+      };
+      await sagaAt('saga_it_recent', 60 * 1000, 'COMPLETED');
+      await sagaAt('saga_it_failed', 2 * 60 * 1000, 'COMPENSATION_FAILED');
+      await sagaAt('saga_it_old', 3 * 24 * 60 * 60 * 1000, 'COMPLETED');
+
+      const dlq = { async listMessages() { return { queue: 'q', approximateTotal: 0, messages: [] }; } };
+      const result = await new SloClient({ dlq, now: () => now }).evaluate({ hours: 24 });
+      const outcome = result.slos.find(slo => slo.id === 'saga-outcome');
+      assert.strictEqual(outcome.sample, 2);
+      assert.strictEqual(outcome.detail.byStatus.COMPENSATION_FAILED, 1);
+      assert.strictEqual(result.slos.find(slo => slo.id === 'purchase-latency').detail.p95, 500);
     });
   });
 });

@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import { SloClient, percentile, parseSloQuery, SLO_TARGETS, STUCK_AFTER_MS } from '../../../src/layers/api-gateway-layer/src/services/SloClient.js';
 import { createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
 import { isAdminRoute } from '../../../src/common/auth.mjs';
+import { SAGAS_BY_DAY_INDEX, SAGA_DAY_SHARDS, sagaDayShard } from '../../../src/common/saga-day-index.mjs';
 
 process.env.LOG_LEVEL = 'silent';
 
@@ -12,11 +13,24 @@ const iso = ms => new Date(ms).toISOString();
 
 // Saga criada `ago` ms atrás que levou `durationMs` até o último status
 function saga(status, { ago = HOUR, durationMs = 1000 } = {}) {
-  return { id: `saga_${Math.random()}`, status, createdAt: iso(NOW - ago), updatedAt: iso(NOW - ago + durationMs) };
+  const id = `saga_${Math.random()}`;
+  const createdAt = iso(NOW - ago);
+  return { id, status, createdAt, updatedAt: iso(NOW - ago + durationMs), dayShard: sagaDayShard(id, createdAt) };
 }
 
+// Responde as Queries no SagasByDayIndex como o DynamoDB; `keys` guarda cada dia#shard consultado
 function fakeDb(sagas) {
-  return { calls: 0, async scanItems(table) { this.calls++; assert.strictEqual(table, 'sagas'); return sagas; } };
+  return {
+    keys: [],
+    async queryItems(table, params) {
+      assert.strictEqual(table, 'sagas');
+      assert.strictEqual(params.IndexName, SAGAS_BY_DAY_INDEX);
+      const { ':dayShard': dayShard, ':since': since } = params.ExpressionAttributeValues;
+      this.keys.push(dayShard);
+      return sagas.filter(s => s.dayShard === dayShard && s.createdAt >= since);
+    },
+    async scanItems() { throw new Error('a aba SLOs não pode varrer a tabela'); }
+  };
 }
 
 function fakeDlq(messages = [], approximateTotal = messages.length) {
@@ -135,8 +149,25 @@ describe('SloClient', () => {
     const slo = new SloClient({ db, dlq: fakeDlq(), now: () => NOW });
     await slo.evaluate({ hours: 24 });
     await slo.evaluate({ hours: 24 });
+    assert.strictEqual(db.keys.length, 2 * SAGA_DAY_SHARDS);
     await slo.evaluate({ hours: 1 });
-    assert.strictEqual(db.calls, 2);
+    assert.strictEqual(db.keys.length, 3 * SAGA_DAY_SHARDS);
+  });
+
+  it('consulta o índice por dia e shard, sem Scan: 24 h cruzando a meia-noite = 2 dias', async () => {
+    const db = fakeDb([]);
+    await new SloClient({ db, dlq: fakeDlq(), now: () => NOW }).evaluate({ hours: 24 });
+    assert.strictEqual(db.keys.length, 2 * SAGA_DAY_SHARDS);
+    assert.ok(db.keys.includes('2026-10-03#0'));
+    assert.ok(db.keys.includes(`2026-10-04#${SAGA_DAY_SHARDS - 1}`));
+  });
+
+  it('janela de 7 dias consulta 8 dias de shards e junta as sagas de todos', async () => {
+    const sagas = [saga('COMPLETED', { ago: 6 * 24 * HOUR }), saga('COMPLETED', { ago: HOUR }), saga('COMPLETED', { ago: 8 * 24 * HOUR })];
+    const db = fakeDb(sagas);
+    const result = await new SloClient({ db, dlq: fakeDlq(), now: () => NOW }).evaluate({ hours: 168 });
+    assert.strictEqual(db.keys.length, 8 * SAGA_DAY_SHARDS);
+    assert.strictEqual(byId(result, 'purchase-latency').sample, 2);
   });
 
   it('usa as metas de SLO_TARGETS', async () => {

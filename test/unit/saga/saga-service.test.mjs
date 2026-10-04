@@ -1,6 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import { SagaService, STUCK_START_MS, parseLambdaError, sagaIdFromKey } from '../../../src/ecommerce/saga-orchestrator/src/services/SagaService.js';
+import { sagaDayShard } from '../../../src/common/saga-day-index.mjs';
 import { DependencyUnavailableError, IdempotencyConflictError, NotFoundError, ValidationError } from '../../../src/common/errors.mjs';
 
 // Banco em memória com o subconjunto usado pelo SagaService
@@ -89,6 +90,12 @@ describe('SagaService', () => {
       reservationId: `res_${saga.id}`
     });
     assert.ok(db.tables.sagas.get(saga.id).executionArn);
+  });
+
+  it('grava a chave do SagasByDayIndex a partir do id e da criação', async () => {
+    const { saga } = await service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: 'k-day-shard' });
+    const stored = db.tables.sagas.get(saga.id);
+    assert.strictEqual(stored.dayShard, sagaDayShard(saga.id, stored.createdAt));
   });
 
   it('consulta o serviço de Products e envia o preço congelado à execução', async () => {

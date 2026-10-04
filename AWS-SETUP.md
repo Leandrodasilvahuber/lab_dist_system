@@ -28,9 +28,9 @@ mantida. Para trocar a chave sem redeploy:
 A chave antiga ainda é aceita por até ~6 minutos depois da troca: 1 minuto de
 cache no authorizer mais os 5 minutos em que o HttpApi guarda a decisão
 (`ReauthorizeEvery: 300` no template).
-As rotas
-`POST /products`, `POST /stock/{id}/adjust`, `GET /orders`, `GET /sagas`, `GET /logs`
-e as de `/dlq` exigem o header `X-Api-Key` com essa chave. Para restringir o CORS a uma origem, passe
+Só as rotas
+`POST /products` e `POST /stock/{id}/adjust` exigem o header `X-Api-Key` com essa
+chave; as consultas (`/orders`, `/sagas`, `/logs`, `/metrics/*`, `/dlq`...) são abertas. Para restringir o CORS a uma origem, passe
 também `AllowedOrigin=https://...` em `--parameter-overrides`.
 
 O `sam deploy` mostra o changeset e pede confirmação antes de criar os recursos
@@ -68,7 +68,7 @@ npm run seed -- --stage dev
 | `OrderEventsArchive` (`dev-order-events`) | EventBridge Archive dos eventos `source: orders` (auditoria e replay, 10 dias) |
 | `ServicesLogGroup` (`/aws/lambda/dev-ecommerce`) | Logs de todas as Lambdas, 14 dias (campo `service` = função). Erro tratado sai com `status: warn`, não tratado com `status: error` + stack |
 | Métricas `Ecommerce/dev` (EMF) | Sem recurso próprio: as linhas de log carregam o bloco `_aws` e o CloudWatch extrai `UnhandledErrors`, `BusinessErrors` (por `ErrorType`) e `ActionCount`/`ActionDuration` (por ação) |
-| Alarmes `dev-ecommerce-*` | `unhandled-errors`, `business-errors` (≥ 20 erros de negócio em 5 min), `product-events-dlq` (mensagens na DLQ), `saga-failed` (saga que nem a compensação fechou: `CompensationFailed`, `SagaFailed`, timeout; compensação normal não conta), `saga-compensation-rate` (> 5% das sagas compensadas em 5 min, com pelo menos 20 execuções), `api-5xx`; aparecem na aba Monitoramento do dashboard |
+| Alarmes `dev-ecommerce-*` | `unhandled-errors`, `business-errors` (≥ 20 erros de negócio em 5 min), `product-events-dlq` (mensagens na DLQ), `saga-failed` (saga que nem a compensação fechou: `CompensationFailed`, `SagaFailed`, timeout; compensação normal não conta), `saga-compensation-rate` (> 5% das sagas compensadas em 5 min, com pelo menos 20 execuções), `circuit-open` (circuit breaker do serviço de Products aberto: compras recusadas com 503), `api-5xx`; aparecem na aba Monitoramento do dashboard |
 | Dashboard CloudWatch `dev-ecommerce` | Saúde agregada numa tela: sagas por minuto, taxa de sucesso e de compensação, latência p50/p95/p99 por etapa (`ActionDuration`), erros, throttles (Lambda, Step Functions, API, DynamoDB), DLQ e alarmes. URL no output `HealthDashboardUrl` |
 | SLOs `dev-ecommerce-slo-*` (Application Signals) | `saga-outcome` (≥ 99,5% das sagas em Completed ou Compensated), `purchase-latency` (p95 da execução < 2 s em 99% das janelas de 5 min), `dlq-age` (mensagem mais antiga da DLQ < 24 h). Janela móvel de 1 dia, burn rate de 60 min |
 | Consultas salvas `ecommerce/dev/*` (Logs Insights) | `Rastreio por correlationId` (Lambdas + state machine), `Erros por evento`, `Etapas mais lentas` |

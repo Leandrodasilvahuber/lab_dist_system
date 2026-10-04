@@ -31,6 +31,13 @@ const T = {
 };
 const aws = clients(endpoint);
 const teardown = () => removeSaga(aws, { prefix: PREFIX, tables: T });
+// Um cenário que lança (ex.: timeout esperando a saga) também remove as
+// tabelas, Lambdas e state machine desta execução, em vez de deixá-las no LocalStack
+process.on('uncaughtException', async error => {
+  console.error(error);
+  await teardown();
+  process.exit(1);
+});
 let stateMachineArn;
 
 try {
@@ -102,7 +109,7 @@ const steps = s => ['createOrder', 'reserveStock', 'processPayment', 'commitRese
 const productStock = async id => (await call(stock, 'GET', `/stock/${id}`)).body.available;
 const orderStatus = async id => (await call(orders, 'GET', `/orders/${id}`)).body.status;
 let failures = 0;
-const check = (label, cond) => { console.log(`  ${cond ? '✔' : '✘'} ${label}`); if (!cond) failures++; };
+const check = (label, cond) => { console.log(`  ${cond ? '✔' : '✘'} ${label}`); if (!cond) failures++; return cond; };
 
 const p = (await call(products, 'POST', '/products', { name: 'Teclado', price: 150, stock: 10 })).body;
 const caro = (await call(products, 'POST', '/products', { name: 'Servidor', price: 20000, stock: 3 })).body;
@@ -189,7 +196,12 @@ const started = await Promise.all(Array.from({ length: 10 }, () => buy({ product
 const finals = await Promise.all(started.map(x => waitSaga(x.body.sagaId)));
 const count = st => finals.filter(f => f.status === st).length;
 console.log(`  COMPLETED=${count('COMPLETED')} COMPENSATED=${count('COMPENSATED')} outros=${10 - count('COMPLETED') - count('COMPENSATED')}`);
-check('exatamente 5 concluídas e 5 compensadas', count('COMPLETED') === 5 && count('COMPENSATED') === 5);
+if (!check('exatamente 5 concluídas e 5 compensadas', count('COMPLETED') === 5 && count('COMPENSATED') === 5)) {
+  // As tabelas são removidas no fim: o motivo de cada compensação fica só aqui
+  for (const f of finals) {
+    if (f.status !== 'COMPLETED') console.log(`    ${f.id}: ${f.status} em ${f.failedStep} (${f.error?.type}: ${f.error?.message})`);
+  }
+}
 check('estoque final 0 (nunca negativo)', await productStock(c.id) === 0);
 const res = (await call(stock, 'GET', `/stock/${c.id}`)).body;
 console.log(`  GET /stock: ${JSON.stringify(res)}`);

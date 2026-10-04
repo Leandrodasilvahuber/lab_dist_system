@@ -10,14 +10,15 @@ compensação automática.
 - **API Gateway HttpApi**
 - **AWS Step Functions** (Standard) para orquestrar a saga de compra
 - **DynamoDB** (on-demand), com transações e escritas condicionais
-- **EventBridge** para eventos de domínio e **SQS + DLQ** para auditoria dos eventos de pedidos
+- **EventBridge** para eventos de domínio (Archive dos eventos de pedidos para auditoria e SQS DLQ para eventos que falharam)
+- **CloudWatch** para logs JSON, métricas EMF, alarmes, dashboard e SLOs (Application Signals)
 - **AWS SAM** para infraestrutura e deploy, **LocalStack** para rodar localmente
 
 ## Arquitetura
 
 ```
                         ┌──────────────────────── API Gateway (HttpApi) ─────────────────────────┐
-                        │ /products  /orders             /stock      /saga/*  /sagas    /health  │
+                        │ /products  /orders             /stock      /saga/*  /sagas  /health …  │
                         └─────┬─────────┬──────────────────┬────────────┬──────────────────┬─────┘
                               ▼         ▼                  ▼            ▼                  ▼
                           Products   Orders   Payments   Stock    SagaOrchestrator     Gateway
@@ -30,7 +31,8 @@ compensação automática.
 
   Comunicação entre serviços (ninguém lê a tabela de outro):
     SagaOrchestrator ──getProduct (Lambda invoke, síncrono)──▶ Products   preço + 404 imediato
-    Products ──ProductCreated (EventBridge, assíncrono)──▶ Stock          cria o inventário inicial
+    Products ──ProductCreated/Deleted (EventBridge, assíncrono)──▶ Stock  cria/remove o inventário
+  Gateway: /health, /alarms, /logs, /trace, /metrics/*, /dlq (observabilidade)
 
   Tabelas por serviço: Products │ Orders │ Payments │ Inventory + StockReservations │ Sagas
   Cada serviço publica eventos de domínio (OrderCreated, PaymentRefunded...) no EventBridge.
@@ -134,6 +136,12 @@ compras em detalhe), 🎯 **SLOs** (p95 da compra < 2 s, ≥ 99,5% das sagas em
 Completed/Compensated, nenhuma mensagem na DLQ há mais de 24 h) e
 🩺 **Monitoramento** (alarmes).
 
+A aba SLOs lê só as sagas da janela pelo índice `SagasByDayIndex` (dia de
+criação dividido em 10 shards, ver `src/common/saga-day-index.mjs`), sem varrer
+a tabela. Sagas criadas antes do índice precisam da chave: depois do deploy,
+rode uma vez `npm run backfill:sagas -- --stage dev` (local:
+`npm run backfill:sagas:local`).
+
 ## API
 
 | Método | Rota | Descrição |
@@ -185,7 +193,8 @@ e mensagens internas.
   Step Functions → Orders/Payments/Stock (`{ action, input }`), Saga → Products
   (`getProduct`), EventBridge → Stock (`ProductCreated`, `ProductDeleted`) e → Archive. Um request HTTP
   nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
-- **O dashboard usa só** `/health`, `/alarms`, `/logs`, `/dlq`, `GET/POST /products`, `GET /stock`,
+- **O dashboard usa só** `/health`, `/alarms`, `/logs`, `/trace/{id}`, `/metrics/*`,
+  `/dlq` (e `POST /dlq/{id}/redrive|discard`), `GET/POST /products`, `GET /stock`,
   `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. A
   chave de admin (campo no topo da página) só é pedida na aba Admin, para criar produtos.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm

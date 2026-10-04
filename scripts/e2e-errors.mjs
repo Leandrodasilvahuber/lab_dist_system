@@ -67,6 +67,13 @@ const T = {
   SAGAS_TABLE: `${PREFIX}-Sagas`
 };
 
+// Um cenário que lança também remove as tabelas desta execução
+process.on('uncaughtException', async error => {
+  console.error(error);
+  await removeTables(aws, T);
+  process.exit(1);
+});
+
 try {
   await ensureTables(aws, T);
 } catch (error) {

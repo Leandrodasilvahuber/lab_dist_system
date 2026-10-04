@@ -1231,6 +1231,10 @@ Resources:
           KeyType: HASH
 
   # Saga Orchestrator Table - Stores saga state and execution tracking
+  # SagasByDayIndex: sagas por dia de criação para a aba SLOs (Query na janela
+  # em vez de Scan na tabela). dayShard = "YYYY-MM-DD#k", com k de 0 a 9: o
+  # shard espalha as escritas do dia (ver src/common/saga-day-index.mjs).
+  # Projeta só o que o SLO lê. Sagas antigas: npm run backfill:sagas
   SagasTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -1242,9 +1246,23 @@ Resources:
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
+        - AttributeName: dayShard
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
       KeySchema:
         - AttributeName: id
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: SagasByDayIndex
+          KeySchema:
+            - AttributeName: dayShard
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes: [status, updatedAt]
 
 Outputs:
   ApiGatewayUrl:

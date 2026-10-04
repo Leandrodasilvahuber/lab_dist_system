@@ -1,4 +1,5 @@
 import { Database } from '../../../../common/database.mjs';
+import { SAGAS_BY_DAY_INDEX, dayShardsInWindow } from '../../../../common/saga-day-index.mjs';
 import { DlqClient } from './DlqClient.js';
 
 // Metas dos SLOs (critério de sucesso dos testes de carga/caos). Os SLOs
@@ -30,7 +31,8 @@ export function parseSloQuery(query = {}) {
  *    compensação de falha);
  *  - mensagens esquecidas na DLQ pelo SentTimestamp (tratar = reprocessar ou
  *    descartar, o que tira a mensagem da fila).
- * A tabela de sagas não tem índice por data: a janela é filtrada após o Scan.
+ * As sagas da janela vêm do SagasByDayIndex: uma Query por dia e shard, em
+ * paralelo (24 h = 2 dias x 10 shards), sem varrer a tabela inteira.
  */
 export class SloClient {
   constructor({ db = new Database(), dlq = new DlqClient(), cacheTtlMs = SLO_CACHE_TTL_MS, now = Date.now } = {}) {
@@ -53,15 +55,27 @@ export class SloClient {
 
   async read(hours) {
     const now = this.now();
-    const [sagas, dlq] = await Promise.all([this.db.scanItems('sagas'), this.dlq.listMessages()]);
     const since = now - hours * HOUR_MS;
-    const inWindow = sagas.filter(saga => Date.parse(saga.createdAt) >= since);
+    const [inWindow, dlq] = await Promise.all([this.sagasSince(since, now), this.dlq.listMessages()]);
 
     return {
       windowHours: hours,
       generatedAt: new Date(now).toISOString(),
       slos: [latencySlo(inWindow), outcomeSlo(inWindow, now), dlqSlo(dlq, now)]
     };
+  }
+
+  // O índice projeta só status e updatedAt, além das chaves (id, dayShard, createdAt)
+  async sagasSince(sinceMs, nowMs) {
+    const since = new Date(sinceMs).toISOString();
+    const pages = await Promise.all(dayShardsInWindow(sinceMs, nowMs).map(dayShard =>
+      this.db.queryItems('sagas', {
+        IndexName: SAGAS_BY_DAY_INDEX,
+        KeyConditionExpression: 'dayShard = :dayShard AND createdAt >= :since',
+        ExpressionAttributeValues: { ':dayShard': dayShard, ':since': since }
+      })
+    ));
+    return pages.flat();
   }
 }
 

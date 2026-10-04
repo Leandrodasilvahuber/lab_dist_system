@@ -12,6 +12,11 @@ const INDEXES = {
     IndexName: 'ActiveReservationsIndex',
     KeySchema: [{ AttributeName: 'activeProductId', KeyType: 'HASH' }],
     Projection: { ProjectionType: 'ALL' }
+  }],
+  sagas: [{
+    IndexName: 'SagasByDayIndex',
+    KeySchema: [{ AttributeName: 'dayShard', KeyType: 'HASH' }, { AttributeName: 'createdAt', KeyType: 'RANGE' }],
+    Projection: { ProjectionType: 'INCLUDE', NonKeyAttributes: ['status', 'updatedAt'] }
   }]
 };
 
