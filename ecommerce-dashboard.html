@@ -25,10 +25,114 @@
 
         h1 {
             color: white;
-            text-align: center;
-            margin-bottom: 20px;
-            font-size: 2.5em;
+            font-size: 1.8em;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        /* ---------- Barra do topo: título à esquerda, status e admin à direita ---------- */
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 25px;
+        }
+
+        .topbar-actions {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-link {
+            width: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: transparent;
+            color: white;
+            font-size: 0.85em;
+            font-weight: 500;
+            border-radius: 20px;
+        }
+
+        .status-link:hover {
+            background: rgba(255, 255, 255, 0.15);
+            box-shadow: none;
+        }
+
+        .admin-btn {
+            width: auto;
+            padding: 9px 18px;
+            border-radius: 25px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            color: white;
+        }
+
+        .admin-btn.logged-in {
+            background: white;
+            color: #667eea;
+            border-color: white;
+        }
+
+        .admin-popover {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            z-index: 100;
+            width: 300px;
+            padding: 18px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+        }
+
+        .admin-popover[hidden] { display: none; }
+
+        .admin-popover h3 {
+            color: #333;
+            font-size: 1em;
+            margin-bottom: 4px;
+        }
+
+        .admin-popover p {
+            color: #666;
+            font-size: 0.8em;
+            margin-bottom: 12px;
+        }
+
+        .admin-popover input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .admin-popover input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .admin-popover .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .admin-popover .btn-ghost {
+            background: #f1f3f5;
+            color: #555;
+        }
+
+        @media (max-width: 600px) {
+            .topbar { flex-direction: column; align-items: stretch; text-align: center; }
+            .topbar-actions { justify-content: center; }
+            .admin-popover { position: fixed; top: 140px; left: 16px; right: 16px; width: auto; }
         }
 
         .tabs {
@@ -306,40 +410,9 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
 
-        .health-indicator {
-            text-align: center;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 15px;
-            margin-bottom: 20px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
-        }
-
-        .health-status {
-            font-size: 1.5em;
-            font-weight: bold;
-            margin-top: 10px;
-        }
-
-        .health-status.healthy {
-            color: #38ef7d;
-        }
-
-        .health-status.unhealthy {
-            color: #f45c43;
-        }
-
-        .connection-status {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
         .connection-dot {
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             background: #ccc;
         }
@@ -482,48 +555,88 @@
             padding: 20px;
         }
 
-        .api-info {
-            color: #666;
-            font-size: 0.8em;
-            margin-top: 8px;
-        }
-
-        .admin-key {
+        /* ---------- Monitoramento ---------- */
+        .monitor-toolbar {
             display: flex;
-            justify-content: center;
+            justify-content: space-between;
             align-items: center;
-            gap: 8px;
-            margin-top: 10px;
-            font-size: 0.85em;
+            gap: 10px;
+            margin-bottom: 20px;
             color: #666;
+            font-size: 0.9em;
             flex-wrap: wrap;
         }
 
-        .admin-key input {
-            width: 220px;
-            max-width: 100%;
-            padding: 6px 10px;
+        .monitor-toolbar button {
+            width: auto;
+            padding: 8px 16px;
+        }
+
+        .monitor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .monitor-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 5px solid #ccc;
+            min-width: 0;
+        }
+
+        .monitor-card.ok { border-left-color: #38ef7d; }
+        .monitor-card.fail { border-left-color: #f45c43; }
+
+        .monitor-card .label {
+            color: #666;
+            font-size: 0.8em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .monitor-card .value {
+            color: #333;
+            font-size: 1.5em;
+            font-weight: bold;
+            margin: 8px 0;
+            overflow-wrap: anywhere;
+        }
+
+        .monitor-card.fail .value { color: #c0392b; }
+
+        .monitor-card .detail {
+            color: #888;
+            font-size: 0.8em;
+            overflow-wrap: anywhere;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🛒 E-commerce Dashboard</h1>
-
-        <div class="card health-indicator">
-            <div style="display: flex; justify-content: center; align-items: center; gap: 20px;">
-                <div class="connection-status">
-                    <div class="connection-dot" id="connectionDot"></div>
+        <header class="topbar">
+            <h1>🛒 E-commerce Dashboard</h1>
+            <div class="topbar-actions">
+                <button type="button" class="status-link" id="statusLink" title="Ver monitoramento">
+                    <span class="connection-dot" id="connectionDot"></span>
                     <span id="connectionStatus">Conectando...</span>
+                </button>
+                <button type="button" class="admin-btn" id="adminBtn" aria-haspopup="dialog" aria-expanded="false">🔐 Admin</button>
+                <div class="admin-popover" id="adminPopover" role="dialog" aria-label="Login de admin" hidden>
+                    <form id="adminForm">
+                        <h3>Acesso de admin</h3>
+                        <p>Chave (X-Api-Key) para criar produtos. Fica só neste navegador.</p>
+                        <input type="password" id="adminKey" autocomplete="off" placeholder="Chave de admin">
+                        <div class="actions">
+                            <button type="submit" class="btn-primary">Entrar</button>
+                            <button type="button" class="btn-ghost" id="adminLogout">Sair</button>
+                        </div>
+                    </form>
                 </div>
-                <div class="health-status" id="healthStatus">Verificando...</div>
             </div>
-            <div class="api-info" id="apiInfo"></div>
-            <div class="admin-key">
-                <label for="adminKey">Chave de admin (X-Api-Key):</label>
-                <input type="password" id="adminKey" autocomplete="off" placeholder="necessária para criar produtos">
-            </div>
-        </div>
+        </header>
 
         <div class="tabs">
             <button class="tab-btn active" data-tab="buy">🛍️ Comprar</button>
@@ -531,6 +644,7 @@
             <button class="tab-btn" data-tab="stock">📊 Estoque</button>
             <button class="tab-btn" data-tab="orders">🧾 Pedidos</button>
             <button class="tab-btn" data-tab="summary">📈 Resumo</button>
+            <button class="tab-btn" data-tab="monitoring">🩺 Monitoramento</button>
         </div>
 
         <div class="tab-content active" id="buy-tab">
@@ -613,6 +727,15 @@
         <div class="tab-content" id="summary-tab">
             <h2>📈 Resumo do Sistema</h2>
             <div id="summaryContent" style="padding: 20px;"></div>
+        </div>
+
+        <div class="tab-content" id="monitoring-tab">
+            <h2>🩺 Monitoramento do Sistema</h2>
+            <div class="monitor-toolbar">
+                <span id="monitorUpdated">Verificando...</span>
+                <button type="button" class="btn-primary" id="monitorRefresh">🔄 Atualizar</button>
+            </div>
+            <div class="monitor-grid" id="monitorGrid"></div>
         </div>
     </div>
 
@@ -700,7 +823,7 @@
             const body = await response.json().catch(() => ({}));
             if (!response.ok) {
                 const message = response.status === 401 || response.status === 403
-                    ? 'informe a chave de admin (X-Api-Key) no topo da página'
+                    ? 'entre como admin (botão no canto superior direito)'
                     : body.error || body.message || `HTTP ${response.status}`;
                 const error = new Error(message);
                 error.status = response.status;
@@ -723,22 +846,64 @@
             return { [key]: items };
         }
 
-        async function updateHealthStatus() {
-            const dot = document.getElementById('connectionDot');
-            const status = document.getElementById('connectionStatus');
-            const health = document.getElementById('healthStatus');
-            try {
-                await api('/health');
-                dot.className = 'connection-dot connected';
-                status.textContent = 'Conectado';
-                health.textContent = '✅ Sistema Saudável';
-                health.className = 'health-status healthy';
-            } catch {
-                dot.className = 'connection-dot disconnected';
-                status.textContent = 'Desconectado';
-                health.textContent = '❌ API indisponível';
-                health.className = 'health-status unhealthy';
+        // ---------- Monitoramento ----------
+        // Cada métrica é um item de MONITORS: check() devolve { value, ok, detail? }.
+        // Para uma métrica nova, basta acrescentar um item (ok: null = só informativo).
+        let lastHealth = null;
+        const MONITORS = [
+            {
+                id: 'api',
+                label: 'API',
+                async check() {
+                    const started = performance.now();
+                    try {
+                        const body = await api('/health');
+                        lastHealth = { ok: true, ms: Math.round(performance.now() - started), body };
+                    } catch (error) {
+                        lastHealth = { ok: false, error };
+                    }
+                    return lastHealth.ok
+                        ? { value: '✅ Sistema Saudável', ok: true, detail: 'GET /health' }
+                        : { value: '❌ API indisponível', ok: false, detail: lastHealth.error.message };
+                }
+            },
+            {
+                id: 'latency',
+                label: 'Latência do /health',
+                // Usa a medição do monitor "api" (roda antes, na mesma rodada)
+                check: () => lastHealth?.ok
+                    ? { value: `${lastHealth.ms} ms`, ok: lastHealth.ms < 1000 }
+                    : { value: '—', ok: false, detail: 'sem resposta' }
+            },
+            {
+                id: 'endpoint',
+                label: 'Endpoint',
+                check: () => ({ value: API_BASE.replace(/^https?:\/\//, ''), ok: null, detail: API_BASE })
             }
+        ];
+
+        async function runMonitors() {
+            const results = [];
+            for (const monitor of MONITORS) {
+                try {
+                    results.push({ monitor, ...(await monitor.check()) });
+                } catch (error) {
+                    results.push({ monitor, value: 'erro', ok: false, detail: error.message });
+                }
+            }
+            const checkedAt = time(new Date().toISOString());
+            document.getElementById('monitorGrid').innerHTML = results.map(({ monitor, value, ok, detail }) => `
+                <div class="monitor-card ${ok === true ? 'ok' : ok === false ? 'fail' : ''}" id="monitor-${escapeHtml(monitor.id)}">
+                    <div class="label">${escapeHtml(monitor.label)}</div>
+                    <div class="value">${escapeHtml(value)}</div>
+                    ${detail ? `<div class="detail">${escapeHtml(detail)}</div>` : ''}
+                </div>`).join('');
+            document.getElementById('monitorUpdated').textContent = `Última verificação às ${checkedAt} · a cada 30 s`;
+
+            const healthy = lastHealth?.ok;
+            document.getElementById('connectionDot').className = `connection-dot ${healthy ? 'connected' : 'disconnected'}`;
+            document.getElementById('connectionStatus').textContent = healthy ? 'Conectado' : 'Desconectado';
+            document.getElementById('statusLink').title = `${healthy ? 'Sistema saudável' : 'API indisponível'} · ver monitoramento`;
         }
 
         function setupTabs() {
@@ -759,7 +924,8 @@
                 products: fetchProducts,
                 stock: fetchStock,
                 orders: fetchOrders,
-                summary: fetchSummary
+                summary: fetchSummary,
+                monitoring: runMonitors
             };
             return actions[name]?.();
         }
@@ -1002,7 +1168,6 @@
         }
 
         // ---------- Inicialização ----------
-        document.getElementById('apiInfo').textContent = `API: ${API_BASE}`;
         document.getElementById('productForm').addEventListener('submit', createProduct);
         document.getElementById('buyForm').addEventListener('submit', startPurchase);
         // Botão "Comprar" da lista: o id vem de data-buy-id (nada de JS montado em atributo)
@@ -1010,17 +1175,62 @@
             const button = event.target.closest('[data-buy-id]');
             if (button) buyFromList(button.dataset.buyId);
         });
+        // Login de admin: popover no canto superior direito
+        const adminBtn = document.getElementById('adminBtn');
+        const adminPopover = document.getElementById('adminPopover');
         const adminKeyInput = document.getElementById('adminKey');
-        adminKeyInput.value = adminKey;
-        adminKeyInput.addEventListener('change', () => {
-            adminKey = adminKeyInput.value.trim();
+
+        function renderAdminButton() {
+            adminBtn.textContent = adminKey ? '🔓 Admin ✓' : '🔐 Admin';
+            adminBtn.classList.toggle('logged-in', Boolean(adminKey));
+            adminBtn.title = adminKey ? 'Chave de admin ativa' : 'Entrar como admin';
+        }
+
+        function toggleAdminPopover(open = adminPopover.hidden) {
+            adminPopover.hidden = !open;
+            adminBtn.setAttribute('aria-expanded', String(open));
+            if (open) {
+                adminKeyInput.value = adminKey;
+                adminKeyInput.focus();
+            }
+        }
+
+        function setAdminKey(value) {
+            adminKey = value;
             storage.set('adminKey', adminKey);
+            renderAdminButton();
+            toggleAdminPopover(false);
             refreshTab(document.querySelector('.tab-btn.active').dataset.tab);
+        }
+
+        adminBtn.addEventListener('click', event => {
+            event.stopPropagation();
+            toggleAdminPopover();
         });
+        document.getElementById('adminForm').addEventListener('submit', event => {
+            event.preventDefault();
+            const value = adminKeyInput.value.trim();
+            setAdminKey(value);
+            showToast(value ? 'Chave de admin ativa.' : 'Chave de admin removida.', 'info');
+        });
+        document.getElementById('adminLogout').addEventListener('click', () => {
+            setAdminKey('');
+            showToast('Saiu do modo admin.', 'info');
+        });
+        document.addEventListener('click', event => {
+            if (!adminPopover.hidden && !adminPopover.contains(event.target)) toggleAdminPopover(false);
+        });
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && !adminPopover.hidden) toggleAdminPopover(false);
+        });
+        document.getElementById('statusLink').addEventListener('click', () => showTab('monitoring'));
+        document.getElementById('monitorRefresh').addEventListener('click', runMonitors);
+
+        renderAdminButton();
         setupTabs();
-        updateHealthStatus();
+        runMonitors();
         fetchProducts().then(fetchSagas);
-        setInterval(updateHealthStatus, 30000);
+        setInterval(runMonitors, 30000);
     </script>
 </body>
 </html>
