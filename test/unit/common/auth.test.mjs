@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { isAdminRoute, isValidApiKey } from '../../../src/common/auth.mjs';
+import { hashApiKey, isAdminRoute, isValidApiKey, isValidApiKeyHash } from '../../../src/common/auth.mjs';
 import { createHandler, createKeyProvider, CACHE_TTL_MS } from '../../../src/layers/api-gateway-layer/src/auth/adminAuthorizer.js';
 
 process.env.LOG_LEVEL = 'silent';
@@ -43,6 +43,27 @@ describe('X-Api-Key', () => {
   it('nega tudo se a chave esperada não estiver configurada', () => {
     assert.ok(!isValidApiKey({ 'x-api-key': '' }, ''));
     assert.ok(!isValidApiKey({ 'x-api-key': 'qualquer' }, undefined));
+  });
+
+  it('hash scrypt aceita só a chave correta', async () => {
+    const hash = hashApiKey(key);
+    assert.match(hash, /^scrypt\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
+    assert.ok(await isValidApiKeyHash({ 'x-api-key': key }, hash));
+    assert.ok(!await isValidApiKeyHash({ 'x-api-key': key + 'x' }, hash));
+    assert.ok(!await isValidApiKeyHash({ 'x-api-key': '' }, hash));
+    assert.ok(!await isValidApiKeyHash({}, hash));
+  });
+
+  it('hash usa salt aleatório', () => {
+    assert.notStrictEqual(hashApiKey(key), hashApiKey(key));
+  });
+
+  it('hash ausente ou mal formado nega tudo', async () => {
+    const valid = hashApiKey(key);
+    for (const stored of [undefined, '', key, 'scrypt$abc', `sha256$00$${'0'.repeat(64)}`, `scrypt$00$${'0'.repeat(10)}`,
+      valid.replace(/\$[0-9a-f]{2}/, '$zz'), `${valid}$extra`]) {
+      assert.ok(!await isValidApiKeyHash({ 'x-api-key': key }, stored), String(stored));
+    }
   });
 
   it('authorizer do HttpApi responde no formato simples', async () => {

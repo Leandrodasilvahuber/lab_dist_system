@@ -243,16 +243,25 @@ npm run build && npm run localstack:deploy   # publica as Lambdas e a saga no Lo
 npm run local-server                         # abra http://localhost:3001
 ```
 
-Localmente as rotas de admin ficam abertas, a menos que `ADMIN_API_KEY` esteja
-definida ao subir o `local-server`. Para deixar a chave fixa, grave-a num `.env`
-na raiz do projeto (fora do git), que o `npm run local-server` carrega sozinho:
+Localmente as rotas de admin ficam abertas, a menos que `ADMIN_API_KEY_HASH`
+(ou `ADMIN_API_KEY`) esteja definida ao subir o `local-server`. Para deixar a
+chave fixa, grave no `.env` da raiz do projeto (fora do git), que o
+`npm run local-server` carrega sozinho, só o hash scrypt dela. No dashboard
+você digita a chave normalmente e o servidor compara com o hash:
 
 ```bash
-(umask 077 && echo "ADMIN_API_KEY=$(openssl rand -hex 16)" > .env)
+npm run admin:hash   # pede a chave sem mostrar no terminal e imprime ADMIN_API_KEY_HASH='scrypt$...'
 ```
 
+Coloque a linha impressa no `.env`, substituindo a `ADMIN_API_KEY_HASH` (ou
+`ADMIN_API_KEY`) anterior, se houver, e deixe o arquivo legível só por você
+(`chmod 600 .env`).
+
+Na AWS o hash não é usado: a chave fica no SSM Parameter Store (SecureString,
+cifrada pelo KMS) e é conferida pelo authorizer.
+
 Uma variável já definida no shell tem prioridade sobre o `.env`. Por isso ele escuta só em `127.0.0.1`; para
-expor na rede, use `HOST=0.0.0.0` junto com `ADMIN_API_KEY` (sem a chave, o
+expor na rede, use `HOST=0.0.0.0` junto com a chave de admin (sem ela, o
 servidor se recusa a subir).
 
 Para usar o dashboard com a API publicada na AWS, abra

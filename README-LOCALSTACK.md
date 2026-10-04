@@ -83,7 +83,7 @@ ao Stock (cria o item "Transitório" no estoque local); 🗑️ Descartar só ap
 
 A aba 📜 **Logs** mostra as linhas warn/error. No `local-server` elas vêm de um
 buffer em memória (últimas 500, desde que o servidor subiu); na AWS, do
-CloudWatch Logs. Exige a chave de admin quando `ADMIN_API_KEY` está definida.
+CloudWatch Logs. Exige a chave de admin quando `ADMIN_API_KEY_HASH` (ou `ADMIN_API_KEY`) está definida.
 
 O CloudWatch precisa estar em `SERVICES` no `docker-compose.yml`. Se o
 container subiu antes dessa mudança, recrie-o (apaga os dados locais):
@@ -114,7 +114,8 @@ seguintes são rápidas.
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` ou `silent` | `info` (`warn` no `local-server`) |
 | `SAMPLE_ORDERS` | `false` desliga as compras de exemplo enviadas ao subir o `local-server` | ligado |
 | `CORS_ALLOW_ORIGIN` | Origem do header `Access-Control-Allow-Origin` no `local-server` e em invocações diretas (na AWS vale o parâmetro `AllowedOrigin`) | `*` |
-| `HOST`, `PORT` | Endereço do `local-server` (`HOST=0.0.0.0` exige `ADMIN_API_KEY`) | `127.0.0.1`, `3001` |
+| `ADMIN_API_KEY_HASH` | Hash scrypt da chave de admin do `local-server`, gerado por `npm run admin:hash` (tem prioridade sobre `ADMIN_API_KEY`) | — |
+| `HOST`, `PORT` | Endereço do `local-server` (`HOST=0.0.0.0` exige a chave de admin) | `127.0.0.1`, `3001` |
 | `LOCALSTACK_ENDPOINT` | Endpoint usado pelo `test:e2e` | `http://localhost:4566` |
 
 O arquivo `.env.test` tem os valores para o LocalStack:

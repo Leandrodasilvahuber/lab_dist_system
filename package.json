@@ -21,6 +21,7 @@
     "localstack:start": "bash scripts/localstack-start.sh",
     "localstack:stop": "bash scripts/localstack-stop.sh",
     "localstack:deploy": "node scripts/localstack-deploy.mjs",
+    "admin:hash": "node scripts/hash-admin-key.mjs",
     "local-server": "LOG_LEVEL=${LOG_LEVEL:-warn} node --env-file-if-exists=.env local-server.mjs"
   },
   "dependencies": {

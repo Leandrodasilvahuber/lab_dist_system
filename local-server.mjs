@@ -18,19 +18,20 @@
  * existem na tabela Sagas (1ª subida após o deploy ou LocalStack recriado).
  * SAMPLE_ORDERS=false desliga.
  *
- * Com ADMIN_API_KEY definida, as rotas administrativas (src/common/auth.mjs)
- * exigem o header X-Api-Key, como o authorizer do HttpApi faz na AWS. O
- * `npm run local-server` lê o .env da raiz (se existir), onde a chave pode ficar fixa.
+ * Com ADMIN_API_KEY_HASH (ou ADMIN_API_KEY) definida, as rotas administrativas
+ * (src/common/auth.mjs) exigem o header X-Api-Key, como o authorizer do HttpApi faz
+ * na AWS. O `npm run local-server` lê o .env da raiz (se existir); prefira guardar
+ * lá só o hash, gerado por `npm run admin:hash`, em vez da chave em texto puro.
  *
  * Escuta só em 127.0.0.1 (as rotas de admin podem estar abertas). Para expor
- * na rede local, defina HOST=0.0.0.0 junto com ADMIN_API_KEY.
+ * na rede local, defina HOST=0.0.0.0 junto com a chave de admin.
  */
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SFNClient, ListStateMachinesCommand } from '@aws-sdk/client-sfn';
-import { isAdminRoute, isValidApiKey } from './src/common/auth.mjs';
+import { isAdminRoute, isValidApiKey, isValidApiKeyHash } from './src/common/auth.mjs';
 import { createLogBuffer } from './src/common/log-query.mjs';
 import { CORS_HEADERS } from './src/common/response.mjs';
 
@@ -39,6 +40,13 @@ const PORT = Number(process.env.PORT || 3001);
 const HOST = process.env.HOST || '127.0.0.1';
 const STATE_MACHINE_NAME = 'local-purchase-saga';
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
+const ADMIN_API_KEY_HASH = process.env.ADMIN_API_KEY_HASH;
+const ADMIN_AUTH_ENABLED = Boolean(ADMIN_API_KEY_HASH || ADMIN_API_KEY);
+
+// O hash tem prioridade: com ele, a chave em texto puro não precisa estar em lugar nenhum
+const isAuthorizedAdmin = async headers => ADMIN_API_KEY_HASH
+  ? isValidApiKeyHash(headers, ADMIN_API_KEY_HASH)
+  : isValidApiKey(headers, ADMIN_API_KEY);
 
 // Os serviços leem a configuração ao carregar, então ela vem antes dos imports dinâmicos
 process.env.AWS_ENDPOINT ||= 'http://localhost:4566';
@@ -175,7 +183,7 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { 'Content-Type': 'text/html; charset=utf-8' }, html);
   }
 
-  if (ADMIN_API_KEY && isAdminRoute(req.method, url.pathname) && !isValidApiKey(req.headers, ADMIN_API_KEY)) {
+  if (ADMIN_AUTH_ENABLED && isAdminRoute(req.method, url.pathname) && !(await isAuthorizedAdmin(req.headers))) {
     return send(res, 401, { 'Content-Type': 'application/json' }, JSON.stringify({ error: 'Unauthorized: X-Api-Key inválida ou ausente' }));
   }
 
@@ -205,8 +213,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-if (!ADMIN_API_KEY && !['127.0.0.1', 'localhost', '::1'].includes(HOST)) {
-  console.error(`❌ HOST=${HOST} expõe o servidor na rede: defina ADMIN_API_KEY para proteger as rotas de admin.`);
+if (ADMIN_API_KEY_HASH && ADMIN_API_KEY) {
+  console.warn('⚠️  ADMIN_API_KEY_HASH e ADMIN_API_KEY definidas: vale só o hash, ADMIN_API_KEY é ignorada.');
+}
+
+if (!ADMIN_AUTH_ENABLED && !['127.0.0.1', 'localhost', '::1'].includes(HOST)) {
+  console.error(`❌ HOST=${HOST} expõe o servidor na rede: defina ADMIN_API_KEY_HASH (npm run admin:hash) para proteger as rotas de admin.`);
   process.exit(1);
 }
 
@@ -216,8 +228,8 @@ server.listen(PORT, HOST, () => {
   console.log(process.env.SAGA_STATE_MACHINE_ARN
     ? `   Saga: ${process.env.SAGA_STATE_MACHINE_ARN}`
     : `   ⚠️  Saga não publicada: compras indisponíveis. Rode npm run build && npm run localstack:deploy`);
-  console.log(ADMIN_API_KEY
-    ? '   Rotas de admin exigem X-Api-Key (ADMIN_API_KEY)'
-    : '   ⚠️  ADMIN_API_KEY não definida: rotas de admin abertas (só para desenvolvimento local)');
+  console.log(ADMIN_AUTH_ENABLED
+    ? `   Rotas de admin exigem X-Api-Key (${ADMIN_API_KEY_HASH ? 'ADMIN_API_KEY_HASH' : 'ADMIN_API_KEY'})`
+    : '   ⚠️  Chave de admin não definida: rotas de admin abertas (só para desenvolvimento local)');
   if (process.env.SAGA_STATE_MACHINE_ARN && process.env.SAMPLE_ORDERS !== 'false') seedSampleOrders();
 });
