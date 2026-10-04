@@ -849,6 +849,10 @@
                 </div>
                 <button type="submit" class="btn-primary">Adicionar Produto</button>
             </form>
+            <h2 style="margin-top: 30px;">📋 Produtos cadastrados</h2>
+            <ul id="adminProductList" class="product-list">
+                <li class="empty">Carregando produtos...</li>
+            </ul>
         </div>
 
         <div class="tab-content" id="stock-tab">
@@ -1397,6 +1401,7 @@
             const actions = {
                 buy: () => Promise.all([fetchProducts(), fetchSagas()]),
                 products: fetchProducts,
+                admin: fetchProducts,
                 stock: fetchStock,
                 orders: fetchOrders,
                 summary: fetchSummary,
@@ -1423,8 +1428,8 @@
                 products = [];
             }
 
-            const list = document.getElementById('productList');
-            list.innerHTML = products.length ? products.map(p => `
+            // A mesma lista aparece na aba Produtos e na aba Admin
+            const listHtml = products.length ? products.map(p => `
                 <li class="product-item">
                     <h3>${escapeHtml(p.name)}</h3>
                     <p>Preço: ${money(p.price)} | Estoque: ${p.stock ?? 0}</p>
@@ -1432,6 +1437,9 @@
                         <button class="btn-primary" data-buy-id="${escapeHtml(p.id)}">Comprar</button>
                     </div>
                 </li>`).join('') : '<li class="empty">Nenhum produto. Rode npm run seed:local ou adicione na aba Admin.</li>';
+            for (const id of ['productList', 'adminProductList']) {
+                document.getElementById(id).innerHTML = listHtml;
+            }
 
             const select = document.getElementById('buyProduct');
             const selected = select.value;
@@ -1676,10 +1684,12 @@
         document.getElementById('productForm').addEventListener('submit', createProduct);
         document.getElementById('buyForm').addEventListener('submit', startPurchase);
         // Botão "Comprar" da lista: o id vem de data-buy-id (nada de JS montado em atributo)
-        document.getElementById('productList').addEventListener('click', event => {
-            const button = event.target.closest('[data-buy-id]');
-            if (button) buyFromList(button.dataset.buyId);
-        });
+        for (const id of ['productList', 'adminProductList']) {
+            document.getElementById(id).addEventListener('click', event => {
+                const button = event.target.closest('[data-buy-id]');
+                if (button) buyFromList(button.dataset.buyId);
+            });
+        }
         // Login de admin: popover no canto superior direito
         const adminBtn = document.getElementById('adminBtn');
         const adminPopover = document.getElementById('adminPopover');
