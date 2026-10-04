@@ -7,9 +7,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
  */
 export const ADMIN_ROUTES = [
   ['POST', /^\/products$/],
-  ['POST', /^\/stock\/[^/]+\/adjust$/],
-  ['GET', /^\/orders$/],
-  ['GET', /^\/sagas$/]
+  ['POST', /^\/stock\/[^/]+\/adjust$/]
 ];
 
 export function isAdminRoute(method, path) {

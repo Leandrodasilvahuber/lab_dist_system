@@ -521,7 +521,7 @@
             <div class="api-info" id="apiInfo"></div>
             <div class="admin-key">
                 <label for="adminKey">Chave de admin (X-Api-Key):</label>
-                <input type="password" id="adminKey" autocomplete="off" placeholder="necessária para criar produtos e ver listas">
+                <input type="password" id="adminKey" autocomplete="off" placeholder="necessária para criar produtos">
             </div>
         </div>
 
@@ -688,10 +688,6 @@
         };
         let adminKey = storage.get('adminKey', '');
 
-        // Compras feitas neste navegador: acompanhadas por GET /saga/{id} (público)
-        // quando GET /sagas (admin) não está disponível
-        let mySagaIds = storage.get('mySagaIds', []);
-
         async function api(path, options = {}) {
             const response = await fetch(API_BASE + path, {
                 ...options,
@@ -844,8 +840,6 @@
                     headers: { 'Idempotency-Key': crypto.randomUUID() },
                     body: JSON.stringify({ productId, quantity })
                 });
-                mySagaIds = [result.sagaId, ...mySagaIds.filter(id => id !== result.sagaId)].slice(0, 20);
-                storage.set('mySagaIds', mySagaIds);
                 showToast('Compra iniciada! Acompanhe o andamento ao lado.', 'info');
                 document.getElementById('buyQuantity').value = 1;
                 await fetchSagas();
@@ -869,14 +863,9 @@
             try {
                 ({ sagas } = await api('/sagas'));
             } catch (error) {
-                if (error.status !== 401 && error.status !== 403) {
-                    document.getElementById('sagaList').innerHTML =
-                        `<div class="empty">Não foi possível carregar as compras: ${escapeHtml(error.message)}</div>`;
-                    return;
-                }
-                // Sem chave de admin: mostra só as compras feitas neste navegador
-                const mine = await Promise.all(mySagaIds.map(id => api(`/saga/${encodeURIComponent(id)}`).catch(() => null)));
-                sagas = mine.filter(Boolean);
+                document.getElementById('sagaList').innerHTML =
+                    `<div class="empty">Não foi possível carregar as compras: ${escapeHtml(error.message)}</div>`;
+                return;
             }
 
             notifyFinished(sagas);

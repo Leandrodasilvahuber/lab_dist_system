@@ -178,8 +178,6 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /orders
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         GetOrder:
           Type: HttpApi
           Properties:
@@ -302,8 +300,6 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /sagas
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SagasTable

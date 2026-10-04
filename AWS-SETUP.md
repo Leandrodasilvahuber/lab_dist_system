@@ -29,7 +29,7 @@ A chave antiga ainda é aceita por até ~6 minutos depois da troca: 1 minuto de
 cache no authorizer mais os 5 minutos em que o HttpApi guarda a decisão
 (`ReauthorizeEvery: 300` no template).
 As rotas
-`POST /products`, `POST /stock/{id}/adjust`, `GET /orders` e `GET /sagas` exigem
+`POST /products` e `POST /stock/{id}/adjust` exigem
 o header `X-Api-Key` com essa chave. Para restringir o CORS a uma origem, passe
 também `AllowedOrigin=https://...` em `--parameter-overrides`.
 
@@ -85,8 +85,12 @@ curl -X POST $API/saga/execute -H "Idempotency-Key: $(uuidgen)" \
   -d '{"productId": "apple", "quantity": 2}'
 curl $API/saga/<sagaId da resposta>
 
-# Rotas de admin
-curl -H "X-Api-Key: $ADMIN_API_KEY" $API/sagas
+# Listagens (públicas)
+curl $API/orders
+curl $API/sagas
+
+# Rota de admin
+curl -X POST -H "X-Api-Key: $ADMIN_API_KEY" $API/stock/apple/adjust -d '{"delta": 10}'
 
 # Pagamento recusado (produto de 25000 > limite de 10000): saga termina COMPENSATED
 curl -X POST $API/saga/execute -d '{"productId": "server", "quantity": 1}'

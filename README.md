@@ -114,14 +114,14 @@ Os erros de cada execução ficam no log group da state machine (output
 | GET | `/products` | Lista produtos, paginado (`?name=&priceMin=&priceMax=&limit=&nextToken=`) |
 | POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`price > 0`; `stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
-| GET | `/orders` 🔑 | Lista pedidos (`?status=&productId=`) |
+| GET | `/orders` | Lista pedidos (`?status=&productId=`) |
 | GET | `/orders/{id}` | Busca pedido |
 | GET | `/stock` | Estoque dos produtos, paginado (`?productId=&stockMin=&stockMax=&limit=&nextToken=`) |
 | GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento) |
 | POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir) |
 | **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` → 202 |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
-| GET | `/sagas` 🔑 | Lista as compras (`?status=`) |
+| GET | `/sagas` | Lista as compras (`?status=`) |
 
 🔑 Rota administrativa: exige o header `X-Api-Key` com a chave de admin, guardada
 no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) e
@@ -142,13 +142,12 @@ vir com menos de `limit` itens. Filtro numérico inválido (`priceMin=abc`) resp
   (`getProduct`), EventBridge → Stock (`ProductCreated`, `ProductDeleted`) e → SQS. Um request HTTP
   nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
 - **O dashboard usa só** `/health`, `GET/POST /products`, `GET /stock`,
-  `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. Sem a
-  chave de admin (campo no topo da página), ele mostra só as compras feitas no
-  próprio navegador, via `GET /saga/{id}`.
+  `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. A
+  chave de admin (campo no topo da página) só é pedida para criar produtos.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
   rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem
   nenhuma rota pública.
-- **Escritas administrativas e listagens completas exigem `X-Api-Key`.** É uma
+- **Escritas administrativas exigem `X-Api-Key`.** É uma
   chave única de admin, adequada ao laboratório; para usuários reais, troque
   por um authorizer JWT (Cognito ou outro IdP).
 
