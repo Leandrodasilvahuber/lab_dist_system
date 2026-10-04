@@ -441,6 +441,10 @@
             padding-bottom: 15px;
         }
 
+        .tab-content h2.section-gap {
+            margin-top: 30px;
+        }
+
         .narrow-form {
             max-width: 480px;
         }
@@ -849,7 +853,7 @@
                 </div>
                 <button type="submit" class="btn-primary">Adicionar Produto</button>
             </form>
-            <h2 style="margin-top: 30px;">📋 Produtos cadastrados</h2>
+            <h2 class="section-gap">📋 Produtos cadastrados</h2>
             <ul id="adminProductList" class="product-list">
                 <li class="empty">Carregando produtos...</li>
             </ul>
@@ -1414,7 +1418,21 @@
         }
 
         // ---------- Produtos ----------
+        // Estoque ainda desconhecido: na AWS o inventário de um produto novo é
+        // criado de forma assíncrona (ProductCreated -> EventBridge -> Stock), e
+        // por alguns instantes o produto existe sem item em /stock
+        function stockLabel(stock) {
+            return stock === undefined ? '—' : stock;
+        }
+
+        // A lista aparece na aba Produtos (com "Comprar") e na aba Admin (só consulta)
+        const PRODUCT_LISTS = [
+            { id: 'productList', buy: true, empty: 'Nenhum produto. Rode npm run seed:local ou adicione na aba Admin.' },
+            { id: 'adminProductList', buy: false, empty: 'Nenhum produto cadastrado ainda.' }
+        ];
+
         async function fetchProducts() {
+            let loadError = null;
             try {
                 // Catálogo (Products) e estoque (Stock) vêm de serviços diferentes
                 const [catalog, inventory] = await Promise.all([
@@ -1424,27 +1442,28 @@
                 const available = new Map(inventory.stock.map(item => [item.productId, item.available]));
                 products = catalog.products.map(p => ({ ...p, stock: available.get(p.id) }));
                 products.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-            } catch {
+            } catch (error) {
                 products = [];
+                loadError = error;
             }
 
-            // A mesma lista aparece na aba Produtos e na aba Admin
-            const listHtml = products.length ? products.map(p => `
-                <li class="product-item">
-                    <h3>${escapeHtml(p.name)}</h3>
-                    <p>Preço: ${money(p.price)} | Estoque: ${p.stock ?? 0}</p>
-                    <div class="product-actions">
-                        <button class="btn-primary" data-buy-id="${escapeHtml(p.id)}">Comprar</button>
-                    </div>
-                </li>`).join('') : '<li class="empty">Nenhum produto. Rode npm run seed:local ou adicione na aba Admin.</li>';
-            for (const id of ['productList', 'adminProductList']) {
-                document.getElementById(id).innerHTML = listHtml;
+            for (const { id, buy, empty } of PRODUCT_LISTS) {
+                document.getElementById(id).innerHTML = loadError
+                    ? `<li class="empty">Erro ao carregar produtos: ${escapeHtml(loadError.message)}</li>`
+                    : products.length ? products.map(p => `
+                        <li class="product-item">
+                            <h3>${escapeHtml(p.name)}</h3>
+                            <p>Preço: ${money(p.price)} | Estoque: ${stockLabel(p.stock)}</p>
+                            ${buy ? `<div class="product-actions">
+                                <button class="btn-primary" data-buy-id="${escapeHtml(p.id)}">Comprar</button>
+                            </div>` : ''}
+                        </li>`).join('') : `<li class="empty">${empty}</li>`;
             }
 
             const select = document.getElementById('buyProduct');
             const selected = select.value;
             select.innerHTML = '<option value="">Selecione um produto</option>' + products.map(p =>
-                `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} — ${money(p.price)} (estoque ${p.stock ?? 0})</option>`
+                `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} — ${money(p.price)} (estoque ${stockLabel(p.stock)})</option>`
             ).join('');
             select.value = selected;
         }
@@ -1471,7 +1490,9 @@
                 });
                 event.target.reset();
                 showToast('Produto adicionado!', 'success');
-                fetchProducts();
+                await fetchProducts();
+                // Na AWS o inventário chega logo depois (evento assíncrono): relê uma vez
+                if (products.some(p => p.stock === undefined)) setTimeout(fetchProducts, 2000);
             } catch (error) {
                 showToast(`Erro ao adicionar produto: ${error.message}`, 'error');
             }
@@ -1684,12 +1705,10 @@
         document.getElementById('productForm').addEventListener('submit', createProduct);
         document.getElementById('buyForm').addEventListener('submit', startPurchase);
         // Botão "Comprar" da lista: o id vem de data-buy-id (nada de JS montado em atributo)
-        for (const id of ['productList', 'adminProductList']) {
-            document.getElementById(id).addEventListener('click', event => {
-                const button = event.target.closest('[data-buy-id]');
-                if (button) buyFromList(button.dataset.buyId);
-            });
-        }
+        document.getElementById('productList').addEventListener('click', event => {
+            const button = event.target.closest('[data-buy-id]');
+            if (button) buyFromList(button.dataset.buyId);
+        });
         // Login de admin: popover no canto superior direito
         const adminBtn = document.getElementById('adminBtn');
         const adminPopover = document.getElementById('adminPopover');
