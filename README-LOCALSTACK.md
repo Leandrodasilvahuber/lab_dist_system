@@ -44,6 +44,13 @@ npm run test:e2e:errors    # provoca erros tratados/não tratados e cria alarmes
 npm run localstack:stop
 ```
 
+Com a saga publicada, cada subida do `local-server` envia 4 compras de exemplo
+(apple, banana, grape e server; a do server tem o pagamento recusado e termina em
+compensação). As chaves de idempotência são fixas, então elas só viram pedidos
+novos enquanto essas sagas não existem na tabela Sagas do LocalStack: na 1ª
+subida após o deploy ou depois de recriar o LocalStack. Para não enviá-las, use
+`SAMPLE_ORDERS=false npm run local-server`.
+
 O `test:e2e` cria funções, tabelas e a state machine com um prefixo próprio
 (`e2e-<timestamp>`), roda os cenários de compra e remove tudo ao final, sem
 interferir nos dados do seed.
@@ -105,6 +112,8 @@ seguintes são rápidas.
 | `EVENT_BUS_NAME` | Barramento de eventos (sem ele, os eventos vão para o log e para assinantes locais, ex.: `ProductCreated` → Stock) | — |
 | `PAYMENT_MAX_AMOUNT` | Valor máximo aprovado pelo pagamento simulado | `10000` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` ou `silent` | `info` (`warn` no `local-server`) |
+| `SAMPLE_ORDERS` | `false` desliga as compras de exemplo enviadas ao subir o `local-server` | ligado |
+| `CORS_ALLOW_ORIGIN` | Origem do header `Access-Control-Allow-Origin` no `local-server` e em invocações diretas (na AWS vale o parâmetro `AllowedOrigin`) | `*` |
 | `HOST`, `PORT` | Endereço do `local-server` (`HOST=0.0.0.0` exige `ADMIN_API_KEY`) | `127.0.0.1`, `3001` |
 | `LOCALSTACK_ENDPOINT` | Endpoint usado pelo `test:e2e` | `http://localhost:4566` |
 

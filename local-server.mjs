@@ -12,6 +12,12 @@
  *   npm run build && npm run localstack:deploy
  *   npm run local-server        # abra http://localhost:3001
  *
+ * Ao subir com a saga publicada, envia algumas compras de exemplo (SAMPLE_ORDERS)
+ * para o dashboard não começar vazio. Isso acontece em toda subida, mas as chaves
+ * de idempotência são fixas: só viram pedidos novos enquanto essas sagas não
+ * existem na tabela Sagas (1ª subida após o deploy ou LocalStack recriado).
+ * SAMPLE_ORDERS=false desliga.
+ *
  * Com ADMIN_API_KEY definida, as rotas administrativas (src/common/auth.mjs)
  * exigem o header X-Api-Key, como o authorizer do HttpApi faz na AWS. O
  * `npm run local-server` lê o .env da raiz (se existir), onde a chave pode ficar fixa.
@@ -26,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { SFNClient, ListStateMachinesCommand } from '@aws-sdk/client-sfn';
 import { isAdminRoute, isValidApiKey } from './src/common/auth.mjs';
 import { createLogBuffer } from './src/common/log-query.mjs';
+import { CORS_HEADERS } from './src/common/response.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3001);
@@ -91,12 +98,6 @@ function routeFor(pathname) {
   return 'gateway';
 }
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key, Idempotency-Key, X-Idempotency-Key, X-Correlation-Id'
-};
-
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -104,6 +105,56 @@ function readBody(req) {
     req.on('end', () => resolve(body || null));
     req.on('error', reject);
   });
+}
+
+// Evento no formato payload 2.0 do HttpApi
+function buildEvent({ method, url, headers = {}, body = null }) {
+  return {
+    version: '2.0',
+    rawPath: url.pathname,
+    rawQueryString: url.search.slice(1),
+    queryStringParameters: Object.fromEntries(url.searchParams),
+    headers,
+    requestContext: { stage: '$default', http: { method, path: url.pathname } },
+    body,
+    isBase64Encoded: false
+  };
+}
+
+// Compras de exemplo: três concluídas e uma do Server (pagamento recusado → compensação)
+const SAMPLE_ORDERS = [
+  { productId: 'apple', quantity: 2 },
+  { productId: 'banana', quantity: 3 },
+  { productId: 'grape', quantity: 1 },
+  { productId: 'server', quantity: 1 }
+];
+
+async function seedSampleOrders() {
+  let created = 0;
+  let existing = 0;
+  for (const [index, order] of SAMPLE_ORDERS.entries()) {
+    const event = buildEvent({
+      method: 'POST',
+      url: new URL('/saga/execute', `http://localhost:${PORT}`),
+      headers: { 'content-type': 'application/json', 'idempotency-key': `seed-sample-order-${index + 1}` },
+      body: JSON.stringify(order)
+    });
+    try {
+      const result = await handlers.saga(event);
+      // 202: saga nova; 200: a chave já tinha saga (idempotência), nada foi comprado
+      if (result.statusCode === 202) created++;
+      else if (result.statusCode === 200) existing++;
+      else {
+        const hint = result.statusCode === 404 ? ' (rodou npm run seed:local?)' : '';
+        console.warn(`   ⚠️  Compra de exemplo ${order.productId}: HTTP ${result.statusCode}${hint}`);
+      }
+    } catch (error) {
+      console.warn(`   ⚠️  Compra de exemplo ${order.productId}: ${error.message}`);
+    }
+  }
+  if (process.env.LOG_LEVEL === 'silent') return;
+  if (created) console.log(`   🧾 ${created} compras de exemplo disparadas`);
+  if (existing) console.log(`   🧾 ${existing} compras de exemplo já existiam (ignoradas pela idempotência)`);
 }
 
 function send(res, statusCode, headers, body) {
@@ -142,17 +193,7 @@ const server = http.createServer(async (req, res) => {
 
   const started = Date.now();
   try {
-    const event = {
-      version: '2.0',
-      rawPath: url.pathname,
-      rawQueryString: url.search.slice(1),
-      queryStringParameters: Object.fromEntries(url.searchParams),
-      headers: req.headers,
-      requestContext: { stage: '$default', http: { method: req.method, path: url.pathname } },
-      body: await readBody(req),
-      isBase64Encoded: false
-    };
-
+    const event = buildEvent({ method: req.method, url, headers: req.headers, body: await readBody(req) });
     const result = await handlers[routeFor(url.pathname)](event);
     send(res, result.statusCode, result.headers || {}, result.body);
     if (process.env.LOG_LEVEL !== 'silent') {
@@ -178,4 +219,5 @@ server.listen(PORT, HOST, () => {
   console.log(ADMIN_API_KEY
     ? '   Rotas de admin exigem X-Api-Key (ADMIN_API_KEY)'
     : '   ⚠️  ADMIN_API_KEY não definida: rotas de admin abertas (só para desenvolvimento local)');
+  if (process.env.SAGA_STATE_MACHINE_ARN && process.env.SAMPLE_ORDERS !== 'false') seedSampleOrders();
 });

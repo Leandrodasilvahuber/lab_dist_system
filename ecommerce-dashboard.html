@@ -441,16 +441,8 @@
             padding-bottom: 15px;
         }
 
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 25px;
-        }
-
-        @media (max-width: 900px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
+        .narrow-form {
+            max-width: 480px;
         }
 
         .two-col {
@@ -755,6 +747,7 @@
             <button class="tab-btn" data-tab="monitoring">🩺 Monitoramento</button>
             <button class="tab-btn" data-tab="logs">📜 Logs</button>
             <button class="tab-btn" data-tab="dlq">📭 DLQ</button>
+            <button class="tab-btn" data-tab="admin" id="adminTabBtn" hidden>🛠️ Admin</button>
         </div>
 
         <div class="tab-content active" id="buy-tab">
@@ -791,33 +784,29 @@
         </div>
 
         <div class="tab-content" id="products-tab">
-            <div class="dashboard-grid">
-                <div>
-                    <h2>📦 Adicionar Produto</h2>
-                    <form id="productForm">
-                        <div class="form-group">
-                            <label for="productName">Nome do Produto</label>
-                            <input type="text" id="productName" required placeholder="Ex: Smartphone XYZ">
-                        </div>
-                        <div class="form-group">
-                            <label for="productPrice">Preço (R$)</label>
-                            <input type="number" id="productPrice" required step="0.01" min="0.01" placeholder="Ex: 999.90">
-                        </div>
-                        <div class="form-group">
-                            <label for="productStock">Estoque Inicial</label>
-                            <input type="number" id="productStock" required min="0" step="1" placeholder="Ex: 50">
-                        </div>
-                        <button type="submit" class="btn-primary">Adicionar Produto</button>
-                    </form>
-                </div>
+            <h2>📋 Lista de Produtos</h2>
+            <ul id="productList" class="product-list">
+                <li class="empty">Carregando produtos...</li>
+            </ul>
+        </div>
 
-                <div>
-                    <h2>📋 Lista de Produtos</h2>
-                    <ul id="productList" class="product-list">
-                        <li class="empty">Carregando produtos...</li>
-                    </ul>
+        <div class="tab-content" id="admin-tab">
+            <h2>📦 Adicionar Produto</h2>
+            <form id="productForm" class="narrow-form">
+                <div class="form-group">
+                    <label for="productName">Nome do Produto</label>
+                    <input type="text" id="productName" required placeholder="Ex: Smartphone XYZ">
                 </div>
-            </div>
+                <div class="form-group">
+                    <label for="productPrice">Preço (R$)</label>
+                    <input type="number" id="productPrice" required step="0.01" min="0.01" placeholder="Ex: 999.90">
+                </div>
+                <div class="form-group">
+                    <label for="productStock">Estoque Inicial</label>
+                    <input type="number" id="productStock" required min="0" step="1" placeholder="Ex: 50">
+                </div>
+                <button type="submit" class="btn-primary">Adicionar Produto</button>
+            </form>
         </div>
 
         <div class="tab-content" id="stock-tab">
@@ -1227,6 +1216,8 @@
         }
 
         function showTab(name) {
+            // A aba Admin só existe com a chave de admin ativa
+            if (name === 'admin' && !adminKey) name = 'buy';
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === `${name}-tab`));
             refreshTab(name);
@@ -1269,7 +1260,7 @@
                     <div class="product-actions">
                         <button class="btn-primary" data-buy-id="${escapeHtml(p.id)}">Comprar</button>
                     </div>
-                </li>`).join('') : '<li class="empty">Nenhum produto. Rode npm run seed:local ou adicione um.</li>';
+                </li>`).join('') : '<li class="empty">Nenhum produto. Rode npm run seed:local ou adicione na aba Admin.</li>';
 
             const select = document.getElementById('buyProduct');
             const selected = select.value;
@@ -1500,6 +1491,7 @@
             adminBtn.textContent = adminKey ? '🔓 Admin ✓' : '🔐 Admin';
             adminBtn.classList.toggle('logged-in', Boolean(adminKey));
             adminBtn.title = adminKey ? 'Chave de admin ativa' : 'Entrar como admin';
+            document.getElementById('adminTabBtn').hidden = !adminKey;
         }
 
         function toggleAdminPopover(open = adminPopover.hidden) {
@@ -1516,7 +1508,9 @@
             storage.set('adminKey', adminKey);
             renderAdminButton();
             toggleAdminPopover(false);
-            refreshTab(document.querySelector('.tab-btn.active').dataset.tab);
+            const active = document.querySelector('.tab-btn.active').dataset.tab;
+            if (active === 'admin' && !adminKey) showTab('buy');
+            else refreshTab(active);
         }
 
         adminBtn.addEventListener('click', event => {

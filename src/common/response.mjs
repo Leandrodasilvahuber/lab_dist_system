@@ -1,10 +1,14 @@
 import { DomainError, ValidationError } from './errors.mjs';
 import { log } from './logger.mjs';
 
-// Na AWS o CORS é respondido pelo HttpApi (CorsConfiguration); estes headers
-// valem para o local-server e para quem invoca a Lambda diretamente.
-// Sem Allow-Credentials: com origem '*' o navegador rejeitaria a combinação.
-const CORS_HEADERS = {
+// CORS na AWS: o HttpApi responde o preflight (OPTIONS) e sobrescreve estes
+// headers com os da CorsConfiguration do template.yaml (origem via parâmetro
+// AllowedOrigin). Eles só valem no local-server e em invocações diretas da
+// Lambda; CORS_ALLOW_ORIGIN não tem efeito na AWS.
+// Sem Access-Control-Allow-Credentials: a API não usa cookies (a chave de admin
+// vai no header X-Api-Key), e o navegador recusa Allow-Credentials junto com
+// Allow-Origin '*'.
+export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': process.env.CORS_ALLOW_ORIGIN || '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key, Idempotency-Key, X-Idempotency-Key, X-Correlation-ID'
