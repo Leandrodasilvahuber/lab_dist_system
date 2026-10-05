@@ -127,4 +127,5 @@ renderAdminButton();
 initRouter();
 // O indicador do topo vale em qualquer tela; no Monitoramento o refresh já roda
 if (currentView() !== 'monitoring') runMonitors();
-setInterval(runMonitors, 30000);
+// Aba oculta pula a rodada: várias abas esquecidas não somam consultas
+setInterval(() => { if (!document.hidden) runMonitors(); }, 30000);

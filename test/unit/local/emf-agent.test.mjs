@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { createEmfAgent } from '../../../scripts/lib/emf-agent.mjs';
+import { aggregate, createEmfAgent } from '../../../scripts/lib/emf-agent.mjs';
 import { emfFields } from '../../../src/common/emf.mjs';
 
 const START = Date.parse('2026-10-04T12:00:00Z');
@@ -71,5 +71,38 @@ describe('agente EMF local', () => {
       console.warn = warn;
     }
     assert.strictEqual(warnings.length, 1);
+  });
+});
+
+describe('aggregate (um ponto por série e minuto)', () => {
+  const datum = (MetricName, Value, at, Dimensions = []) =>
+    ({ Namespace: 'Ecommerce/local', MetricName, Unit: 'Milliseconds', Dimensions, Timestamp: new Date(at), Value });
+
+  it('junta o mesmo minuto em StatisticValues e separa minuto e dimensão', () => {
+    const dims = [{ Name: 'Action', Value: 'reserveStock' }];
+    const result = aggregate([
+      datum('ActionDuration', 100, START + 1000, dims),
+      datum('ActionDuration', 300, START + 59000, dims),
+      datum('ActionDuration', 200, START + 30000, dims),
+      datum('ActionDuration', 50, START + 61000, dims),
+      datum('ActionDuration', 70, START + 2000)
+    ]);
+    assert.strictEqual(result.length, 3);
+    assert.deepStrictEqual(result[0].StatisticValues, { SampleCount: 3, Sum: 600, Minimum: 100, Maximum: 300 });
+    assert.strictEqual(result[0].Timestamp.getTime(), START);
+    assert.deepStrictEqual(result[1].StatisticValues, { SampleCount: 1, Sum: 50, Minimum: 50, Maximum: 50 });
+    assert.deepStrictEqual(result[2].Dimensions, []);
+  });
+
+  it('uma rajada de mil linhas no mesmo minuto vira um ponto por série', async () => {
+    const aws = fakeAws([]);
+    const agent = createEmfAgent({ cloudwatch: aws.cloudwatch, logs: aws.logs, now: () => START });
+    for (let i = 0; i < 1000; i++) agent.capture(JSON.parse(metricLine(START + i)));
+    await agent.flush();
+    const data = aws.put[0].MetricData;
+    // Total + por ErrorType
+    assert.strictEqual(data.length, 2);
+    assert.deepStrictEqual(data.map(d => d.StatisticValues.Sum), [1000, 1000]);
+    assert.ok(data.every(d => d.Value === undefined));
   });
 });

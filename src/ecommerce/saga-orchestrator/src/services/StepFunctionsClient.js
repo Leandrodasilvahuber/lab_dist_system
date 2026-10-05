@@ -1,8 +1,9 @@
-import { SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
+import { DescribeExecutionCommand, SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
 import { awsClientConfig } from '../../../../common/aws-client.mjs';
 
 /**
- * Cliente mínimo do Step Functions usado para iniciar a saga.
+ * Cliente mínimo do Step Functions: inicia a saga e consulta como a execução
+ * terminou (reconciliação do status, SagaService.reconcile).
  */
 export class StepFunctionsClient {
   constructor({
@@ -24,5 +25,10 @@ export class StepFunctionsClient {
       input: JSON.stringify(input)
     }));
     return executionArn;
+  }
+
+  async describeExecution(executionArn) {
+    const { status, error, cause } = await this.client.send(new DescribeExecutionCommand({ executionArn }));
+    return { status, error, cause };
   }
 }

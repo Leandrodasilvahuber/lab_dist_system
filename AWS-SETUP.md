@@ -67,7 +67,8 @@ npm run seed -- --stage dev
 | `ProductEventsToStockRule` | Entrega `ProductCreated`/`ProductDeleted` à `StockFunction` (cria/remove o inventário), com DLQ `ProductEventsDlq` para falhas de entrega. Erros da função são repetidos pela própria Lambda (invocação assíncrona, `EventInvokeConfig` da `StockFunction`) e, esgotadas as tentativas, vão para a mesma DLQ pelo destino `OnFailure` (só falhas transitórias; erro de negócio fica no log como `DOMAIN_EVENT_REJECTED`) |
 | `OrderEventsArchive` (`dev-order-events`) | EventBridge Archive dos eventos `source: orders` (auditoria e replay, 10 dias) |
 | `ServicesLogGroup` (`/aws/lambda/dev-ecommerce`) | Logs de todas as Lambdas, 14 dias (campo `service` = função). Erro tratado sai com `status: warn`, não tratado com `status: error` + stack |
-| Métricas `Ecommerce/dev` (EMF) | Sem recurso próprio: as linhas de log carregam o bloco `_aws` e o CloudWatch extrai `UnhandledErrors`, `BusinessErrors` (por `ErrorType`) e `ActionCount`/`ActionDuration` (por ação) |
+| Métricas `Ecommerce/dev` (EMF) | Sem recurso próprio: as linhas de log carregam o bloco `_aws` e o CloudWatch extrai `UnhandledErrors`, `BusinessErrors` (por `ErrorType`), `ClientErrors` (leituras com 404, fora dos alarmes) e `ActionCount`/`ActionDuration` (por ação) |
+| Agendamento `ReconcileSagas` | A cada 5 min, a `SagaOrchestratorFunction` confere no Step Functions (`states:DescribeExecution`) as sagas paradas em andamento há mais de 5 min e grava o status final (log `error SAGA_RECONCILED`) |
 | Alarmes `dev-ecommerce-*` | `unhandled-errors`, `business-errors` (≥ 20 erros de negócio em 5 min), `product-events-dlq` (mensagens na DLQ), `saga-failed` (saga que nem a compensação fechou: `CompensationFailed`, `SagaFailed`, timeout; compensação normal não conta), `saga-compensation-rate` (> 5% das sagas compensadas em 5 min, com pelo menos 20 execuções), `circuit-open` (circuit breaker do serviço de Products aberto: compras recusadas com 503), `api-5xx`; aparecem na aba Monitoramento do dashboard |
 | Dashboard CloudWatch `dev-ecommerce` | Saúde agregada numa tela: sagas por minuto, taxa de sucesso e de compensação, latência p50/p95/p99 por etapa (`ActionDuration`), erros, throttles (Lambda, Step Functions, API, DynamoDB), DLQ e alarmes. URL no output `HealthDashboardUrl` |
 | SLOs `dev-ecommerce-slo-*` (Application Signals) | `saga-outcome` (≥ 99,5% das sagas em Completed ou Compensated), `purchase-latency` (p95 da execução < 2 s em 99% das janelas de 5 min), `dlq-age` (mensagem mais antiga da DLQ < 24 h). Janela móvel de 1 dia, burn rate de 60 min |
@@ -158,6 +159,12 @@ referência (us-east-1, confira as páginas de preço antes de escalar):
 | DynamoDB on-demand | por leitura/escrita | |
 | EventBridge | por evento publicado | |
 | Application Signals (SLOs) | por SLO e por métrica avaliada | 3 SLOs; confira o preço do CloudWatch Application Signals |
+
+Cada requisição custa API Gateway + Lambda + DynamoDB: um cliente com bug em
+loop (como abas esquecidas consultando sagas apagadas) vira custo. O throttling
+do template é por rota, somando todos os clientes; se a API ficar pública,
+acrescente um AWS WAF no stage com uma regra por IP (rate-based rule), para que
+um único cliente não consuma o limite de todos.
 
 ## Removendo tudo
 

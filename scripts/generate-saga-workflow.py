@@ -42,6 +42,21 @@ TRANSIENT_ERRORS = [
 # produto (TransactionConflict) não repetem em sincronia e voltam a colidir
 BACKOFF = {'IntervalSeconds': 1, 'BackoffRate': 2, 'MaxDelaySeconds': 10, 'JitterStrategy': 'FULL'}
 
+# Prazo da compra: conclui ou é desfeita em ~5 min no pior caso.
+# Cada passo é uma escrita no DynamoDB (milissegundos); passar de 5 s vira
+# States.Timeout, que é repetido (TRANSIENT_ERRORS) e depois compensado como
+# qualquer falha. Os passos são idempotentes, então a chamada abandonada que
+# ainda terminar não duplica nada. Pior caso, com o backoff no teto do jitter:
+#   ida:          5 passos x (4 tentativas x 5 s + 1+2+4 s)       ~ 2,5 min
+#   compensação:  3 passos x (6 tentativas x 5 s + 1+2+4+8+10 s)  ~ 2,5 min
+# O teto da execução fica bem acima disso: quando ele estoura o Step Functions
+# encerra a execução SEM rodar compensação, então é só rede de segurança (entra
+# no alarme saga-failed como ExecutionsTimedOut e o reconciliador do
+# SagaService marca a saga como COMPENSATION_FAILED, intervenção manual).
+# No LocalStack os dois são multiplicados por TIMEOUT_SCALE (scripts/lib/localstack.mjs).
+STEP_TIMEOUT_SECONDS = 5
+EXECUTION_TIMEOUT_SECONDS = 600
+
 FUNCTIONS = {'orders': '${OrderFunctionArn}', 'payments': '${PaymentFunctionArn}', 'stock': '${StockFunctionArn}'}
 TABLE = '${SagasTableName}'
 
@@ -94,6 +109,7 @@ def lambda_task(service, action, payload_input, next_state, retry_attempts, catc
             'FunctionName': FUNCTIONS[service],
             'Payload': {'action': action, 'input': payload_input}
         },
+        'TimeoutSeconds': STEP_TIMEOUT_SECONDS,
         'Retry': [{
             'ErrorEquals': TRANSIENT_ERRORS,
             'MaxAttempts': retry_attempts,
@@ -227,6 +243,7 @@ definition = {
     'Comment': 'Saga de compra: pedido -> estoque -> pagamento -> baixa da reserva -> confirmação, com compensação. '
                'Gerado por scripts/generate-saga-workflow.py - não edite à mão.',
     'StartAt': FORWARD[0][0],
+    'TimeoutSeconds': EXECUTION_TIMEOUT_SECONDS,
     'States': states
 }
 

@@ -42,6 +42,10 @@ import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
 import { createLogBuffer, parseLogLine, isTraceId } from './src/common/log-query.mjs';
 import { createEmfAgent } from './scripts/lib/emf-agent.mjs';
+import { createLocalstackHealth } from './scripts/lib/localstack-health.mjs';
+import { QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { docClient, tables } from './src/common/database.mjs';
+import { SAGAS_BY_DAY_INDEX, dayShardsInWindow } from './src/common/saga-day-index.mjs';
 import { CORS_HEADERS } from './src/common/response.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -120,6 +124,30 @@ for (const method of ['log', 'warn', 'error']) {
     }
     original(first, ...rest);
   };
+}
+
+// Defeito do LocalStack sob carga (cache de tabelas corrompido): avisa no
+// terminal em vez de deixar compras, reservas e SLOs falhando em silêncio
+const localstackHealth = createLocalstackHealth({
+  // Uma página só (queryItems seguiria todas)
+  probe: () => docClient.send(new QueryCommand({
+    TableName: tables.sagas,
+    IndexName: SAGAS_BY_DAY_INDEX,
+    KeyConditionExpression: 'dayShard = :dayShard',
+    ExpressionAttributeValues: { ':dayShard': dayShardsInWindow(Date.now(), Date.now())[0] },
+    Limit: 1
+  }))
+});
+
+// Na AWS a varredura de sagas paradas é agendada a cada 5 min (ReconcileSagas
+// no template.yaml); aqui roda a cada minuto pela mesma ação do orquestrador
+function startSagaReconciler(intervalMs = 60 * 1000) {
+  const timer = setInterval(() => {
+    handlers.saga({ action: 'reconcileStuckSagas', input: {} }).catch(() => {
+      // Já registrado pela ação (ACTION_FAILED); a próxima rodada tenta de novo
+    });
+  }, intervalMs);
+  timer.unref();
 }
 
 // Mesmo roteamento do template.yaml
@@ -325,6 +353,8 @@ if (!ADMIN_AUTH_ENABLED && !['127.0.0.1', 'localhost', '::1'].includes(HOST)) {
 
 server.listen(PORT, HOST, () => {
   emfAgent.start();
+  localstackHealth.start();
+  startSagaReconciler();
   console.log(`🛒 Dashboard em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   console.log(`   LocalStack: ${process.env.AWS_ENDPOINT} (timeouts x${TIMEOUT_SCALE})`);
   console.log(process.env.SAGA_STATE_MACHINE_ARN

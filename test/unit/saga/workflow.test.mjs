@@ -124,4 +124,28 @@ describe('saga-workflow.asl.json', () => {
   it('a saga concluída remove o erro de uma tentativa de início dada como falha', () => {
     assert.match(states.MarkCompleted.Parameters.UpdateExpression, /REMOVE #error/);
   });
+  // Prazo da compra (scripts/generate-saga-workflow.py): cada passo com Lambda
+  // tem limite próprio, e o pior caso (todos os passos de ida esgotando as
+  // tentativas e depois as 3 compensações) cabe em ~5 min, bem abaixo do teto
+  // da execução, que encerra sem compensar
+  it('todo passo com Lambda tem limite e o pior caso fica em ~5 min, abaixo do teto da execução', () => {
+    const lambdaTasks = Object.entries(states).filter(([, s]) => s.Resource === 'arn:aws:states:::lambda:invoke');
+    assert.ok(lambdaTasks.every(([, s]) => s.TimeoutSeconds === 5), 'TimeoutSeconds 5 em todos os passos com Lambda');
+
+    // Tentativas x limite + esperas do backoff no teto do jitter
+    const worst = name => {
+      const { TimeoutSeconds, Retry: [retry] } = states[name];
+      let waits = 0;
+      for (let k = 0; k < retry.MaxAttempts; k++) {
+        waits += Math.min(retry.IntervalSeconds * retry.BackoffRate ** k, retry.MaxDelaySeconds);
+      }
+      return (retry.MaxAttempts + 1) * TimeoutSeconds + waits;
+    };
+    const path = ['CreateOrder', 'ReserveStock', 'ProcessPayment', 'CommitReservation', 'ConfirmOrder',
+      'RefundPayment', 'ReleaseStock', 'CancelOrder'];
+    const total = path.reduce((sum, name) => sum + worst(name), 0);
+
+    assert.ok(total <= 330, `pior caso ${total}s deve ficar em ~5 min`);
+    assert.ok(definition.TimeoutSeconds >= total * 1.5, `teto ${definition.TimeoutSeconds}s acima do pior caso ${total}s`);
+  });
 });

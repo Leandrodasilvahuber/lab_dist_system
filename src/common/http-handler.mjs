@@ -5,6 +5,28 @@ import { errorResponse, notFoundResponse, sdkErrorResponse } from './response.mj
 import { DependencyUnavailableError, DomainError } from './errors.mjs';
 import { isTransientAwsError } from './aws-client.mjs';
 
+// Leitura de algo que não existe (GET/HEAD com 404) não é erro de negócio: um
+// cliente com bug ou um robô varrendo URLs dispararia o alarme business-errors.
+// Vira linha info com a métrica ClientErrors, que a aba Métricas mostra à parte
+function isClientMiss(method, statusCode) {
+  return statusCode === 404 && (method === 'GET' || method === 'HEAD');
+}
+
+const CLIENT_MISS_METRICS = {
+  metrics: { ClientErrors: { value: 1 } },
+  dimensions: { ErrorType: 'HTTP_404' },
+  dimensionSets: [[], ['ErrorType']]
+};
+
+function logRejection(event, correlationId, statusCode, message, extra) {
+  const base = { event: 'API_REJECTED', correlationId, message: `${event.method} ${event.path} -> ${statusCode}: ${message}`, ...extra };
+  if (isClientMiss(event.method, statusCode)) {
+    log({ ...base, status: 'info', error: null, metrics: CLIENT_MISS_METRICS });
+  } else {
+    log({ ...base, status: 'warn' });
+  }
+}
+
 function errorMessage(response) {
   try {
     return JSON.parse(response.body).error ?? '';
@@ -40,11 +62,12 @@ export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers 
     try {
       const response = await setupRoutes(event);
       // Uma linha por request. 4xx = erro tratado (validação/regra de negócio):
-      // warn. 5xx já foi registrado como error por quem o gerou (sdkErrorResponse).
+      // warn, exceto leitura que não achou nada (logRejection). 5xx já foi
+      // registrado como error por quem o gerou (sdkErrorResponse).
       const { statusCode } = response;
       const data = { method: event.method, path: event.path, statusCode, durationMs: Date.now() - started };
       if (statusCode >= 400 && statusCode < 500) {
-        log({ event: 'API_REJECTED', correlationId, status: 'warn', message: `${event.method} ${event.path} -> ${statusCode}: ${errorMessage(response)}`, data });
+        logRejection(event, correlationId, statusCode, errorMessage(response), { data });
       } else {
         log({ event: 'API_RESPONSE', correlationId, status: 'info', message: `${event.method} ${event.path} -> ${statusCode}`, data });
       }
@@ -57,7 +80,7 @@ export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers 
       }
       // Erro de negócio lançado fora dos controllers (ex.: path mal codificado): 4xx, não alarme
       if (error instanceof DomainError) {
-        log({ event: 'API_REJECTED', correlationId, status: 'warn', message: `${event.method} ${event.path} -> ${error.statusCode}: ${error.message}`, error });
+        logRejection(event, correlationId, error.statusCode, error.message, { error });
         return errorResponse(error.message, error.statusCode);
       }
       log({ event: 'API_ERROR', correlationId, status: 'error', message: 'API request error', error });

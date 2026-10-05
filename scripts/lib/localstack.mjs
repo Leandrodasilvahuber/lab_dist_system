@@ -15,6 +15,9 @@ import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import { SQSClient } from '@aws-sdk/client-sqs';
 import { ensureTable, logicalName } from './tables.mjs';
 
+// Perfil local de timeouts (src/common/aws-client.mjs): Lambdas e state machine
+export const LOCAL_TIMEOUT_SCALE = 3;
+
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BUILD = path.join(ROOT, '.aws-sam', 'build');
 // Lambdas dos passos da saga + ProductFunction (consultada pelo orquestrador ao iniciar)
@@ -78,7 +81,7 @@ export async function deploySaga({ L, F }, { prefix, tables, environment = {} })
         Architectures: [os.arch() === 'arm64' ? 'arm64' : 'x86_64'],
         Code: { ZipFile: fs.readFileSync(zip) },
         // TIMEOUT_SCALE: perfil local de timeouts (src/common/aws-client.mjs)
-        Environment: { Variables: { ...tables, PAYMENT_MAX_AMOUNT: '10000', TIMEOUT_SCALE: '3', ...environment } }
+        Environment: { Variables: { ...tables, PAYMENT_MAX_AMOUNT: '10000', TIMEOUT_SCALE: String(LOCAL_TIMEOUT_SCALE), ...environment } }
       }));
       arns[fn] = FunctionArn;
       await lambda.waitUntilFunctionActiveV2({ client: L, maxWaitTime: 180 }, { FunctionName });
@@ -87,11 +90,11 @@ export async function deploySaga({ L, F }, { prefix, tables, environment = {} })
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 
-  const definition = fs.readFileSync(path.join(ROOT, 'src/ecommerce/saga-orchestrator/workflow/saga-workflow.asl.json'), 'utf8')
+  const definition = scaleTimeouts(fs.readFileSync(path.join(ROOT, 'src/ecommerce/saga-orchestrator/workflow/saga-workflow.asl.json'), 'utf8')
     .replaceAll('${OrderFunctionArn}', arns.OrderFunction)
     .replaceAll('${PaymentFunctionArn}', arns.PaymentFunction)
     .replaceAll('${StockFunctionArn}', arns.StockFunction)
-    .replaceAll('${SagasTableName}', tables.SAGAS_TABLE);
+    .replaceAll('${SagasTableName}', tables.SAGAS_TABLE), LOCAL_TIMEOUT_SCALE);
 
   const name = `${prefix}-purchase-saga`;
   const stateMachineArn = `arn:aws:states:us-east-1:${ACCOUNT}:stateMachine:${name}`;
@@ -104,6 +107,21 @@ export async function deploySaga({ L, F }, { prefix, tables, environment = {} })
   }));
 
   return { stateMachineArn, runtime };
+}
+
+/**
+ * Mesmo perfil local das Lambdas (TIMEOUT_SCALE): no LocalStack a primeira
+ * chamada de cada Lambda sobe um container e leva segundos, então o limite de
+ * cada passo e o teto da execução (scripts/generate-saga-workflow.py) são
+ * multiplicados, senão toda compra fria viraria timeout e compensação.
+ */
+export function scaleTimeouts(definitionJson, scale) {
+  const definition = JSON.parse(definitionJson);
+  if (definition.TimeoutSeconds) definition.TimeoutSeconds *= scale;
+  for (const state of Object.values(definition.States)) {
+    if (state.TimeoutSeconds) state.TimeoutSeconds *= scale;
+  }
+  return JSON.stringify(definition);
 }
 
 export async function findStateMachine({ F }, prefix) {

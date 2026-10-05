@@ -116,15 +116,32 @@ async function startPurchase(event) {
     }
 }
 
+// Intervalo do polling das sagas em andamento. Começa em 1 s; falha de rede ou
+// 5xx dobra até POLL_MAX_MS (servidor fora do ar não vira tempestade); saga em
+// andamento há mais de SLOW_AFTER_MS passa a POLL_SLOW_MS (algo demorado: o
+// GET /saga/{id} também corrige o status de saga parada, ver SagaService)
+const POLL_MS = 1000;
+const POLL_SLOW_MS = 5000;
+const POLL_MAX_MS = 30000;
+const SLOW_AFTER_MS = 60 * 1000;
+let pollDelay = POLL_MS;
+
+const isRunning = saga => !TERMINAL.includes(saga.status);
+
 async function fetchSagas({ onlyRunning = false } = {}) {
+    let failed = false;
     try {
         if (onlyRunning) {
-            const running = [...sagaCache.values()].filter(s => !TERMINAL.includes(s.status));
+            const running = [...sagaCache.values()].filter(isRunning);
             // 404: a saga sumiu (LocalStack recriado); sem tirá-la do cache, ela
             // ficaria "em andamento" e o polling não pararia nunca
             const updated = await Promise.all(running.map(s => getSaga(s.id)
                 .then(saga => [s.id, saga])
-                .catch(error => [s.id, error.status === 404 ? null : s])));
+                .catch(error => {
+                    if (error.status === 404) return [s.id, null];
+                    failed = true;
+                    return [s.id, s];
+                })));
             for (const [id, saga] of updated) {
                 if (saga) sagaCache.set(id, saga);
                 else sagaCache.delete(id);
@@ -144,15 +161,30 @@ async function fetchSagas({ onlyRunning = false } = {}) {
         ? sagas.slice(0, 20).map(s => sagaCard(s, names)).join('')
         : emptyState('Nenhuma compra ainda.', { icon: 'cart' });
 
-    // Continua atualizando (só as em andamento) enquanto houver saga rodando
-    clearTimeout(pollTimer);
-    if (sagas.some(s => !TERMINAL.includes(s.status))) {
-        pollTimer = setTimeout(() => {
-            fetchSagas({ onlyRunning: true });
-            loadProducts();
-        }, 1000);
-    }
+    const running = sagas.filter(isRunning);
+    const allSlow = running.every(s => Date.now() - Date.parse(s.createdAt) > SLOW_AFTER_MS);
+    pollDelay = failed ? Math.min(pollDelay * 2, POLL_MAX_MS) : allSlow ? POLL_SLOW_MS : POLL_MS;
+    schedulePoll(running.length > 0);
 }
+
+// Continua atualizando (só as em andamento) enquanto houver saga rodando e a
+// aba estiver visível; aba oculta não consulta nada (retoma ao voltar)
+function schedulePoll(hasRunning) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+    if (!hasRunning || document.hidden) return;
+    pollTimer = setTimeout(() => {
+        fetchSagas({ onlyRunning: true });
+        loadProducts();
+    }, pollDelay);
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && !pollTimer && [...sagaCache.values()].some(isRunning)) {
+        pollDelay = POLL_MS;
+        fetchSagas({ onlyRunning: true });
+    }
+});
 
 function notifyFinished(sagas) {
     for (const s of sagas) {

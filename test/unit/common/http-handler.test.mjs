@@ -40,6 +40,39 @@ describe('createServiceHandler: log por request', () => {
     assert.match(warn[0].message, /400: price must be a positive number/);
   });
 
+  // Um cliente com bug consultando algo apagado não pode disparar o alarme business-errors
+  it('404 numa leitura vira linha info com ClientErrors, sem BusinessErrors', async () => {
+    const { out, warn } = await run(errorResponse('Saga not found', 404));
+    assert.strictEqual(warn.length, 0);
+    assert.strictEqual(out[0].event, 'API_REJECTED');
+    assert.strictEqual(out[0].status, 'info');
+    assert.deepStrictEqual([out[0].ClientErrors, out[0].ErrorType, out[0].BusinessErrors], [1, 'HTTP_404', undefined]);
+    assert.deepStrictEqual(out[0]._aws.CloudWatchMetrics[0].Metrics.map(m => m.Name), ['ClientErrors']);
+  });
+
+  it('404 fora de leitura (POST) continua erro de negócio', async () => {
+    process.env.LOG_LEVEL = 'info';
+    mock.method(console, 'log', () => {});
+    const warn = mock.method(console, 'warn', () => {});
+    const handler = createServiceHandler({ setupRoutes: async () => errorResponse('Product not found', 404) });
+    await handler({ ...request('/saga/execute'), requestContext: { http: { method: 'POST' } } });
+    const line = JSON.parse(warn.mock.calls[0].arguments[0]);
+    assert.deepStrictEqual([line.status, line.BusinessErrors, line.ClientErrors], ['warn', 1, undefined]);
+  });
+
+  it('NotFound lançado fora dos controllers numa leitura também vira ClientErrors', async () => {
+    process.env.LOG_LEVEL = 'info';
+    const out = mock.method(console, 'log', () => {});
+    const warn = mock.method(console, 'warn', () => {});
+    const { NotFoundError } = await import('../../../src/common/errors.mjs');
+    const handler = createServiceHandler({ setupRoutes: async () => { throw new NotFoundError('Saga not found'); } });
+    const response = await handler(request('/saga/saga_x'));
+    assert.strictEqual(response.statusCode, 404);
+    assert.strictEqual(warn.mock.calls.length, 0);
+    const line = JSON.parse(out.mock.calls[0].arguments[0]);
+    assert.deepStrictEqual([line.status, line.ClientErrors, line.error], ['info', 1, null]);
+  });
+
   // Path mal codificado não pode virar 500 nem contar no alarme de erros não tratados
   it('path com encoding inválido responde 400 e loga warn, sem linha error', async () => {
     process.env.LOG_LEVEL = 'info';

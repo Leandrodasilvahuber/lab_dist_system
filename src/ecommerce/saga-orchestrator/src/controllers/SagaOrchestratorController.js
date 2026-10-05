@@ -64,6 +64,14 @@ export class SagaOrchestratorController {
   }
 
   /**
+   * Ação agendada (template.yaml, a cada 5 min; local-server, a cada minuto):
+   * corrige o status das sagas paradas em andamento (SagaService.reconcile)
+   */
+  static reconcileStuckSagas() {
+    return sagaService.reconcileStuckSagas();
+  }
+
+  /**
    * GET /saga/{sagaId}
    */
   static async getSaga(event) {

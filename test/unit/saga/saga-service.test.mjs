@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
-import { SagaService, STUCK_START_MS, parseLambdaError, sagaIdFromKey } from '../../../src/ecommerce/saga-orchestrator/src/services/SagaService.js';
+import { SagaService, STUCK_START_MS, RECONCILE_MAX, finalStatus, parseLambdaError, sagaIdFromKey } from '../../../src/ecommerce/saga-orchestrator/src/services/SagaService.js';
 import { sagaDayShard } from '../../../src/common/saga-day-index.mjs';
 import { DependencyUnavailableError, IdempotencyConflictError, NotFoundError, ValidationError } from '../../../src/common/errors.mjs';
 
@@ -23,15 +23,24 @@ class FakeDb {
     if (condition.includes('#status = :running') && item.status !== values[':running']) throw fail();
     if (condition.includes(':attempt') && item.startAttempts !== values[':attempt']) throw fail();
     if (condition.includes(':seen') && (item.updatedAt !== values[':seen'] || item.executionArn)) throw fail();
+    if (condition.includes(':expectedAt') && (item.status !== values[':expectedStatus'] || item.updatedAt !== values[':expectedAt'])) throw fail();
+    if (values[':execution']) item.reconciledFrom = values[':execution'];
+    if (expression.includes('compensationError')) item.compensationError = values[':error'];
     if (values[':now']) item.updatedAt = values[':now'];
 
     if (expression.includes('executionArn')) item.executionArn = values[':arn'];
     if (expression.includes('executionName')) item.executionName = values[':name'];
     if (values[':status']) item.status = values[':status'];
-    if (values[':error']) item.error = values[':error'];
+    if (values[':error'] && !expression.includes('compensationError')) item.error = values[':error'];
     if (expression.includes('REMOVE #error')) delete item.error;
     if (expression.includes('startAttempts')) item.startAttempts = (item.startAttempts || 1) + 1;
     return structuredClone(item);
+  }
+  // SagasByDayIndex: só o que a varredura usa (dayShard + createdAt >= :since)
+  async queryItems(table, { ExpressionAttributeValues: v }) {
+    return [...this.tables[table].values()]
+      .filter(item => item.dayShard === v[':dayShard'] && item.createdAt >= v[':since'])
+      .map(({ id, dayShard, createdAt, status, updatedAt }) => ({ id, dayShard, createdAt, status, updatedAt }));
   }
   async scanPage(table, { limit } = {}) {
     const items = [...this.tables[table].values()];
@@ -53,7 +62,12 @@ class FakeProductClient {
 // Como o Step Functions STANDARD: mesmo nome e mesmo input de uma execução em
 // andamento devolve a mesma; nome de execução já encerrada falha
 class FakeStepFunctions {
-  constructor({ fail = false } = {}) { this.fail = fail; this.started = []; this.closed = new Set(); }
+  constructor({ fail = false, executions = {} } = {}) { this.fail = fail; this.started = []; this.closed = new Set(); this.executions = executions; this.described = 0; }
+  async describeExecution(arn) {
+    this.described++;
+    if (!this.executions[arn]) throw new Error('SFN indisponível');
+    return this.executions[arn];
+  }
   async startExecution(name, input) {
     if (this.fail) throw new Error('SFN indisponível');
     if (this.closed.has(name)) throw Object.assign(new Error('exists'), { name: 'ExecutionAlreadyExists' });
@@ -325,3 +339,85 @@ describe('parseLambdaError', () => {
     assert.strictEqual(parseLambdaError('???').type, 'Unknown');
   });
 });
+
+describe('SagaService: reconciliação de saga parada', () => {
+  const NOW = Date.parse('2026-10-05T12:00:00Z');
+  const ago = ms => new Date(NOW - ms).toISOString();
+
+  function setup(saga, execution) {
+    const db = new FakeDb();
+    const arn = `arn:aws:states:::execution:saga:${saga.id}`;
+    db.tables.sagas.set(saga.id, {
+      productId: 'p1', quantity: 1, steps: {}, executionArn: arn,
+      createdAt: saga.updatedAt, dayShard: sagaDayShard(saga.id, saga.updatedAt), ...saga
+    });
+    const stepFunctions = new FakeStepFunctions({ executions: execution ? { [arn]: execution } : {} });
+    return { db, stepFunctions, service: new SagaService({ db, stepFunctions, productClient: new FakeProductClient({}), now: () => NOW }) };
+  }
+
+  it('status final pelo desfecho da execução', () => {
+    assert.strictEqual(finalStatus({ status: 'RUNNING' }), null);
+    assert.deepStrictEqual(finalStatus({ status: 'SUCCEEDED' }), { status: 'COMPLETED' });
+    assert.deepStrictEqual(finalStatus({ status: 'FAILED', error: 'SagaCompensated' }), { status: 'COMPENSATED' });
+    assert.deepStrictEqual(finalStatus({ status: 'FAILED', error: 'SagaFailed' }), { status: 'FAILED' });
+    assert.deepStrictEqual(finalStatus({ status: 'FAILED', error: 'CompensationFailed' }), { status: 'COMPENSATION_FAILED' });
+    // Encerrada sem compensar: intervenção manual
+    assert.deepStrictEqual(finalStatus({ status: 'TIMED_OUT' }), { status: 'COMPENSATION_FAILED', error: 'ExecutionTIMED_OUT' });
+    assert.deepStrictEqual(finalStatus({ status: 'ABORTED' }), { status: 'COMPENSATION_FAILED', error: 'ExecutionABORTED' });
+    assert.deepStrictEqual(finalStatus({ status: 'FAILED', error: 'States.Runtime' }), { status: 'COMPENSATION_FAILED', error: 'ExecutionFailed:States.Runtime' });
+  });
+
+  it('getSaga corrige a saga RUNNING cuja execução já terminou', async () => {
+    const { service } = setup({ id: 'saga_a', status: 'RUNNING', updatedAt: ago(6 * 60 * 1000) }, { status: 'SUCCEEDED' });
+    const saga = await service.getSaga('saga_a');
+    assert.strictEqual(saga.status, 'COMPLETED');
+    assert.strictEqual(saga.reconciledFrom, 'SUCCEEDED');
+  });
+
+  it('execução que estourou o teto vira COMPENSATION_FAILED (intervenção manual)', async () => {
+    const { service } = setup({ id: 'saga_b', status: 'COMPENSATING', updatedAt: ago(20 * 60 * 1000) }, { status: 'TIMED_OUT' });
+    const saga = await service.getSaga('saga_b');
+    assert.strictEqual(saga.status, 'COMPENSATION_FAILED');
+    assert.strictEqual(saga.compensationError, 'ExecutionTIMED_OUT');
+  });
+
+  it('saga recente, terminal ou com execução ainda rodando não muda', async () => {
+    const recent = setup({ id: 'saga_c', status: 'RUNNING', updatedAt: ago(60 * 1000) }, { status: 'SUCCEEDED' });
+    assert.strictEqual((await recent.service.getSaga('saga_c')).status, 'RUNNING');
+    assert.strictEqual(recent.stepFunctions.described, 0);
+
+    const done = setup({ id: 'saga_d', status: 'COMPLETED', updatedAt: ago(60 * 60 * 1000) }, { status: 'SUCCEEDED' });
+    assert.strictEqual((await done.service.getSaga('saga_d')).status, 'COMPLETED');
+    assert.strictEqual(done.stepFunctions.described, 0);
+
+    const running = setup({ id: 'saga_e', status: 'RUNNING', updatedAt: ago(6 * 60 * 1000) }, { status: 'RUNNING' });
+    assert.strictEqual((await running.service.getSaga('saga_e')).status, 'RUNNING');
+  });
+
+  it('Step Functions fora do ar não derruba a consulta', async () => {
+    const { service } = setup({ id: 'saga_f', status: 'RUNNING', updatedAt: ago(6 * 60 * 1000) });
+    assert.strictEqual((await service.getSaga('saga_f')).status, 'RUNNING');
+  });
+
+  it('não sobrescreve a saga que o workflow atualizou depois da leitura', async () => {
+    const { db, service } = setup({ id: 'saga_g', status: 'RUNNING', updatedAt: ago(6 * 60 * 1000) }, { status: 'FAILED', error: 'SagaCompensated' });
+    const read = structuredClone(db.tables.sagas.get('saga_g'));
+    // O workflow gravou o status final entre a leitura e a correção
+    Object.assign(db.tables.sagas.get('saga_g'), { status: 'COMPENSATED', updatedAt: ago(1000) });
+    const result = await service.reconcile(read);
+    assert.strictEqual(result.status, 'COMPENSATED');
+    assert.strictEqual(db.tables.sagas.get('saga_g').reconciledFrom, undefined);
+  });
+
+  it('a varredura corrige só as paradas do último dia', async () => {
+    const { db, service } = setup({ id: 'saga_h', status: 'RUNNING', updatedAt: ago(6 * 60 * 1000) }, { status: 'SUCCEEDED' });
+    const recent = { id: 'saga_i', status: 'RUNNING', updatedAt: ago(1000), createdAt: ago(1000), productId: 'p1', quantity: 1, steps: {} };
+    db.tables.sagas.set(recent.id, { ...recent, dayShard: sagaDayShard(recent.id, recent.createdAt) });
+
+    assert.deepStrictEqual(await service.reconcileStuckSagas(), { checked: 1, reconciled: 1 });
+    assert.strictEqual(db.tables.sagas.get('saga_h').status, 'COMPLETED');
+    assert.strictEqual(db.tables.sagas.get('saga_i').status, 'RUNNING');
+    assert.ok(RECONCILE_MAX >= 1);
+  });
+});
+

@@ -1,6 +1,7 @@
 {
   "Comment": "Saga de compra: pedido -> estoque -> pagamento -> baixa da reserva -> confirmação, com compensação. Gerado por scripts/generate-saga-workflow.py - não edite à mão.",
   "StartAt": "CreateOrder",
+  "TimeoutSeconds": 600,
   "States": {
     "CreateOrder": {
       "Type": "Task",
@@ -18,6 +19,7 @@
           }
         }
       },
+      "TimeoutSeconds": 5,
       "Retry": [
         {
           "ErrorEquals": [
@@ -186,6 +188,7 @@
           }
         }
       },
+      "TimeoutSeconds": 5,
       "Retry": [
         {
           "ErrorEquals": [
@@ -410,6 +413,7 @@
           }
         }
       },
+      "TimeoutSeconds": 5,
       "Retry": [
         {
           "ErrorEquals": [
@@ -633,6 +637,7 @@
           }
         }
       },
+      "TimeoutSeconds": 5,
       "Retry": [
         {
           "ErrorEquals": [
@@ -852,6 +857,7 @@
           }
         }
       },
+      "TimeoutSeconds": 5,
       "Retry": [
         {
           "ErrorEquals": [
@@ -1122,6 +1128,7 @@
           }
         }
       },
+      "TimeoutSeconds": 5,
       "Retry": [
         {
           "ErrorEquals": [
@@ -1284,6 +1291,7 @@
           }
         }
       },
+      "TimeoutSeconds": 5,
       "Retry": [
         {
           "ErrorEquals": [
@@ -1446,6 +1454,7 @@
           }
         }
       },
+      "TimeoutSeconds": 5,
       "Retry": [
         {
           "ErrorEquals": [
@@ -1671,6 +1680,7 @@
           }
         }
       },
+      "TimeoutSeconds": 5,
       "Retry": [
         {
           "ErrorEquals": [

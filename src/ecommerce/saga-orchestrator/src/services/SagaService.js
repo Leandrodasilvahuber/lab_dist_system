@@ -3,7 +3,8 @@ import { Database } from '../../../../common/database.mjs';
 import { DependencyUnavailableError, IdempotencyConflictError, NotFoundError, ValidationError } from '../../../../common/errors.mjs';
 import { log } from '../../../../common/logger.mjs';
 import { encodeToken } from '../../../../common/pagination.mjs';
-import { sagaDayShard } from '../../../../common/saga-day-index.mjs';
+import { SAGAS_BY_DAY_INDEX, dayShardsInWindow, sagaDayShard } from '../../../../common/saga-day-index.mjs';
+import { STUCK_AFTER_MS } from '../../../../common/saga-timing.mjs';
 import { StepFunctionsClient } from './StepFunctionsClient.js';
 import { ProductClient } from './ProductClient.js';
 
@@ -29,6 +30,22 @@ const START_FAILED = 'StartExecutionFailed';
 // está iniciando
 export const STUCK_START_MS = 60 * 1000;
 
+// Reconciliação: a execução terminou mas a gravação do status final falhou
+// (o Catch das gravações deixa o fluxo seguir) ou a execução estourou o teto
+// (TimeoutSeconds, encerrada sem compensar). Status final pelo Error do estado
+// Fail do workflow; o resto exige intervenção manual
+const IN_PROGRESS = [SagaStatus.RUNNING, SagaStatus.COMPENSATING];
+const STATUS_BY_EXECUTION_ERROR = {
+  SagaCompensated: SagaStatus.COMPENSATED,
+  SagaFailed: SagaStatus.FAILED,
+  CompensationFailed: SagaStatus.COMPENSATION_FAILED
+};
+// A varredura (reconcileStuckSagas) olha as sagas criadas neste período e
+// corrige até RECONCILE_MAX por rodada (cabe no Timeout da Lambda; o resto
+// fica para a próxima)
+export const RECONCILE_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const RECONCILE_MAX = 50;
+
 // A saga é relida logo depois de gravada (idempotência, corrida entre requisições
 // com a mesma chave, GET /saga/{id} logo após o 202): leitura consistente
 const CONSISTENT = { consistentRead: true };
@@ -39,10 +56,11 @@ const CONSISTENT = { consistentRead: true };
  * (workflow/saga-workflow.asl.json), que também atualiza o registro da saga.
  */
 export class SagaService {
-  constructor({ db = new Database(), stepFunctions = new StepFunctionsClient(), productClient = new ProductClient() } = {}) {
+  constructor({ db = new Database(), stepFunctions = new StepFunctionsClient(), productClient = new ProductClient(), now = Date.now } = {}) {
     this.db = db;
     this.stepFunctions = stepFunctions;
     this.productClient = productClient;
+    this.now = now;
   }
 
   /**
@@ -245,7 +263,97 @@ export class SagaService {
     if (!saga) {
       throw new NotFoundError('Saga not found');
     }
-    return withProgress(saga);
+    return withProgress(await this.reconcile(saga));
+  }
+
+  /**
+   * Saga em andamento parada há mais de STUCK_AFTER_MS: pergunta ao Step
+   * Functions como a execução terminou e grava o status final. Execução ainda
+   * rodando não é mexida (o teto da execução resolve). Sem resposta do Step
+   * Functions, devolve a saga como está: a consulta não pode falhar por isso.
+   */
+  async reconcile(saga) {
+    if (!IN_PROGRESS.includes(saga.status) || !saga.executionArn) return saga;
+    if (this.now() - Date.parse(saga.updatedAt) <= STUCK_AFTER_MS) return saga;
+
+    let execution;
+    try {
+      execution = await this.stepFunctions.describeExecution(saga.executionArn);
+    } catch (error) {
+      log({ event: 'SAGA_RECONCILE_SKIPPED', correlationId: saga.correlationId, status: 'info', message: `Could not check execution of saga ${saga.id}: ${error.message}` });
+      return saga;
+    }
+    const final = finalStatus(execution);
+    if (!final) return saga;
+    const { status: from, updatedAt: seenAt } = saga;
+
+    let updated;
+    try {
+      updated = await this.db.updateItem(
+        'sagas',
+        { id: saga.id },
+        `SET #status = :status, updatedAt = :now, reconciledFrom = :execution${final.error ? ', compensationError = :error' : ''}`,
+        {
+          ':status': final.status,
+          ':now': new Date(this.now()).toISOString(),
+          ':execution': execution.status,
+          ':expectedStatus': from,
+          ':expectedAt': seenAt,
+          ...(final.error && { ':error': final.error })
+        },
+        {
+          // Só se ninguém mexeu nela desde a leitura (o próprio workflow, outra varredura)
+          conditionExpression: '#status = :expectedStatus AND updatedAt = :expectedAt',
+          expressionAttributeNames: { '#status': 'status' },
+          returnValues: 'ALL_NEW'
+        }
+      );
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+      return (await this.db.getItem('sagas', { id: saga.id }, CONSISTENT)) || saga;
+    }
+    // error: o status final não foi gravado pelo workflow (ou a execução
+    // estourou o teto). Entra no alarme de erros não tratados
+    const message = `Saga ${saga.id} was ${from} but its execution ended as ${execution.status}${execution.error ? ` (${execution.error})` : ''}: marked ${final.status}`;
+    log({
+      event: 'SAGA_RECONCILED',
+      correlationId: saga.correlationId,
+      status: 'error',
+      message,
+      data: { sagaId: saga.id, from, to: final.status, execution: execution.status },
+      // Sem stack: o tipo basta para o ErrorType da métrica UnhandledErrors
+      error: { name: 'SagaReconciled', message }
+    });
+    return updated;
+  }
+
+  /**
+   * Varredura periódica (agendada no template.yaml; no local-server, a cada
+   * minuto): reconcilia as sagas do último dia paradas em andamento. O índice
+   * por dia projeta status e updatedAt; só as paradas são lidas por inteiro.
+   */
+  async reconcileStuckSagas() {
+    const now = this.now();
+    const since = new Date(now - RECONCILE_WINDOW_MS).toISOString();
+    const pages = await Promise.all(dayShardsInWindow(now - RECONCILE_WINDOW_MS, now).map(dayShard =>
+      this.db.queryItems('sagas', {
+        IndexName: SAGAS_BY_DAY_INDEX,
+        KeyConditionExpression: 'dayShard = :dayShard AND createdAt >= :since',
+        ExpressionAttributeValues: { ':dayShard': dayShard, ':since': since }
+      })
+    ));
+    const stuck = pages.flat().filter(saga =>
+      IN_PROGRESS.includes(saga.status) && now - Date.parse(saga.updatedAt) > STUCK_AFTER_MS);
+
+    let reconciled = 0;
+    for (const { id } of stuck.slice(0, RECONCILE_MAX)) {
+      const saga = await this.db.getItem('sagas', { id }, CONSISTENT);
+      if (!saga) continue;
+      const before = saga.status;
+      const result = await this.reconcile(saga);
+      if (result.status !== before) reconciled++;
+    }
+    return { checked: stuck.length, reconciled };
   }
 
   /**
@@ -311,6 +419,17 @@ function restartCondition(saga, now) {
 function legacyExecutionName(saga) {
   const previous = (saga.startAttempts || 1) - 1;
   return previous <= 1 ? saga.id : `${saga.id}-${previous}`;
+}
+
+/**
+ * Status final de uma execução encerrada, ou null se ainda está rodando.
+ * TIMED_OUT/ABORTED encerram sem compensar: intervenção manual.
+ */
+export function finalStatus({ status, error }) {
+  if (status === 'RUNNING' || !status) return null;
+  if (status === 'SUCCEEDED') return { status: SagaStatus.COMPLETED };
+  if (status === 'FAILED' && STATUS_BY_EXECUTION_ERROR[error]) return { status: STATUS_BY_EXECUTION_ERROR[error] };
+  return { status: SagaStatus.COMPENSATION_FAILED, error: `Execution${status === 'FAILED' ? `Failed:${error || 'unknown'}` : status}` };
 }
 
 function withProgress(saga) {

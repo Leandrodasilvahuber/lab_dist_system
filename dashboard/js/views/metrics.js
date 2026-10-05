@@ -50,6 +50,8 @@ async function fetchMetrics() {
     summaryEl.innerHTML = statCards([
         { label: 'Erros de negócio', value: business.total, icon: 'alert', tone: 'warn', detail: business.byType[0] ? `mais comum: ${business.byType[0].errorType}` : 'nenhum' },
         { label: 'Erros não tratados', value: unhandled.total, icon: 'alert', tone: 'bad', ok: unhandled.total === 0, detail: unhandled.byType[0] ? `mais comum: ${unhandled.byType[0].errorType}` : 'nenhum' },
+        // Leituras de algo que não existe (GET com 404): fora do alarme de erros de negócio
+        { label: 'Leituras não encontradas (404)', value: data.client?.total ?? 0, icon: 'search', tone: 'info', detail: 'fora dos alarmes · cliente com bug ou id antigo' },
         { label: 'Ações executadas', value: calls, icon: 'workflow', tone: 'info', detail: `${actions.length} tipos de ação` },
         { label: 'Duração média por ação', value: calls ? ms(Math.round(durationSum / calls)) : '—', icon: 'clock', tone: 'brand', detail: 'ponderada pelas chamadas' }
     ]);

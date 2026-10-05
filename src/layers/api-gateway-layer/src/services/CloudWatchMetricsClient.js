@@ -66,10 +66,13 @@ export class CloudWatchMetricsClient {
         Stat
       }
     });
-    // Erros: série no tempo (gráfico). Poucas consultas: total + uma por ErrorType
+    // Erros: série no tempo (gráfico). Poucas consultas: total + uma por ErrorType.
+    // ClientErrors (leitura com 404, http-handler.mjs) só no total: fora dos alarmes,
+    // mostra um cliente consultando o que não existe sem virar erro de negócio
     const seriesQueries = [
       metricQuery('business', 'BusinessErrors', 'Sum', {}, period),
       metricQuery('unhandled', 'UnhandledErrors', 'Sum', {}, period),
+      metricQuery('client', 'ClientErrors', 'Sum', {}, period),
       ...businessTypes.map((type, i) => metricQuery(`business_${i}`, 'BusinessErrors', 'Sum', { ErrorType: type }, period)),
       ...unhandledTypes.map((type, i) => metricQuery(`unhandled_${i}`, 'UnhandledErrors', 'Sum', { ErrorType: type }, period))
     ];
@@ -104,6 +107,7 @@ export class CloudWatchMetricsClient {
       buckets: buckets.map(t => new Date(t).toISOString()),
       business: { total: sum('business'), values: series('business'), byType: byType('business', businessTypes) },
       unhandled: { total: sum('unhandled'), values: series('unhandled'), byType: byType('unhandled', unhandledTypes) },
+      client: { total: sum('client') },
       actions: actions
         .map((action, i) => {
           const byOutcome = Object.fromEntries(OUTCOMES.map(o => [o, total(`calls_${i}_${o}`)]));

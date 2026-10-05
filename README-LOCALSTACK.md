@@ -63,6 +63,7 @@ mostra as linhas de log geradas:
 | Cenário | Resultado | Log |
 |---|---|---|
 | `POST /products` com preço 0 | 400 | `warn API_REJECTED` (`BusinessErrors`, `HTTP_400`) |
+| `GET /saga/{id}` de saga que não existe | 404 | `info API_REJECTED` (`ClientErrors`, `HTTP_404`; fora do alarme `business-errors`) |
 | Ação `confirmOrder` de pedido inexistente | lança `NotFound` | `warn ACTION_REJECTED` (`BusinessErrors`, `NotFound`) |
 | `ProductCreated` com `initialStock: -1` | evento confirmado, **sem DLQ** | `warn DOMAIN_EVENT_REJECTED` (`BusinessErrors`, `ValidationError`) |
 | `ProductCreated` sem a tabela de inventário | 3 tentativas e depois DLQ `local-ProductEventsDlq` | `error ACTION_FAILED` + stack |

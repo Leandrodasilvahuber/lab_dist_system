@@ -1,5 +1,6 @@
 import { Database } from '../../../../common/database.mjs';
 import { SAGAS_BY_DAY_INDEX, dayShardsInWindow } from '../../../../common/saga-day-index.mjs';
+import { STUCK_AFTER_MS } from '../../../../common/saga-timing.mjs';
 import { DlqClient } from './DlqClient.js';
 
 // Metas dos SLOs (critério de sucesso dos testes de carga/caos). Os SLOs
@@ -12,7 +13,7 @@ export const SLO_TARGETS = {
 
 export const SLO_CACHE_TTL_MS = 20 * 1000;
 // Saga em RUNNING/COMPENSATING há mais que isso: provavelmente travada
-export const STUCK_AFTER_MS = 5 * 60 * 1000;
+export { STUCK_AFTER_MS };
 
 const HOUR_MS = 60 * 60 * 1000;
 const SUCCESS = ['COMPLETED', 'COMPENSATED'];

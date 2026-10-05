@@ -91,6 +91,12 @@ Resources:
         'GET /sagas':
           ThrottlingBurstLimit: 10
           ThrottlingRateLimit: 10
+        # Polling do dashboard (1 req/s por compra em andamento por aba). Sem
+        # limite próprio, abas esquecidas consultando sagas que não existem mais
+        # chegaram a 17 req/s; o limite é da rota (todos os clientes somados)
+        'GET /saga/{sagaId}':
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 20
         'GET /logs':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
@@ -472,9 +478,23 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /sagas
             Method: GET
+        # Corrige o status de saga parada em andamento: execução que terminou
+        # sem conseguir gravar o status final ou que estourou o teto da execução
+        # (SagaService.reconcileStuckSagas)
+        ReconcileSagas:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Input: '{"action":"reconcileStuckSagas","input":{}}'
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SagasTable
+        # Como a execução terminou (reconciliação). O nome vem do padrão da
+        # SagaStateMachine, sem !Ref (que criaria dependência circular)
+        - Statement:
+            - Effect: Allow
+              Action: states:DescribeExecution
+              Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:${Environment}-purchase-saga:*'
         # Dados do produto vêm do serviço de Products, não da tabela dele
         - LambdaInvokePolicy:
             FunctionName: !Ref ProductFunction

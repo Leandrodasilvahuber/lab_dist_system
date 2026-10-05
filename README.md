@@ -82,6 +82,21 @@ Falhas transitórias (throttling, conflito de transação, timeout ou erro da
 Lambda) são repetidas com backoff; erros de negócio (`InsufficientStock`,
 `PaymentDeclined`) vão direto para a compensação.
 
+**Prazo:** a compra conclui ou é desfeita em até ~5 min. Cada passo tem limite
+de 5 s (15 s no LocalStack): um passo lento vira `States.Timeout`, é repetido e,
+se continuar falhando, compensado como qualquer falha. O teto da execução (10
+min) é só rede de segurança, porque quando ele estoura o Step Functions encerra
+**sem compensar**. Um teste (`test/unit/saga/workflow.test.mjs`) calcula o pior
+caso a partir do próprio ASL.
+
+**Saga parada:** se a execução terminou mas a gravação do status final falhou
+(ou a execução estourou o teto), a saga ficaria `RUNNING` para sempre. Saga em
+andamento sem atualização há mais de 5 min é conferida no Step Functions
+(`DescribeExecution`) e recebe o status final, ou `COMPENSATION_FAILED`
+(intervenção manual) quando a execução terminou sem compensar. Isso acontece no
+`GET /saga/{id}` e numa varredura a cada 5 min (agendada no template; no
+`local-server`, a cada minuto), com log `error SAGA_RECONCILED`.
+
 ```bash
 # 1. Inicia a compra: responde na hora com 202
 curl -X POST $API/saga/execute \
@@ -122,6 +137,7 @@ IAM nas Lambdas. Namespace `Ecommerce/<ambiente>`:
 | Métrica | Dimensões | Origem |
 |---|---|---|
 | `BusinessErrors` | total, `ErrorType` | toda linha `warn` (erro de negócio: `PaymentDeclined`, `InsufficientStock`, `HTTP_400`...) |
+| `ClientErrors` | total, `ErrorType` | leitura (`GET`/`HEAD`) que respondeu 404: linha `info`, fora dos alarmes. Um cliente consultando o que não existe (id antigo, robô) aparece na aba Métricas sem disparar o `business-errors` |
 | `UnhandledErrors` | total, `ErrorType` | toda linha `error` (alarme `unhandled-errors`) |
 | `ActionCount`, `ActionDuration` (ms) | `Action`+`Outcome` (`ok`/`rejected`/`failed`) | cada ação da saga e evento de domínio (`src/common/actions.mjs`) |
 
@@ -171,7 +187,9 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 🔑 Rota administrativa: exige o header `X-Api-Key` com a chave de admin, guardada
 no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) e
 conferida por um authorizer Lambda do HttpApi. As demais rotas são públicas; o
-stage tem throttling (100 req/s, rajada de 50).
+stage tem throttling (100 req/s, rajada de 50), e as leituras caras têm limite
+próprio (`RouteSettings` no template; `GET /saga/{id}`, o polling do dashboard,
+20 req/s). O limite é da rota, somando todos os clientes.
 
 **Paginação:** `GET /products`, `GET /stock`, `GET /orders` e `GET /sagas` devolvem até `limit` itens (padrão
 50, máximo 100) e um `nextToken` quando há mais; repita a chamada com

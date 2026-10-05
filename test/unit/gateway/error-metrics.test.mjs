@@ -53,6 +53,7 @@ describe('CloudWatchMetricsClient', () => {
         business: [[minute(30), 3]],
         business_0: [[minute(30), 1]],
         business_1: [[minute(30), 2]],
+        client: [[minute(10), 4], [minute(20), 1]],
         calls_0_ok: [[minute(30), 3]],
         calls_0_rejected: [[minute(30), 1]],
         duration_0_ok: [[minute(30), 300]],
@@ -69,6 +70,7 @@ describe('CloudWatchMetricsClient', () => {
     // Mais frequente primeiro; InsufficientStock é business_0 (ordem alfabética do ListMetrics)
     assert.deepStrictEqual(result.business.byType.map(t => [t.errorType, t.total]), [['PaymentDeclined', 2], ['InsufficientStock', 1]]);
     assert.strictEqual(result.unhandled.total, 0);
+    assert.deepStrictEqual(result.client, { total: 5 });
     assert.deepStrictEqual(result.unhandled.byType, []);
     const [action] = result.actions;
     assert.deepStrictEqual(

@@ -17,8 +17,39 @@ const BACKFILL_MS = 60 * 60 * 1000;
  * - poll(): linhas das Lambdas `local-*` publicadas no LocalStack (os passos da saga),
  *   lidas dos log groups /aws/lambda/local-*; cada linha também vai para onEntry
  *   (o buffer das abas Logs e Rastreio);
- * - flush(): publica as métricas acumuladas com PutMetricData.
+ * - flush(): publica as métricas acumuladas com PutMetricData, um ponto por
+ *   série e minuto (aggregate).
  */
+/**
+ * Junta os pontos da mesma série (namespace, métrica, unidade e dimensões) no
+ * mesmo minuto num só, com StatisticValues (SampleCount, Sum, Minimum, Maximum).
+ * O resultado das consultas (Sum, Maximum, contagem) não muda, mas o CloudWatch
+ * do LocalStack guarda um ponto por minuto em vez de um por linha de log: com um
+ * ponto por linha, 290 mil pontos de uma rajada de 404 deixaram cada consulta
+ * acima do timeout e o LocalStack com a CPU cheia.
+ */
+export function aggregate(data) {
+  const series = new Map();
+  for (const { Namespace, MetricName, Unit, Dimensions = [], Timestamp, Value } of data) {
+    const minute = Math.floor(new Date(Timestamp).getTime() / 60000) * 60000;
+    const key = JSON.stringify([Namespace, MetricName, Unit, Dimensions, minute]);
+    const current = series.get(key);
+    if (current) {
+      const stats = current.StatisticValues;
+      stats.SampleCount += 1;
+      stats.Sum += Value;
+      stats.Minimum = Math.min(stats.Minimum, Value);
+      stats.Maximum = Math.max(stats.Maximum, Value);
+    } else {
+      series.set(key, {
+        Namespace, MetricName, Unit, Dimensions, Timestamp: new Date(minute),
+        StatisticValues: { SampleCount: 1, Sum: Value, Minimum: Value, Maximum: Value }
+      });
+    }
+  }
+  return [...series.values()];
+}
+
 export function createEmfAgent({ cloudwatch, logs, logGroupPrefix = '/aws/lambda/local-', onEntry = () => {}, now = Date.now }) {
   const pending = [];
   const cursors = new Map();
@@ -69,9 +100,8 @@ export function createEmfAgent({ cloudwatch, logs, logGroupPrefix = '/aws/lambda
 
   async function flush() {
     if (!pending.length) return;
-    const batch = pending.splice(0);
     const byNamespace = new Map();
-    for (const { Namespace, ...datum } of batch) {
+    for (const { Namespace, ...datum } of aggregate(pending.splice(0))) {
       if (!byNamespace.has(Namespace)) byNamespace.set(Namespace, []);
       byNamespace.get(Namespace).push(datum);
     }
