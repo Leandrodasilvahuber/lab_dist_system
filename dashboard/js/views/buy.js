@@ -4,7 +4,7 @@ import { newIdempotencyKey } from '../core/ids.js';
 import { on } from '../core/events.js';
 import { escapeHtml, money } from '../core/format.js';
 import { loadProducts, productNames } from '../services/catalog.js';
-import { getSaga, listSagas } from '../services/sagas.js';
+import { getSaga, recentSagas } from '../services/sagas.js';
 import { emptyState, errorState, loading } from '../components/empty.js';
 import { icon } from '../components/icons.js';
 import { hint, panel } from '../components/layout.js';
@@ -149,7 +149,7 @@ async function fetchSagas({ onlyRunning = false } = {}) {
                 else sagaCache.delete(id);
             }
         } else {
-            sagaCache = new Map((await listSagas()).map(s => [s.id, s]));
+            sagaCache = new Map((await recentSagas()).map(s => [s.id, s]));
         }
     } catch (error) {
         $('sagaList').innerHTML = errorState('Não foi possível carregar as compras', error);
@@ -161,7 +161,7 @@ async function fetchSagas({ onlyRunning = false } = {}) {
     const names = productNames();
     $('sagaList').innerHTML = sagas.length
         ? sagas.slice(0, 20).map(s => sagaCard(s, names)).join('')
-        : emptyState('Nenhuma compra ainda.', { icon: 'cart' });
+        : emptyState('Nenhuma compra nas últimas 24 h.', { icon: 'cart' });
 
     const running = sagas.filter(isRunning);
     const allSlow = running.every(s => Date.now() - Date.parse(s.createdAt) > SLOW_AFTER_MS);

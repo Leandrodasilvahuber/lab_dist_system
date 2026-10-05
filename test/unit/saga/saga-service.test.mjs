@@ -540,3 +540,34 @@ describe('SagaService: reconciliação de saga parada', () => {
   });
 });
 
+
+describe('SagaService.recentSagas (GET /sagas?recent=)', () => {
+  const NOW = Date.parse('2026-10-05T12:00:00Z');
+  const put = (db, id, hoursAgo) => {
+    const createdAt = new Date(NOW - hoursAgo * 3600 * 1000).toISOString();
+    db.tables.sagas.set(id, { id, status: 'COMPLETED', productId: 'apple', quantity: 1, steps: { createOrder: { status: 'COMPLETED' } }, createdAt, updatedAt: createdAt, dayShard: sagaDayShard(id, createdAt), executionArn: 'arn:x' });
+  };
+
+  // Antes a tela Comprar seguia todas as páginas do Scan da tabela
+  it('as mais recentes das últimas 24 h, pelo índice por dia, sem varrer a tabela', async () => {
+    const db = new FakeDb();
+    db.scanPage = async () => { throw new Error('não deveria varrer a tabela'); };
+    for (const [id, hours] of [['saga_a', 1], ['saga_b', 3], ['saga_c', 2], ['saga_velha', 30]]) put(db, id, hours);
+    const service = new SagaService({ db, stepFunctions: new FakeStepFunctions(), productClient: new FakeProductClient({}), now: () => NOW });
+
+    const sagas = await service.recentSagas({ limit: 2 });
+    assert.deepStrictEqual(sagas.map(s => s.id), ['saga_a', 'saga_c']);
+    // Lida por inteiro (o índice só projeta status/updatedAt), com progresso e sem campos internos
+    assert.strictEqual(sagas[0].productId, 'apple');
+    assert.strictEqual(sagas[0].progress.completed, 1);
+    assert.strictEqual('executionArn' in sagas[0], false);
+    assert.deepStrictEqual((await service.recentSagas({ limit: 10 })).map(s => s.id), ['saga_a', 'saga_c', 'saga_b']);
+  });
+
+  it('limit fora de 1 a 50 é ValidationError', async () => {
+    const service = new SagaService({ db: new FakeDb(), stepFunctions: new FakeStepFunctions(), productClient: new FakeProductClient({}), now: () => NOW });
+    for (const limit of [0, 51, 2.5, NaN]) {
+      await assert.rejects(service.recentSagas({ limit }), ValidationError, String(limit));
+    }
+  });
+});

@@ -38,6 +38,10 @@ const IN_PROGRESS = [SagaStatus.RUNNING, SagaStatus.COMPENSATING];
 // corrige até RECONCILE_MAX por rodada (cabe no Timeout da Lambda; o resto
 // fica para a próxima)
 export const RECONCILE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// Compras recentes (tela Comprar): janela e máximo por consulta
+export const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const MAX_RECENT_SAGAS = 50;
 export const RECONCILE_MAX = 50;
 
 // A saga é relida logo depois de gravada (idempotência, corrida entre requisições
@@ -424,6 +428,34 @@ export class SagaService {
       metrics: { metrics: { SagasStuck: { value: remaining } } }
     });
     return { checked: stuck.length, reconciled, stuck: remaining };
+  }
+
+  /**
+   * As `limit` compras mais recentes das últimas 24 h, mais recentes primeiro
+   * (GET /sagas?recent=, tela Comprar). Pelo SagasByDayIndex, como a
+   * varredura: uma Query por dia e shard, sem varrer a tabela; com a
+   * listagem paginada, cada visita à tela seguia todas as páginas do Scan e,
+   * com a tabela crescendo, esgotava o limite da rota GET /sagas. O índice
+   * projeta só status e updatedAt: as escolhidas são lidas por inteiro.
+   */
+  async recentSagas({ limit }) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_RECENT_SAGAS) {
+      throw new ValidationError(`recent must be an integer between 1 and ${MAX_RECENT_SAGAS}`);
+    }
+    const now = this.now();
+    const since = new Date(now - RECENT_WINDOW_MS).toISOString();
+    const pages = await Promise.all(dayShardsInWindow(now - RECENT_WINDOW_MS, now).map(dayShard =>
+      this.db.queryItems('sagas', {
+        IndexName: SAGAS_BY_DAY_INDEX,
+        KeyConditionExpression: 'dayShard = :dayShard AND createdAt >= :since',
+        ExpressionAttributeValues: { ':dayShard': dayShard, ':since': since }
+      })
+    ));
+    const newest = pages.flat()
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+      .slice(0, limit);
+    const sagas = await Promise.all(newest.map(({ id }) => this.db.getItem('sagas', { id })));
+    return sagas.filter(Boolean).map(withProgress);
   }
 
   /**

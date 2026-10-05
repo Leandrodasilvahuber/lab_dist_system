@@ -2,12 +2,13 @@ import { log } from '../../../../common/logger.mjs';
 import { successResponse, errorResponse, parseBody, sdkErrorResponse } from '../../../../common/response.mjs';
 import { SagaService } from '../services/SagaService.js';
 import { parsePagination } from '../../../../common/pagination.mjs';
+import { toNumber } from '../../../../common/validation.mjs';
 
 const sagaService = new SagaService();
 
-// O sagaId é derivado da chave (sem namespace por cliente) e GET /saga/{id} é
-// público: uma chave curta ou previsível deixaria terceiros calcularem o id.
-// Use um UUID (crypto.randomUUID()) por compra.
+// O sagaId é derivado da chave, sem namespace por cliente: uma chave curta ou
+// previsível ("1", "compra") colidiria com a de outro cliente, que receberia a
+// saga dele (ou 409). Use um UUID (crypto.randomUUID()) por compra.
 const MIN_IDEMPOTENCY_KEY_LENGTH = 16;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 
@@ -87,11 +88,16 @@ export class SagaOrchestratorController {
   }
 
   /**
-   * GET /sagas?status=... (admin, paginado: ?limit=&nextToken=)
+   * GET /sagas?status=... (paginado: ?limit=&nextToken=) e
+   * GET /sagas?recent=N (as N mais recentes das últimas 24 h, tela Comprar)
    */
   static async getSagas(event) {
     try {
       const query = event.queryStringParameters || {};
+      if (query.recent !== undefined) {
+        const sagas = await sagaService.recentSagas({ limit: toNumber(query.recent) });
+        return successResponse({ sagas, count: sagas.length });
+      }
       const { sagas, nextToken } = await sagaService.listSagas(query, parsePagination(query));
       return successResponse({ sagas, count: sagas.length, nextToken });
     } catch (error) {

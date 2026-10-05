@@ -132,6 +132,10 @@ Resources:
         'GET /dlq':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
+        # Reprocessar/descartar são públicos e cada um faz até 5 ReceiveMessage
+        'POST /dlq/{messageId}/{action}':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 5
         'GET /trace/{correlationId}':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5

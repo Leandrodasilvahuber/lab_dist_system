@@ -83,10 +83,14 @@ Falhas transitórias (throttling, conflito de transação, timeout ou erro da
 Lambda) são repetidas com backoff; erros de negócio (`InsufficientStock`,
 `PaymentDeclined`) vão direto para a compensação.
 
-**Prazo:** a compra conclui ou é desfeita em até ~5 min. Cada passo tem limite
+**Prazo:** sem throttling, a compra conclui ou é desfeita em até ~5 min. Cada passo tem limite
 de 5 s (no LocalStack, 30 s, o timeout das Lambdas locais: lá o cold start sobe
 um contêiner; e no máximo 2 execuções ao mesmo tempo): um passo lento vira `States.Timeout`, é repetido e,
-se continuar falhando, compensado como qualquer falha. O teto da execução (10
+se continuar falhando, compensado como qualquer falha. Throttling da Lambda
+(`Lambda.TooManyRequestsException`: pico de compras, ou mais de 2 simultâneas no
+LocalStack) tem retry próprio, mais paciente (6 tentativas, até ~70 s de espera
+por passo), e a consulta ao produto no início da compra também espera um pouco
+antes de responder 503. O teto da execução (30
 min) é só rede de segurança, porque quando ele estoura o Step Functions encerra
 **sem compensar**. Um teste (`test/unit/saga/workflow.test.mjs`) calcula o pior
 caso a partir do próprio ASL.
@@ -195,7 +199,7 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir; não é idempotente: depois de um 503, confira o estoque antes de repetir) |
 | **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` (`quantity` de 1 a 1000) + header `Idempotency-Key` (obrigatório, 400 sem ele) → 202; `503` + `Retry-After`: repita com a mesma chave |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
-| GET | `/sagas` | Lista as compras, paginado (`?status=&limit=&nextToken=`) |
+| GET | `/sagas` | Lista as compras, paginado (`?status=&limit=&nextToken=`); `?recent=N` (1 a 50) devolve as N mais recentes das últimas 24 h, pelo índice por dia (tela Comprar) |
 
 🔑 Rota administrativa: exige o header `X-Api-Key` com a chave de admin, guardada
 no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) e

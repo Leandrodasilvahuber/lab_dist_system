@@ -1,4 +1,4 @@
-import { api, isAuthError } from '../core/api.js';
+import { api } from '../core/api.js';
 import { API_BASE } from '../core/config.js';
 import { $ } from '../core/dom.js';
 import { emit } from '../core/events.js';
@@ -11,8 +11,6 @@ import { statCards } from '../components/stat-card.js';
 
 let lastHealth = null;
 let lastAlarms = null;
-
-const adminOnly = what => ({ value: 'só admin', ok: null, detail: `Entre como admin para ver ${what}` });
 
 // Cada métrica é um item de MONITORS: check() devolve { value, ok, detail? }.
 // Para uma métrica nova, basta acrescentar um item (ok: null = só informativo)
@@ -52,8 +50,6 @@ const MONITORS = [
                 lastAlarms = { ok: true, items: (await api('/alarms')).alarms || [] };
             } catch (error) {
                 lastAlarms = { ok: false, error };
-                // Rota pública; se um deploy a proteger, sem a chave não é falha do sistema
-                if (isAuthError(error)) return adminOnly('os alarmes');
                 return { value: 'indisponível', ok: false, detail: error.message };
             }
             const firing = lastAlarms.items.filter(a => a.state === 'ALARM').length;
@@ -75,7 +71,6 @@ const MONITORS = [
                     detail: business.byType[0] ? `mais comum: ${business.byType[0].errorType}` : 'via EMF · ver aba Métricas'
                 };
             } catch (error) {
-                if (isAuthError(error)) return adminOnly('as métricas');
                 return { value: 'indisponível', ok: false, detail: error.message };
             }
         }
@@ -95,7 +90,6 @@ const MONITORS = [
                     detail: violated.length ? `violado: ${violated.map(slo => slo.label).join(', ')}` : 'ver aba SLOs'
                 };
             } catch (error) {
-                if (isAuthError(error)) return adminOnly('os SLOs');
                 return { value: 'indisponível', ok: false, detail: error.message };
             }
         }

@@ -33,3 +33,13 @@ describe('POST /saga/execute: quantity', () => {
     }
   });
 });
+
+describe('GET /sagas?recent=', () => {
+  const list = recent => SagaOrchestratorController.getSagas({ headers: {}, queryStringParameters: { recent } });
+
+  it('recent inválido responde 400 sem consultar o banco', async () => {
+    for (const recent of ['0', '51', 'abc', '2.5', '']) {
+      assert.strictEqual((await list(recent)).statusCode, 400, recent);
+    }
+  });
+});
