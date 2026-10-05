@@ -324,6 +324,21 @@ describe('SagaService', () => {
     await assert.rejects(service.getSaga('x'), NotFoundError);
   });
 
+  // GET /saga/{id} é público: o executionArn traria o ID da conta AWS
+  it('getSaga e listSagas não devolvem os campos internos do orquestrador', async () => {
+    const { saga } = await service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: 'k-internal' });
+    assert.ok(db.tables.sagas.get(saga.id).executionArn);
+
+    const result = await service.getSaga(saga.id);
+    const { sagas } = await service.listSagas({}, { limit: 10 });
+    for (const view of [result, sagas.find(s => s.id === saga.id)]) {
+      for (const field of ['executionArn', 'executionName', 'startAttempts', 'dayShard']) {
+        assert.strictEqual(field in view, false, field);
+      }
+      assert.strictEqual(view.status, 'RUNNING');
+    }
+  });
+
   it('listSagas lê uma página por vez e devolve o nextToken', async () => {
     for (let i = 0; i < 3; i++) await service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: `k-list-${i}` });
 

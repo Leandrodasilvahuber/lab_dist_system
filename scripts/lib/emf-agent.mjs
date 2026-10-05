@@ -82,19 +82,27 @@ export function createEmfAgent({ cloudwatch, logs, logGroupPrefix = '/aws/lambda
     let nextToken;
     let latest = cursor.since;
     const seen = new Set();
-    do {
-      const page = await logs.send(new FilterLogEventsCommand({ logGroupName, startTime: cursor.since, nextToken }));
-      for (const { eventId, timestamp, message } of page.events || []) {
-        seen.add(eventId);
-        if (cursor.seen.has(eventId)) continue;
-        latest = Math.max(latest, timestamp);
-        const entry = parseLogLine(message);
-        if (!entry) continue;
-        onEntry(entry);
-        capture(entry, { publish: timestamp >= startedAt });
-      }
-      nextToken = page.nextToken;
-    } while (nextToken);
+    try {
+      do {
+        const page = await logs.send(new FilterLogEventsCommand({ logGroupName, startTime: cursor.since, nextToken }));
+        for (const { eventId, timestamp, message } of page.events || []) {
+          seen.add(eventId);
+          if (cursor.seen.has(eventId)) continue;
+          latest = Math.max(latest, timestamp);
+          const entry = parseLogLine(message);
+          if (!entry) continue;
+          onEntry(entry);
+          capture(entry, { publish: timestamp >= startedAt });
+        }
+        nextToken = page.nextToken;
+      } while (nextToken);
+    } catch (error) {
+      // Página que falhou no meio: as linhas já entregues não voltam na próxima
+      // rodada (repetiriam na aba Logs e contariam duas vezes nas métricas). O
+      // início fica o mesmo, porque o resto pode ter horários anteriores
+      cursors.set(logGroupName, { since: cursor.since, seen: new Set([...cursor.seen, ...seen]) });
+      throw error;
+    }
     cursors.set(logGroupName, { since: latest, seen });
   }
 

@@ -504,8 +504,14 @@ export function finalStatus({ status, error }) {
   return { status: SagaStatus.COMPENSATION_FAILED, error: `Execution${status === 'FAILED' ? `Failed:${error || 'unknown'}` : status}` };
 }
 
+// Campos só do orquestrador (reconciliação, reinício, índice por dia). O
+// executionArn traz o ID da conta AWS, a região e o nome do ambiente, e
+// GET /saga/{id} é público: nenhum cliente precisa deles
+const INTERNAL_FIELDS = ['executionArn', 'executionName', 'startAttempts', 'dayShard'];
+
 function withProgress(saga) {
   const { errorCause, compensationCause, ...rest } = saga;
+  for (const field of INTERNAL_FIELDS) delete rest[field];
   const completed = SAGA_STEPS.filter(step => saga.steps?.[step]?.status === 'COMPLETED').length;
 
   const steps = Object.fromEntries(Object.entries(saga.steps || {}).map(([name, step]) => {

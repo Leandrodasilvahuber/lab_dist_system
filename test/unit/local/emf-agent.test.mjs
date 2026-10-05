@@ -106,3 +106,31 @@ describe('aggregate (um ponto por série e minuto)', () => {
     assert.ok(data.every(d => d.Value === undefined));
   });
 });
+
+describe('agente EMF local: falha no meio da paginação', () => {
+  it('não repete as linhas da página já lida quando a seguinte falha', async () => {
+    const page1 = [{ eventId: 'a', timestamp: START + 1000, message: metricLine(START + 1000) }];
+    const page2 = [{ eventId: 'b', timestamp: START + 500, message: metricLine(START + 500) }];
+    let failNext = true;
+    const put = [];
+    const logs = {
+      async send(command) {
+        if (command.constructor.name === 'DescribeLogGroupsCommand') return { logGroups: [{ logGroupName: '/aws/lambda/local-StockFunction' }] };
+        if (!command.input.nextToken) return { events: page1, nextToken: 'p2' };
+        if (failNext) { failNext = false; throw new Error('ThrottlingException'); }
+        return { events: page2 };
+      }
+    };
+    const entries = [];
+    const agent = createEmfAgent({ cloudwatch: { async send(c) { put.push(c.input); } }, logs, onEntry: e => entries.push(e), now: () => START });
+
+    await agent.poll();
+    await agent.poll();
+    await agent.flush();
+
+    // Cada linha uma vez, inclusive a da 2ª página, com horário anterior à da 1ª
+    assert.deepStrictEqual(entries.map(e => e.timestamp), [new Date(START + 1000).toISOString(), new Date(START + 500).toISOString()]);
+    const total = put.flatMap(p => p.MetricData).filter(d => d.Dimensions.length === 0);
+    assert.strictEqual(total.reduce((sum, d) => sum + d.StatisticValues.Sum, 0), 2);
+  });
+});

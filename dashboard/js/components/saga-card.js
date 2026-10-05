@@ -4,6 +4,8 @@ import { SAGA_STATUS, statusBadge } from './badge.js';
 import { icon } from './icons.js';
 
 export const TERMINAL = ['COMPLETED', 'COMPENSATED', 'FAILED', 'COMPENSATION_FAILED'];
+// Erro gravado quando o StartExecution falhou (SagaService, START_FAILED)
+const START_FAILED = 'StartExecutionFailed';
 export const STEP_LABELS = {
     createOrder: 'Pedido',
     reserveStock: 'Estoque',
@@ -47,9 +49,12 @@ export function sagaCard(saga, productNames) {
             .map(name => stepChip(name, steps[name].status, steps[name].error?.message)).join(ARROW)
         : '';
 
+    // StartExecutionFailed (string, sem passo): a execução nem começou
     const error = saga.error?.message
         ? `<div class="saga-error">Falhou em <strong>${escapeHtml(STEP_LABELS[saga.failedStep] || saga.failedStep)}</strong>: ${escapeHtml(saga.error.message)}</div>`
-        : '';
+        : saga.error === START_FAILED
+            ? '<div class="saga-error">A compra não chegou a iniciar. Repetir com a mesma Idempotency-Key a inicia de novo.</div>'
+            : '';
 
     return `
         <article class="saga-card tone-${tone}" id="saga-${escapeHtml(saga.id)}">
