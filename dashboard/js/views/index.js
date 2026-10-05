@@ -1,5 +1,6 @@
 import admin from './admin.js';
 import buy from './buy.js';
+import chaos from './chaos.js';
 import dlq from './dlq.js';
 import logs from './logs.js';
 import metrics from './metrics.js';
@@ -19,7 +20,7 @@ import trace from './trace.js';
 export const GROUPS = [
     { id: 'store', label: 'Loja', views: [buy, products, stock, orders, summary] },
     { id: 'observe', label: 'Observabilidade', views: [monitoring, metrics, logs, trace, performance, slo, resources] },
-    { id: 'ops', label: 'Operação', views: [dlq, admin] }
+    { id: 'ops', label: 'Operação', views: [dlq, chaos, admin] }
 ];
 
 export const DEFAULT_VIEW = 'buy';

@@ -91,7 +91,7 @@ export class SagaService {
 
     // Consulta síncrona ao serviço de Products: produto inexistente falha aqui
     // (404 imediato) e o preço fica congelado no momento da compra
-    const product = await this.productClient.getProduct(productId);
+    const product = await this.productClient.getProduct(productId, { correlationId: correlationId || sagaId });
     const unitPrice = Number(product.price);
 
     const now = new Date().toISOString();

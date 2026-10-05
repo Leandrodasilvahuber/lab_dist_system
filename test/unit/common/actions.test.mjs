@@ -2,6 +2,7 @@ import { describe, it, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
 import { runAction, runEventHandler } from '../../../src/common/actions.mjs';
 import { NotFoundError } from '../../../src/common/errors.mjs';
+import { createChaos } from '../../../src/common/chaos.mjs';
 
 describe('runAction: métricas EMF por ação', () => {
   const original = process.env.LOG_LEVEL;
@@ -80,5 +81,27 @@ describe('runAction: falhas transitórias', () => {
     for (const task of lambdaTasks) {
       assert.ok(task.Retry.some(r => r.ErrorEquals.includes('TransientError')));
     }
+  });
+});
+
+describe('runAction: injeção de falhas (chaos)', () => {
+  const chaosFor = type => createChaos({
+    enabled: true,
+    parameterName: '/test/chaos',
+    client: { send: async () => ({ Parameter: { Value: JSON.stringify({ expiresAt: new Date(Date.now() + 60000).toISOString(), faults: [{ id: 'f', service: 'payments', action: 'processPayment', type, probability: 1, latencyMs: 0 }] }) } }) },
+    random: () => 0
+  });
+
+  it('transient injetada sai como TransientError (o workflow repete) e a ação não roda', async () => {
+    let ran = false;
+    const actions = { processPayment: async () => { ran = true; } };
+    await assert.rejects(runAction(actions, { action: 'processPayment', input: {} }, { chaos: chaosFor('transient'), service: 'payments' }), { name: 'TransientError' });
+    assert.strictEqual(ran, false);
+  });
+
+  it('crash injetado sai como erro comum (compensação); outro serviço não é afetado', async () => {
+    const actions = { processPayment: async () => 'ok' };
+    await assert.rejects(runAction(actions, { action: 'processPayment', input: {} }, { chaos: chaosFor('crash'), service: 'payments' }), { name: 'ChaosError' });
+    assert.strictEqual(await runAction(actions, { action: 'processPayment', input: {} }, { chaos: chaosFor('crash'), service: 'stock' }), 'ok');
   });
 });

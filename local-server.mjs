@@ -43,7 +43,7 @@ import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
 import { createLogBuffer, parseLogLine, isTraceId } from './src/common/log-query.mjs';
 import { createEmfAgent } from './scripts/lib/emf-agent.mjs';
 import { createLocalstackHealth } from './scripts/lib/localstack-health.mjs';
-import { LOCAL_MAX_CONCURRENCY, templateMemoryMb } from './scripts/lib/localstack.mjs';
+import { LOCAL_MAX_CONCURRENCY, LOCAL_CHAOS_PARAM, templateMemoryMb } from './scripts/lib/localstack.mjs';
 import { mapLimit } from './scripts/lib/pool.mjs';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from './src/common/database.mjs';
@@ -90,6 +90,10 @@ process.env.ALARM_PREFIX ||= 'local-ecommerce-';
 process.env.DLQ_NAME ||= 'local-ProductEventsDlq';
 // Aba Recursos: limite de memória das Lambdas local-* e base da estimativa de custo
 process.env.FUNCTION_MEMORY_MB ||= String(templateMemoryMb());
+// Injeção de falhas: mesmo parâmetro do SSM que as Lambdas local-* leem
+// (criado por npm run localstack:deploy; aba Caos e npm run chaos)
+process.env.CHAOS_PARAM ||= LOCAL_CHAOS_PARAM;
+process.env.CHAOS_ENABLED ||= 'true';
 
 const { TIMEOUT_SCALE } = await import('./src/common/aws-client.mjs');
 

@@ -25,6 +25,13 @@ describe('ProductClient', () => {
     assert.deepStrictEqual(JSON.parse(client.sent[0].Payload), { action: 'getProduct', input: { productId: 'apple' } });
   });
 
+  // As linhas da Lambda de produtos (inclusive CHAOS_INJECTED) entram no rastreio da compra
+  it('repassa o correlationId no input da invocação', async () => {
+    const client = fakeLambda({ Payload: { id: 'apple', price: 5 } });
+    await new ProductClient({ functionName: 'ProductFunction', client }).getProduct('apple', { correlationId: 'c-1' });
+    assert.deepStrictEqual(JSON.parse(client.sent[0].Payload).input, { productId: 'apple', correlationId: 'c-1' });
+  });
+
   // Pico de compras do mesmo produto: uma invocação, não uma por compra
   it('consultas simultâneas do mesmo produto compartilham uma invocação', async () => {
     let release;

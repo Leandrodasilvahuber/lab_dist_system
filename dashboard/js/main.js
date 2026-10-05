@@ -1,13 +1,15 @@
 import { API_BASE } from './core/config.js';
 import { $ } from './core/dom.js';
 import { on } from './core/events.js';
-import { escapeHtml } from './core/format.js';
+import { escapeHtml, time } from './core/format.js';
 import { navigate } from './core/nav.js';
 import { currentView, initRouter, refreshCurrent, show, syncAdminViews } from './core/router.js';
 import { getAdminKey, setAdminKey } from './core/session.js';
 import { storage } from './core/storage.js';
 import { icon } from './components/icons.js';
 import { showToast } from './components/toast.js';
+import { navLink } from './components/layout.js';
+import { loadChaos } from './services/chaos.js';
 import { runMonitors } from './views/monitoring.js';
 import { openTrace } from './views/trace.js';
 
@@ -47,6 +49,20 @@ on('health', ({ healthy }) => {
     $('connectionDot').className = `connection-dot ${healthy ? 'connected' : 'disconnected'}`;
     $('connectionStatus').textContent = healthy ? 'Conectado' : 'Desconectado';
     $('statusLink').title = `${healthy ? 'Sistema saudável' : 'API indisponível'} · ver monitoramento`;
+});
+
+// ---------- Faixa de caos: falha injetada não deve parecer bug ----------
+let chaosExpiry;
+on('chaos', ({ active, expiresAt, faults = [] }) => {
+    const banner = $('chaosBanner');
+    banner.hidden = !active;
+    clearTimeout(chaosExpiry);
+    if (!active) return;
+    // Expirou: as Lambdas já pararam de injetar; relê em vez de esperar o polling
+    chaosExpiry = setTimeout(loadChaos, Math.max(0, Date.parse(expiresAt) - Date.now()) + 1000);
+    const targets = faults.map(f => `${f.service}/${f.action || '*'}`).join(', ');
+    banner.innerHTML = `${icon('zap', { size: 16 })}<span><strong>Caos ativo até ${escapeHtml(time(expiresAt))}</strong> · ${faults.length} falha(s) injetada(s): <span class="mono">${escapeHtml(targets)}</span></span>
+        ${getAdminKey() ? navLink('chaos', 'Gerenciar', 'arrowRight') : ''}`;
 });
 
 // ---------- Tema claro/escuro (sem escolha, segue o sistema) ----------
@@ -127,5 +143,10 @@ renderAdminButton();
 initRouter();
 // O indicador do topo vale em qualquer tela; no Monitoramento o refresh já roda
 if (currentView() !== 'monitoring') runMonitors();
+if (currentView() !== 'chaos') loadChaos();
 // Aba oculta pula a rodada: várias abas esquecidas não somam consultas
-setInterval(() => { if (!document.hidden) runMonitors(); }, 30000);
+setInterval(() => {
+    if (document.hidden) return;
+    runMonitors();
+    loadChaos();
+}, 30000);

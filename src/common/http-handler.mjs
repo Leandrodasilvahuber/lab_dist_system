@@ -5,6 +5,7 @@ import { errorResponse, notFoundResponse, sdkErrorResponse } from './response.mj
 import { DependencyUnavailableError, DomainError } from './errors.mjs';
 import { isTransientAwsError } from './aws-client.mjs';
 import { withRuntimeMetrics } from './runtime-metrics.mjs';
+import { getChaos } from './chaos.mjs';
 
 // Leitura de algo que não existe (GET/HEAD com 404) não é erro de negócio: um
 // cliente com bug ou um robô varrendo URLs dispararia o alarme business-errors.
@@ -42,14 +43,16 @@ function errorMessage(response) {
  *  - evento de domínio (EventBridge): { source, detail-type, detail }
  *  - requisição HTTP (HttpApi), roteada por `setupRoutes`
  * Toda invocação grava a memória usada (runtime-metrics.mjs).
+ * `service`: nome usado como alvo da injeção de falhas (chaos.mjs); a rota
+ * HTTP é o alvo `METHOD /caminho`.
  */
-export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers = {} }) {
+export function createServiceHandler({ service, setupRoutes, actions = {}, eventHandlers = {}, chaos = getChaos() }) {
   return withRuntimeMetrics(async function handler(rawEvent) {
     if (isActionInvocation(rawEvent)) {
-      return runAction(actions, rawEvent);
+      return runAction(actions, rawEvent, { chaos, service });
     }
     if (isDomainEvent(rawEvent)) {
-      return runEventHandler(eventHandlers, rawEvent);
+      return runEventHandler(eventHandlers, rawEvent, { chaos, service });
     }
 
     const event = normalizeHttpEvent(rawEvent);
@@ -62,6 +65,7 @@ export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers 
 
     const started = Date.now();
     try {
+      await chaos.maybeInject({ service, action: `${event.method} ${event.path}`, correlationId });
       const response = await setupRoutes(event);
       // Uma linha por request. 4xx = erro tratado (validação/regra de negócio):
       // warn, exceto leitura que não achou nada (logRejection). 5xx já foi

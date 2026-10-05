@@ -82,6 +82,10 @@ Globals:
         SAGAS_TABLE: !Ref SagasTable
         EVENT_BUS_NAME: !Ref EventBus
         FUNCTION_MEMORY_MB: !Ref FunctionMemoryMB
+        # Injeção de falhas (src/common/chaos.mjs): config no ChaosConfigParameter,
+        # gravada por PUT/DELETE /chaos. Desligada em prod (nem lê o SSM)
+        CHAOS_PARAM: !Sub '/${Environment}/ecommerce/chaos'
+        CHAOS_ENABLED: !If [IsProd, 'false', 'true']
 
 Resources:
   # API Gateway Centralizado (HttpApi)
@@ -156,7 +160,7 @@ Resources:
           ThrottlingRateLimit: 5
       CorsConfiguration:
         AllowOrigins: [!Ref AllowedOrigin]
-        AllowMethods: [GET, POST, DELETE, OPTIONS]
+        AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
         AllowHeaders: [content-type, x-api-key, idempotency-key, x-idempotency-key, x-correlation-id]
         ExposeHeaders: [retry-after]
       Auth:
@@ -251,6 +255,12 @@ Resources:
                 - sqs:ChangeMessageVisibility
                 - sqs:GetQueueAttributes
               Resource: !GetAtt ProductEventsDlq.Arn
+            # Aba Caos: lê e grava a config de injeção de falhas
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:PutParameter
+              Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Environment}/ecommerce/chaos'
         # Aba SLOs: desfecho e duração das compras (Scan na tabela de sagas)
         - DynamoDBReadPolicy:
             TableName: !Ref SagasTable
@@ -324,6 +334,29 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /dlq/{messageId}/{action}
             Method: POST
+        GetChaos:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /chaos
+            Method: GET
+        # Ligar e desligar a injeção de falhas: só admin (src/common/auth.mjs)
+        PutChaos:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /chaos
+            Method: PUT
+            Auth:
+              Authorizer: AdminApiKey
+        DeleteChaos:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /chaos
+            Method: DELETE
+            Auth:
+              Authorizer: AdminApiKey
         Proxy:
           Type: HttpApi
           Properties:
@@ -378,6 +411,9 @@ Resources:
             Auth:
               Authorizer: AdminApiKey
       Policies:
+        # Config de caos (src/common/chaos.mjs)
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub '${Environment}/ecommerce/chaos'
         - DynamoDBCrudPolicy:
             TableName: !Ref ProductsTable
         - EventBridgePutEventsPolicy:
@@ -414,6 +450,9 @@ Resources:
             Path: /orders/{id}
             Method: GET
       Policies:
+        # Config de caos (src/common/chaos.mjs)
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub '${Environment}/ecommerce/chaos'
         - DynamoDBCrudPolicy:
             TableName: !Ref OrdersTable
         - EventBridgePutEventsPolicy:
@@ -439,6 +478,9 @@ Resources:
           PAYMENT_MAX_AMOUNT: '10000'
       # Sem rotas HTTP: só executa as ações da saga (processPayment, refundPayment)
       Policies:
+        # Config de caos (src/common/chaos.mjs)
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub '${Environment}/ecommerce/chaos'
         - DynamoDBCrudPolicy:
             TableName: !Ref PaymentsTable
         - EventBridgePutEventsPolicy:
@@ -497,6 +539,9 @@ Resources:
             Auth:
               Authorizer: AdminApiKey
       Policies:
+        # Config de caos (src/common/chaos.mjs)
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub '${Environment}/ecommerce/chaos'
         - DynamoDBCrudPolicy:
             TableName: !Ref StockReservationsTable
         - DynamoDBCrudPolicy:
@@ -571,6 +616,9 @@ Resources:
             Schedule: rate(5 minutes)
             Input: '{"action":"reconcileStuckSagas","input":{}}'
       Policies:
+        # Config de caos (src/common/chaos.mjs)
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub '${Environment}/ecommerce/chaos'
         - DynamoDBCrudPolicy:
             TableName: !Ref SagasTable
         # Como a execução terminou (reconciliação). O nome vem do padrão da
@@ -720,6 +768,17 @@ Resources:
                 aws:SourceArn: !GetAtt ProductEventsToStockRule.Arn
 
   # ---------- Logs e alarmes ----------
+  # Config da injeção de falhas (src/common/chaos.mjs). Começa sem falhas; a
+  # aba Caos e npm run chaos gravam por PUT /chaos (sempre com expiresAt).
+  # Atualizar a stack volta o valor para o inicial (desliga o caos)
+  ChaosConfigParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${Environment}/ecommerce/chaos'
+      Type: String
+      Value: '{"faults":[]}'
+      Description: Injeção de falhas do laboratório (engenharia de caos)
+
   ServicesLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

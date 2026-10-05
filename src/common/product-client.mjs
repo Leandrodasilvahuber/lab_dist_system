@@ -76,8 +76,10 @@ export class ProductClient {
    * uma cada: sem isso, um pico num produto vira N invocações (N cold starts
    * no LocalStack, onde 10 simultâneos passaram de 30s cada). Não é cache: o
    * resultado vale só para quem pediu enquanto a consulta estava em andamento.
+   * `correlationId` vai no input: as linhas da Lambda de produtos entram no
+   * rastreio da compra (numa consulta compartilhada, vale o de quem chegou antes).
    */
-  async getProduct(productId) {
+  async getProduct(productId, { correlationId } = {}) {
     if (!this.functionName) {
       throw new Error('PRODUCT_FUNCTION_NAME is not configured');
     }
@@ -85,7 +87,7 @@ export class ProductClient {
     requireId(productId, 'productId');
     let pending = this.inFlight.get(productId);
     if (!pending) {
-      pending = this.breaker.call(() => this.invoke(productId))
+      pending = this.breaker.call(() => this.invoke(productId, correlationId))
         .finally(() => this.inFlight.delete(productId));
       this.inFlight.set(productId, pending);
     }
@@ -94,10 +96,10 @@ export class ProductClient {
   }
 
   // Invoca a Lambda de produtos, repetindo só o throttling (THROTTLE_DELAYS_MS)
-  async send(productId) {
+  async send(productId, correlationId) {
     const command = new InvokeCommand({
       FunctionName: this.functionName,
-      Payload: JSON.stringify({ action: 'getProduct', input: { productId } })
+      Payload: JSON.stringify({ action: 'getProduct', input: { productId, ...(correlationId && { correlationId }) } })
     });
     for (let attempt = 0; ; attempt++) {
       try {
@@ -109,10 +111,10 @@ export class ProductClient {
     }
   }
 
-  async invoke(productId) {
+  async invoke(productId, correlationId) {
     let response;
     try {
-      response = await this.send(productId);
+      response = await this.send(productId, correlationId);
     } catch (error) {
       // Permissão, parâmetro inválido, função inexistente
       // (PRODUCT_FUNCTION_NAME errado): erro de configuração (500), repetir não

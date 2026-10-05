@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import { AlarmsClient } from '../../../src/layers/api-gateway-layer/src/services/AlarmsClient.js';
 import { createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
 import { LogsClient } from '../../../src/layers/api-gateway-layer/src/services/LogsClient.js';
+import { ChaosClient } from '../../../src/layers/api-gateway-layer/src/services/ChaosClient.js';
 
 process.env.LOG_LEVEL = 'silent';
 
@@ -133,5 +134,71 @@ describe('GET /health', () => {
     const handler = createAPIHandler({ alarms: {}, logs: {}, dlq: {} });
     assert.strictEqual((await handler(req('GET'))).statusCode, 200);
     assert.strictEqual((await handler(req('POST'))).statusCode, 404);
+  });
+});
+
+describe('GET/PUT/DELETE /chaos', () => {
+  const NOW = Date.parse('2026-10-05T12:00:00Z');
+  const http = (method, body) => ({ requestContext: { http: { method, path: '/chaos' } }, rawPath: '/chaos', headers: {}, body: body === undefined ? undefined : JSON.stringify(body) });
+
+  function fakeSsm(initial) {
+    return {
+      value: initial,
+      async send(command) {
+        if (command.input.Value !== undefined) {
+          this.value = command.input.Value;
+          return {};
+        }
+        if (this.value === undefined) throw Object.assign(new Error('missing'), { name: 'ParameterNotFound' });
+        return { Parameter: { Value: this.value } };
+      }
+    };
+  }
+
+  function handlerWith(ssm, { enabled = true } = {}) {
+    const chaos = new ChaosClient({ parameterName: '/test/ecommerce/chaos', enabled, client: ssm, now: () => NOW });
+    return createAPIHandler({ chaos });
+  }
+
+  it('PUT valida e grava; GET devolve a config em vigor; DELETE grava a config vazia', async () => {
+    const ssm = fakeSsm(undefined);
+    const handler = handlerWith(ssm);
+    const expiresAt = new Date(NOW + 10 * 60000).toISOString();
+
+    const put = await handler(http('PUT', { expiresAt, faults: [{ service: 'payments', action: 'processPayment', type: 'crash' }] }));
+    assert.strictEqual(put.statusCode, 200);
+    assert.strictEqual(JSON.parse(ssm.value).faults[0].probability, 1);
+
+    const get = JSON.parse((await handler(http('GET'))).body);
+    assert.deepStrictEqual([get.enabled, get.active, get.expiresAt, get.faults.length], [true, true, expiresAt, 1]);
+
+    await handler(http('DELETE'));
+    assert.deepStrictEqual(JSON.parse(ssm.value), { faults: [] });
+    assert.strictEqual(JSON.parse((await handler(http('GET'))).body).active, false);
+  });
+
+  it('config inválida, expiração longa demais ou JSON quebrado: 400', async () => {
+    const handler = handlerWith(fakeSsm(undefined));
+    assert.strictEqual((await handler(http('PUT', { faults: [] }))).statusCode, 400);
+    assert.strictEqual((await handler(http('PUT', { expiresAt: new Date(NOW + 2 * 3600000).toISOString(), faults: [] }))).statusCode, 400);
+    assert.strictEqual((await handler({ ...http('PUT'), body: '{' })).statusCode, 400);
+  });
+
+  it('config expirada aparece como desligada; parâmetro ausente também', async () => {
+    const expired = fakeSsm(JSON.stringify({ expiresAt: new Date(NOW - 1000).toISOString(), faults: [{ service: 'stock', type: 'crash' }] }));
+    assert.strictEqual(JSON.parse((await handlerWith(expired)(http('GET'))).body).active, false);
+    assert.strictEqual(JSON.parse((await handlerWith(fakeSsm(undefined))(http('GET'))).body).active, false);
+  });
+
+  it('desligado no ambiente (prod): não toca no SSM e responde enabled false', async () => {
+    const ssm = { send: async () => { throw new Error('não deveria chamar'); } };
+    const handler = handlerWith(ssm, { enabled: false });
+    assert.strictEqual(JSON.parse((await handler(http('GET'))).body).enabled, false);
+    assert.strictEqual(JSON.parse((await handler(http('PUT', {}))).body).enabled, false);
+  });
+
+  it('SSM fora do ar: 503', async () => {
+    const handler = handlerWith({ send: async () => { throw new Error('timeout'); } });
+    assert.strictEqual((await handler(http('GET'))).statusCode, 503);
   });
 });

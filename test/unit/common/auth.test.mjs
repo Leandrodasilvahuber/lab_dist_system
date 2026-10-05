@@ -6,10 +6,12 @@ import { createHandler, createKeyProvider, CACHE_TTL_MS } from '../../../src/lay
 process.env.LOG_LEVEL = 'silent';
 
 describe('rotas de admin', () => {
-  it('protege só as escritas da aba Admin: cadastrar e remover produto e ajustar estoque', () => {
+  it('protege só as escritas de admin: produto, ajuste de estoque e ligar/desligar o caos', () => {
     assert.ok(isAdminRoute('POST', '/products'));
     assert.ok(isAdminRoute('DELETE', '/products/p1'));
     assert.ok(isAdminRoute('POST', '/stock/p1/adjust'));
+    assert.ok(isAdminRoute('PUT', '/chaos'));
+    assert.ok(isAdminRoute('DELETE', '/chaos'));
   });
 
   it('deixa público todo o resto: vitrine, compras, pedidos, logs, rastreio, métricas, custo e DLQ', () => {
@@ -17,7 +19,7 @@ describe('rotas de admin', () => {
       ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/sagas'], ['GET', '/orders'], ['GET', '/orders/o1'],
       ['GET', '/health'], ['GET', '/alarms'], ['GET', '/logs'], ['GET', '/trace/s1'], ['GET', '/metrics/sagas'],
       ['GET', '/metrics/errors'], ['GET', '/metrics/slo'], ['GET', '/metrics/memory'], ['GET', '/metrics/cost'],
-      ['GET', '/dlq'], ['POST', '/dlq/m1/redrive'], ['POST', '/dlq/m1/discard']]) {
+      ['GET', '/dlq'], ['POST', '/dlq/m1/redrive'], ['POST', '/dlq/m1/discard'], ['GET', '/chaos']]) {
       assert.ok(!isAdminRoute(method, path), `${method} ${path}`);
     }
   });

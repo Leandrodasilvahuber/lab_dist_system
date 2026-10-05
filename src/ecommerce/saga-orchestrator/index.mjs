@@ -3,6 +3,7 @@ import { setupRoutes } from './src/routes/sagaRoutes.js';
 import { SagaOrchestratorController } from './src/controllers/SagaOrchestratorController.js';
 
 export const handler = createServiceHandler({
+  service: 'saga',
   setupRoutes,
   // Disparada pelo agendamento ReconcileSagas (template.yaml)
   actions: { reconcileStuckSagas: () => SagaOrchestratorController.reconcileStuckSagas() }

@@ -13,6 +13,7 @@ import * as lambda from '@aws-sdk/client-lambda';
 import * as sfn from '@aws-sdk/client-sfn';
 import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import { SQSClient } from '@aws-sdk/client-sqs';
+import { SSMClient, PutParameterCommand } from '@aws-sdk/client-ssm';
 import { ensureTable, logicalName } from './tables.mjs';
 
 // Perfil local de timeouts (src/common/aws-client.mjs) das Lambdas
@@ -28,6 +29,11 @@ export const LOCAL_MAX_CONCURRENCY = 2;
 export const LOCAL_LAMBDA_TIMEOUT_S = 30;
 // Teto da execução local: pior caso com passos de 30 s é ~21 min (ver localTimeouts)
 export const LOCAL_EXECUTION_TIMEOUT_S = 3600;
+
+// Config de caos (src/common/chaos.mjs) do ambiente local: lida pelas Lambdas
+// local-* e pelo local-server, gravada pela aba Caos e por npm run chaos
+export const LOCAL_CHAOS_PARAM = '/local/ecommerce/chaos';
+export const LOCAL_CHAOS_ENV = { CHAOS_PARAM: LOCAL_CHAOS_PARAM, CHAOS_ENABLED: 'true' };
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BUILD = path.join(ROOT, '.aws-sam', 'build');
@@ -65,7 +71,8 @@ export function clients(endpoint) {
     L: new lambda.LambdaClient(cfg),
     F: new sfn.SFNClient(cfg),
     CW: new CloudWatchClient(cfg),
-    Q: new SQSClient(cfg)
+    Q: new SQSClient(cfg),
+    S: new SSMClient(cfg)
   };
 }
 
@@ -73,6 +80,12 @@ export function assertBuilt() {
   if (!fs.existsSync(path.join(BUILD, 'OrderFunction', 'index.mjs'))) {
     throw new Error('Build não encontrado. Rode antes: npm run build');
   }
+}
+
+// Parâmetro da config de caos com nenhuma falha (como o ChaosConfigParameter
+// do template.yaml). Recria vazio: um novo deploy começa sem caos
+export async function ensureChaosParameter({ S }, name = LOCAL_CHAOS_PARAM) {
+  await S.send(new PutParameterCommand({ Name: name, Value: JSON.stringify({ faults: [] }), Type: 'String', Overwrite: true }));
 }
 
 // `tables`: { PRODUCTS_TABLE: 'nome', ... }, com os mesmos índices do template.yaml

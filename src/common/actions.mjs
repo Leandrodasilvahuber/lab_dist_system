@@ -24,8 +24,10 @@ export function isActionInvocation(event) {
 /**
  * `logRejection: false` deixa o registro do erro de negócio para quem chamou
  * (runEventHandler grava DOMAIN_EVENT_REJECTED; evita linha duplicada).
+ * `chaos` + `service`: injeção de falhas (chaos.mjs) antes da ação, dentro do
+ * try: a falha injetada segue o mesmo caminho de uma real (métricas, TransientError).
  */
-export async function runAction(actions, { action, input = {} }, { logRejection = true } = {}) {
+export async function runAction(actions, { action, input = {} }, { logRejection = true, chaos, service } = {}) {
   const fn = actions[action];
   if (!fn) {
     throw new ValidationError(`Unknown action: ${action}`);
@@ -49,6 +51,7 @@ export async function runAction(actions, { action, input = {} }, { logRejection 
     dimensionSets: [['Action', 'Outcome']]
   });
   try {
+    await chaos?.maybeInject({ service, action, correlationId: input.correlationId });
     const result = await fn(input);
     log({ event: 'ACTION_COMPLETED', correlationId: input.correlationId, status: 'info', message: `Action ${action} completed`, data: { durationMs: Date.now() - started }, metrics: actionMetrics('ok') });
     return result;
@@ -99,7 +102,7 @@ export function isDomainEvent(event) {
  * própria Lambda (EventInvokeConfig no template.yaml) e, esgotadas as
  * tentativas, o destino OnFailure manda o evento para a DLQ.
  */
-export async function runEventHandler(handlers, event) {
+export async function runEventHandler(handlers, event, { chaos, service } = {}) {
   const key = `${event.source}/${event['detail-type']}`;
   const fn = handlers[key];
   if (!fn) {
@@ -107,7 +110,7 @@ export async function runEventHandler(handlers, event) {
     return { ignored: true };
   }
   try {
-    return await runAction({ [key]: fn }, { action: key, input: event.detail || {} }, { logRejection: false });
+    return await runAction({ [key]: fn }, { action: key, input: event.detail || {} }, { logRejection: false, chaos, service });
   } catch (error) {
     if (isRetryable(error)) throw error;
     log({ event: 'DOMAIN_EVENT_REJECTED', correlationId: event.detail?.correlationId, status: 'warn', message: `Event ${key} rejected: ${error.message}`, error });

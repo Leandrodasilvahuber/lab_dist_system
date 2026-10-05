@@ -12,7 +12,10 @@ export const ADMIN_ROUTES = [
   // métricas, custo, DLQ) é aberto, como pede o laboratório
   ['POST', /^\/products$/],
   ['DELETE', /^\/products\/[^/]+$/],
-  ['POST', /^\/stock\/[^/]+\/adjust$/]
+  ['POST', /^\/stock\/[^/]+\/adjust$/],
+  // Ligar e desligar a injeção de falhas (GET /chaos fica aberto, como as leituras)
+  ['PUT', /^\/chaos$/],
+  ['DELETE', /^\/chaos$/]
 ];
 
 export function isAdminRoute(method, path) {

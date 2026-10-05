@@ -188,6 +188,9 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) |
 | POST | `/dlq/{messageId}/redrive` | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
 | POST | `/dlq/{messageId}/discard` | Apaga o evento da DLQ |
+| GET | `/chaos` | Falhas injetadas em vigor (`enabled`, `active`, `expiresAt`, `faults`); ver [Engenharia de caos](#engenharia-de-caos) |
+| PUT | `/chaos` 🔑 | Liga falhas `{ expiresAt, faults: [{ service, action?, type, probability?, latencyMs? }] }` (substitui as anteriores) |
+| DELETE | `/chaos` 🔑 | Desliga todas as falhas |
 | GET | `/products` | Lista produtos, paginado (`?name=&priceMin=&priceMax=&limit=&nextToken=`) |
 | POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`price > 0`; `stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
@@ -204,7 +207,7 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 🔑 Rota administrativa: exige o header `X-Api-Key` com a chave de admin, guardada
 no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) e
 conferida por um authorizer Lambda do HttpApi. Só as escritas da aba Admin são de
-admin: cadastrar e remover produto e ajustar estoque. As demais rotas são
+admin: cadastrar e remover produto e ajustar estoque, além de ligar e desligar o caos. As demais rotas são
 públicas, inclusive pedidos, compras, logs, rastreio, custo e as ações da DLQ, o
 que serve ao laboratório mas expõe as compras de todos e mensagens internas. O
 stage tem throttling (100 req/s, rajada de 50), e as leituras caras têm limite
@@ -299,6 +302,7 @@ npm run localstack:deploy # publica Lambdas e saga no LocalStack (para o dashboa
 npm run local-server      # dashboard em http://localhost:3001
 npm run test:integration  # SDKs contra o DynamoDB do LocalStack
 npm run test:e2e          # saga completa: Lambda + Step Functions + DynamoDB
+npm run chaos             # experimentos de caos contra o local-server (ou --api <url>)
 
 # AWS: veja AWS-SETUP.md
 npm run deploy
@@ -315,7 +319,7 @@ acompanhar cada saga em tempo real: os passos concluídos, o que falhou e as
 compensações executadas. As telas ficam agrupadas por assunto: **Loja**
 (comprar, produtos, estoque, pedidos, resumo), **Observabilidade**
 (monitoramento, métricas, logs, rastreio, desempenho, SLOs, recursos) e **Operação**
-(DLQ, admin). A tela atual fica na URL (`#/slo`), e há tema claro e escuro.
+(DLQ, caos, admin). A tela atual fica na URL (`#/slo`), e há tema claro e escuro.
 
 Sem build: são módulos ES carregados direto pelo navegador.
 
@@ -364,6 +368,46 @@ servidor se recusa a subir).
 
 Para usar o dashboard com a API publicada na AWS, abra
 `http://localhost:3001/?api=<ApiGatewayUrl>`.
+
+## Engenharia de caos
+
+Falhas controladas nos serviços mostram retry, compensação, circuit breaker e
+DLQ agindo. O módulo `src/common/chaos.mjs` roda antes de cada ação da saga,
+evento e rota HTTP (`runAction` e `createServiceHandler`). Ele lê a configuração de um
+parâmetro do SSM (`/<Environment>/ecommerce/chaos`). O parâmetro é compartilhado porque
+cada Lambda roda no próprio container. Mudanças levam até 10 s para chegar (cache).
+
+| Tipo | O que acontece | Caminho exercitado |
+|---|---|---|
+| `latency` | espera `latencyMs` | latência, SLO; acima de 5 s, `States.Timeout` e retry do passo |
+| `transient` | `ThrottlingException` | `TransientError` → retry do Step Functions; em evento, retry e DLQ; em HTTP, 503 |
+| `crash` | erro comum | passo da saga vai direto para a compensação; em `products/getProduct`, abre o circuit breaker |
+| `unavailable` | `DependencyUnavailableError` | 503 com `Retry-After` |
+
+Alvo: `service` (`products`, `orders`, `payments`, `stock`, `saga`) e
+`action` opcional. A ação pode ser a da saga (`processPayment`), o evento
+(`products/ProductCreated`) ou a rota (`POST /saga/execute`).
+
+**Proteções:**
+- `expiresAt` é obrigatório e fica no máximo 60 min à frente: o caos desliga sozinho.
+- Em `prod`, `CHAOS_ENABLED=false` e o SSM nem é lido.
+- Se a config não puder ser lida, não há caos (falha aberta).
+- Cada injeção grava `CHAOS_INJECTED` no rastreio da compra e a métrica `ChaosInjected` (dimensões `Service` e `Fault`).
+- Enquanto há falhas ativas, o dashboard mostra uma faixa de alerta em todas as telas.
+
+**Aba Caos (admin):** formulário para injetar uma falha, lista das ativas e os
+experimentos prontos de `dashboard/js/services/chaos-presets.js`.
+
+**Experimentos automáticos:** `npm run chaos` (ou `npm run chaos -- payment-down --orders 10`).
+Cada experimento tem uma hipótese. O script liga as falhas, dispara compras pela API e
+confere o status final das sagas (ou o 503 com `Retry-After`). No fim confere a
+invariante do estoque: disponível = antes − vendidos, sem reserva ativa. O caos é
+desligado mesmo com erro ou Ctrl+C. Contra a AWS use `--api <ApiGatewayUrl>` e
+`ADMIN_API_KEY` no ambiente. O `event-dlq` só roda na AWS, porque localmente não há
+EventBridge nem DLQ.
+
+Localmente o LocalStack precisa de `ssm` em `SERVICES` (`docker-compose.yml`), e
+`npm run localstack:deploy` cria o parâmetro `/local/ecommerce/chaos`.
 
 ## Limitações conhecidas
 

@@ -11,6 +11,7 @@ import { CloudWatchMetricsClient, parseMetricsQuery } from '../services/CloudWat
 import { SloClient, parseSloQuery } from '../services/SloClient.js';
 import { MemoryMetricsClient } from '../services/MemoryMetricsClient.js';
 import { CostClient, parseCostQuery } from '../services/CostClient.js';
+import { ChaosClient } from '../services/ChaosClient.js';
 import { parseLogQuery, isTraceId } from '../../../../common/log-query.mjs';
 
 /**
@@ -22,7 +23,8 @@ import { parseLogQuery, isTraceId } from '../../../../common/log-query.mjs';
  * as métricas de erros e ações (CloudWatch, gravadas via EMF), a DLQ dos
  * eventos de produto, as métricas de desempenho da saga (histórico do Step Functions),
  * os SLOs (tabela de sagas e DLQ), a memória das Lambdas e o custo (estimado
- * pelas métricas e, na AWS, o real do Cost Explorer) e
+ * pelas métricas e, na AWS, o real do Cost Explorer), a configuração de caos
+ * (injeção de falhas, src/common/chaos.mjs) e
  * tudo o que não casar com nenhuma rota ({proxy+}), devolvendo a lista de
  * endpoints disponíveis.
  */
@@ -39,6 +41,9 @@ const AVAILABLE_ENDPOINTS = [
   'GET  /dlq',
   'POST /dlq/{messageId}/redrive',
   'POST /dlq/{messageId}/discard',
+  'GET  /chaos',
+  'PUT  /chaos',
+  'DELETE /chaos',
   'GET  /products',
   'POST /products',
   'DELETE /products/{id}',
@@ -61,7 +66,8 @@ export function createAPIHandler({
   metrics = new CloudWatchMetricsClient(),
   slo = new SloClient(),
   memory = new MemoryMetricsClient(),
-  cost = new CostClient()
+  cost = new CostClient(),
+  chaos = new ChaosClient()
 } = {}) {
   return async function handleAPIRequest(rawEvent) {
     const event = normalizeHttpEvent(rawEvent);
@@ -173,8 +179,43 @@ export function createAPIHandler({
       });
     }
 
+    // injeção de falhas (src/common/chaos.mjs): PUT e DELETE são de admin
+    if (event.path === '/chaos' && ['GET', 'PUT', 'DELETE'].includes(event.method)) {
+      return chaosCall(event, chaos);
+    }
+
     return notFound(event);
   };
+}
+
+async function chaosCall(event, chaos) {
+  try {
+    if (event.method === 'GET') return successResponse(await chaos.get());
+    if (event.method === 'DELETE') {
+      const result = await chaos.clear();
+      log({ event: 'CHAOS_CLEARED', correlationId: event.headers.correlationId, status: 'info', message: 'Chaos faults cleared' });
+      return successResponse(result);
+    }
+    let body;
+    try {
+      body = JSON.parse(event.body || '');
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const result = await chaos.put(body);
+    log({
+      event: 'CHAOS_CONFIGURED',
+      correlationId: event.headers.correlationId,
+      status: 'info',
+      message: `Chaos configured: ${result.faults.length} fault(s) until ${result.expiresAt}`,
+      data: { expiresAt: result.expiresAt, faults: result.faults }
+    });
+    return successResponse(result);
+  } catch (error) {
+    if (error instanceof DomainError) return errorResponse(error.message, error.statusCode);
+    log({ event: 'CHAOS_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: `Chaos ${event.method} failed`, error });
+    return errorResponse('Chaos config unavailable', 503);
+  }
 }
 
 async function dlqCall(event, action, fn) {
