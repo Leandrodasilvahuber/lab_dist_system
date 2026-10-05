@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
-import { SagaService, STUCK_START_MS, RECONCILE_MAX, finalStatus, parseLambdaError, sagaIdFromKey } from '../../../src/ecommerce/saga-orchestrator/src/services/SagaService.js';
+import { SagaService, MAX_PURCHASE_QUANTITY, STUCK_START_MS, RECONCILE_MAX, finalStatus, parseLambdaError, sagaIdFromKey } from '../../../src/ecommerce/saga-orchestrator/src/services/SagaService.js';
 import { sagaDayShard } from '../../../src/common/saga-day-index.mjs';
 import { DependencyUnavailableError, IdempotencyConflictError, NotFoundError, ValidationError } from '../../../src/common/errors.mjs';
 
@@ -98,6 +98,17 @@ describe('SagaService', () => {
     await assert.rejects(service.startSaga({ productId: 'x'.repeat(5000), quantity: 1, idempotencyKey: 'k-long-product' }), ValidationError);
     assert.strictEqual(looked, false);
     assert.strictEqual(sfn.started.length, 0);
+  });
+
+  it('quantity acima do teto: 400 antes de consultar o Products', async () => {
+    let looked = false;
+    service.productClient = { getProduct: async () => { looked = true; } };
+    await assert.rejects(service.startSaga({ productId: 'apple', quantity: MAX_PURCHASE_QUANTITY + 1, idempotencyKey: 'k-too-many' }), ValidationError);
+    assert.strictEqual(looked, false);
+    // O teto em si é aceito
+    service.productClient = productClient;
+    const { created } = await service.startSaga({ productId: 'apple', quantity: MAX_PURCHASE_QUANTITY, idempotencyKey: 'k-max' });
+    assert.strictEqual(created, true);
   });
 
   it('getSaga com id longo demais: ValidationError, não erro do banco', async () => {

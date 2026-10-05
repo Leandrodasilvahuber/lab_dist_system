@@ -192,7 +192,7 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/stock` | Estoque dos produtos, paginado (`?productId=&stockMin=&stockMax=&limit=&nextToken=`; `reserved: null` e `degraded: true` se as reservas não puderem ser lidas) |
 | GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento; com o índice de reservas fora do ar, `reserved`/`activeReservations` vêm `null` e `degraded: true`) |
 | POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir; não é idempotente: depois de um 503, confira o estoque antes de repetir) |
-| **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` + header `Idempotency-Key` (obrigatório, 400 sem ele) → 202; `503` + `Retry-After`: repita com a mesma chave |
+| **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` (`quantity` de 1 a 1000) + header `Idempotency-Key` (obrigatório, 400 sem ele) → 202; `503` + `Retry-After`: repita com a mesma chave |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
 | GET | `/sagas` 🔑 | Lista as compras, paginado (`?status=&limit=&nextToken=`) |
 

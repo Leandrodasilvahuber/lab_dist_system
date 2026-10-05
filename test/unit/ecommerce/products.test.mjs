@@ -114,3 +114,47 @@ describe('preço do produto', () => {
     assert.strictEqual(values[':f0'], 'Teclado');
   });
 });
+
+describe('ProductSDK.deleteProduct', () => {
+  const PRODUCT = { id: 'p1', name: 'Teclado', price: 10 };
+
+  function setup({ publishFails = false, exists = true } = {}) {
+    const calls = { deleted: [], restored: [], published: [] };
+    const db = {
+      getItem: async () => exists ? { ...PRODUCT } : undefined,
+      deleteItem: async (table, key) => { calls.deleted.push(key); },
+      putItemIfNotExists: async (table, item) => { calls.restored.push(item); return true; }
+    };
+    const bus = {
+      publish: async (event, options) => {
+        calls.published.push({ type: event.DetailType, options });
+        if (publishFails) throw new Error('PutEvents failed');
+      }
+    };
+    return { calls, sdk: new ProductSDK(bus, db) };
+  }
+  let ProductSDK;
+
+  it('exclui e publica ProductDeleted como evento obrigatório', async () => {
+    ProductSDK = await loadProductSDK();
+    const { calls, sdk } = setup();
+    assert.deepStrictEqual(await sdk.deleteProduct('p1'), { success: true });
+    assert.deepStrictEqual(calls.deleted, [{ id: 'p1' }]);
+    assert.deepStrictEqual(calls.published, [{ type: 'ProductDeleted', options: { required: true } }]);
+  });
+
+  // Sem o evento o Stock manteria o inventário de um produto que não existe
+  it('falha ao publicar: devolve o produto ao catálogo e relança', async () => {
+    ProductSDK = await loadProductSDK();
+    const { calls, sdk } = setup({ publishFails: true });
+    await assert.rejects(sdk.deleteProduct('p1'), /PutEvents failed/);
+    assert.deepStrictEqual(calls.restored, [PRODUCT]);
+  });
+
+  it('produto inexistente: NotFound sem publicar', async () => {
+    ProductSDK = await loadProductSDK();
+    const { calls, sdk } = setup({ exists: false });
+    await assert.rejects(sdk.deleteProduct('p1'), /Product not found/);
+    assert.deepStrictEqual(calls.published, []);
+  });
+});

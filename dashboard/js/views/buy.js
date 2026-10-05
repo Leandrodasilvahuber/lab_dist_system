@@ -38,7 +38,7 @@ export default {
                         </div>
                         <div class="field">
                             <label for="buyQuantity">Quantidade</label>
-                            <input type="number" id="buyQuantity" required min="1" step="1" value="1">
+                            <input type="number" id="buyQuantity" required min="1" max="1000" step="1" value="1">
                         </div>
                         <button type="submit" class="btn btn-success btn-block" id="buyButton">${icon('cart', { size: 16 })}<span>Comprar</span></button>
                     </form>`

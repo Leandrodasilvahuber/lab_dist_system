@@ -21,6 +21,10 @@ export const SagaStatus = {
 // Ordem dos passos, para exibir o progresso
 export const SAGA_STEPS = ['createOrder', 'reserveStock', 'processPayment', 'commitReservation', 'confirmOrder'];
 
+// Teto de unidades por compra: acima disso a reserva falharia por falta de
+// estoque de qualquer jeito, depois de gravar saga e pedido e compensar
+export const MAX_PURCHASE_QUANTITY = 1000;
+
 // Erro gravado quando o StartExecution falha: a saga pode ser iniciada de novo
 const START_FAILED = 'StartExecutionFailed';
 
@@ -73,6 +77,9 @@ export class SagaService {
   async startSaga({ productId, quantity, correlationId, idempotencyKey }) {
     if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
       throw new ValidationError('productId and a positive integer quantity are required');
+    }
+    if (quantity > MAX_PURCHASE_QUANTITY) {
+      throw new ValidationError(`quantity must be at most ${MAX_PURCHASE_QUANTITY}`);
     }
     requireId(productId, 'productId');
     // O controller já responde 400 sem o header; aqui garante o contrato
