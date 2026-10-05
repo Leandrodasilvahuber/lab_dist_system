@@ -90,7 +90,7 @@ Globals:
 Resources:
   # API Gateway Centralizado (HttpApi)
   # Rotas específicas vão para cada serviço; o resto cai na GatewayFunction ({proxy+}).
-  # Cadastrar/remover produto e ajustar estoque usam o authorizer AdminApiKey (mesma lista de src/common/auth.mjs).
+  # Escritas de admin (produto, estoque, caos, ações da DLQ) e o custo usam o authorizer AdminApiKey (mesma lista de src/common/auth.mjs).
   ApiGateway:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -136,7 +136,7 @@ Resources:
         'GET /dlq':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
-        # Reprocessar/descartar são públicos e cada um faz até 5 ReceiveMessage
+        # Reprocessar/descartar (admin): cada um faz até 5 ReceiveMessage
         'POST /dlq/{messageId}/{action}':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
@@ -309,13 +309,15 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /metrics/memory
             Method: GET
-        # Gasto da conta inteira (Cost Explorer): só admin
+        # Gasto da conta inteira (Cost Explorer): só admin (src/common/auth.mjs)
         CostMetrics:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /metrics/cost
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         Trace:
           Type: HttpApi
           Properties:
@@ -328,12 +330,15 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /dlq
             Method: GET
+        # Reprocessar/descartar: só admin (src/common/auth.mjs); a lista é aberta
         DlqAction:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /dlq/{messageId}/{action}
             Method: POST
+            Auth:
+              Authorizer: AdminApiKey
         GetChaos:
           Type: HttpApi
           Properties:

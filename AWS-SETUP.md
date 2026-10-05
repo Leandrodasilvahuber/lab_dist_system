@@ -29,11 +29,13 @@ mantida. Para trocar a chave sem redeploy:
 A chave antiga ainda é aceita por até ~6 minutos depois da troca: 1 minuto de
 cache no authorizer mais os 5 minutos em que o HttpApi guarda a decisão
 (`ReauthorizeEvery: 300` no template).
-Exigem o header `X-Api-Key` com essa chave só as escritas da aba Admin:
-cadastrar e remover produto (`POST /products`, `DELETE /products/{id}`) e
-ajustar estoque (`POST /stock/{id}/adjust`). O resto é aberto, inclusive
-pedidos e compras (`/orders`, `/sagas`), logs, rastreio, métricas, custo e as
-ações da DLQ: serve ao laboratório, mas expõe as compras de todos. Para restringir o CORS a uma origem, passe
+Exigem o header `X-Api-Key` com essa chave as escritas: cadastrar e remover
+produto (`POST /products`, `DELETE /products/{id}`), ajustar estoque
+(`POST /stock/{id}/adjust`), ligar e desligar o caos (`PUT`/`DELETE /chaos`) e
+reprocessar ou descartar eventos da DLQ (`POST /dlq/{id}/redrive|discard`),
+além do custo da conta (`GET /metrics/cost`). O resto é aberto, inclusive
+pedidos e compras (`/orders`, `/sagas`), logs, rastreio, métricas e a lista da
+DLQ: serve ao laboratório, mas expõe as compras de todos. Para restringir o CORS a uma origem, passe
 também `AllowedOrigin=https://...` em `--parameter-overrides`.
 
 O `sam deploy` mostra o changeset e pede confirmação antes de criar os recursos
@@ -174,8 +176,8 @@ A aba 🧠 **Recursos** do dashboard mostra o custo de duas formas:
 - **Real**: Cost Explorer (custo da **conta inteira**), com previsão do mês. Cada
   chamada à API custa US$ 0,01, então a GatewayFunction guarda o resultado por
   6 h. O cache é de cada container da Lambda: um container novo paga a primeira
-  leitura (US$ 0,02, com a previsão). A rota `GET /metrics/cost` é aberta e
-  mostra o gasto da conta inteira; `?days=` aceita só 7, 14, 30 ou 90, para
+  leitura (US$ 0,02, com a previsão). A rota `GET /metrics/cost` mostra o gasto
+  da conta inteira, então exige a chave de admin; `?days=` aceita só 7, 14, 30 ou 90, para
   que trocar o período não fure o cache da estimativa. Numa conta nova, o Cost Explorer precisa ser ativado uma vez no console
   (Billing → Cost Explorer) e leva até 24 h para ter dados.
 

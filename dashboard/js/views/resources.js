@@ -23,7 +23,7 @@ export default {
         ${hint(`Memória: cada invocação grava <code>MemoryUsedMB</code> (RSS do processo ao fim da invocação, via EMF), uma
             aproximação do <em>Max Memory Used</em> da Lambda; no local-server os handlers dividem um processo só.
             Custo: a estimativa multiplica as métricas de uso pela tabela de preços (sem free tier); o valor real vem do
-            Cost Explorer (só na AWS, conta inteira, atualizado a cada 6 h).`)}
+            Cost Explorer (só na AWS, conta inteira, atualizado a cada 6 h). O custo exige entrar como admin.`)}
         <div class="stat-grid" id="memoryCards"></div>
         ${panel({ title: 'Memória usada por função (máximo por balde)', icon: 'cpu', bodyId: 'memoryChart' })}
         <div class="stat-grid" id="costCards"></div>

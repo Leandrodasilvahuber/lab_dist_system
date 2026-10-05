@@ -184,10 +184,10 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/metrics/sagas` | Tempo por passo das últimas 10 compras, do histórico do Step Functions (aba Desempenho) |
 | GET | `/metrics/slo?hours=24` | `hours`: 1, 24 ou 168. SLOs da janela: p95 das compras concluídas, % de sagas Completed/Compensated e mensagens na DLQ há mais de 24 h (aba SLOs) |
 | GET | `/metrics/memory?hours=3` | `hours` como em `/metrics/errors`. Memória máxima e média por Lambda (`MemoryUsedMB`) e o limite configurado (aba Recursos) |
-| GET | `/metrics/cost?days=14` | `days`: 7, 14, 30 ou 90. Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pelo Cost Explorer (aba Recursos; é o gasto da conta inteira) |
+| GET | `/metrics/cost?days=14` 🔑 | `days`: 7, 14, 30 ou 90. Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pelo Cost Explorer (aba Recursos; é o gasto da conta inteira) |
 | GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) |
-| POST | `/dlq/{messageId}/redrive` | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
-| POST | `/dlq/{messageId}/discard` | Apaga o evento da DLQ |
+| POST | `/dlq/{messageId}/redrive` 🔑 | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
+| POST | `/dlq/{messageId}/discard` 🔑 | Apaga o evento da DLQ |
 | GET | `/chaos` | Falhas injetadas em vigor (`enabled`, `active`, `expiresAt`, `faults`); ver [Engenharia de caos](#engenharia-de-caos) |
 | PUT | `/chaos` 🔑 | Liga falhas `{ expiresAt, faults: [{ service, action?, type, probability?, latencyMs? }] }` (substitui as anteriores) |
 | DELETE | `/chaos` 🔑 | Desliga todas as falhas |
@@ -206,10 +206,12 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 
 🔑 Rota administrativa: exige o header `X-Api-Key` com a chave de admin, guardada
 no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) e
-conferida por um authorizer Lambda do HttpApi. Só as escritas da aba Admin são de
-admin: cadastrar e remover produto e ajustar estoque, além de ligar e desligar o caos. As demais rotas são
-públicas, inclusive pedidos, compras, logs, rastreio, custo e as ações da DLQ, o
-que serve ao laboratório mas expõe as compras de todos e mensagens internas. O
+conferida por um authorizer Lambda do HttpApi. São de admin as escritas: cadastrar
+e remover produto, ajustar estoque, ligar e desligar o caos e reprocessar ou
+descartar eventos da DLQ (descartar perde o evento de vez). O custo também, por
+ser o gasto da conta AWS inteira. As demais rotas são públicas, inclusive
+pedidos, compras, logs, rastreio e a lista da DLQ, o que serve ao laboratório
+mas expõe as compras de todos e mensagens internas. O
 stage tem throttling (100 req/s, rajada de 50), e as leituras caras têm limite
 próprio (`RouteSettings` no template; `GET /saga/{id}`, o polling do dashboard,
 20 req/s). O limite é da rota, somando todos os clientes.
@@ -231,7 +233,8 @@ dentro da página. Filtro numérico inválido (`priceMin=abc`) responde `400`.
 - **O dashboard usa só** `/health`, `/alarms`, `/logs`, `/trace/{id}`, `/metrics/*`,
   `/dlq` (e `POST /dlq/{id}/redrive|discard`), `GET/POST /products`, `DELETE /products/{id}`, `GET /stock`,
   `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. A
-  chave de admin (botão no topo da página) só é pedida na aba Admin, para cadastrar e remover produtos.
+  chave de admin (botão no topo da página) é pedida nas abas Admin e Caos, nas
+  ações da DLQ e no custo da aba Recursos.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
   rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem
   nenhuma rota pública.

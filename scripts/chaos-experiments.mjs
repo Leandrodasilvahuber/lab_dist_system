@@ -19,7 +19,7 @@
  *   npm run chaos -- payment-down refund-flaky    # só estes
  *   npm run chaos -- --api https://xxx.execute-api.us-east-1.amazonaws.com --orders 6
  *   npm run chaos -- --product <id>               # produto usado nas compras
- * Chave de admin (PUT/DELETE /chaos e POST /products): variável ADMIN_API_KEY.
+ * Chave de admin (PUT/DELETE /chaos, POST /products e POST /dlq/{id}/redrive): variável ADMIN_API_KEY.
  */
 import { randomUUID } from 'node:crypto';
 import { CHAOS_PRESETS } from '../dashboard/js/services/chaos-presets.js';

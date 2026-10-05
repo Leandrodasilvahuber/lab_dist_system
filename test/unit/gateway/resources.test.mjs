@@ -260,8 +260,8 @@ describe('GET /metrics/memory e /metrics/cost', () => {
     assert.strictEqual((await handler(req('/metrics/cost'))).statusCode, 503);
   });
 
-  it('memória e custo são públicos', () => {
+  it('memória é pública; o custo (conta AWS inteira) é de admin', () => {
     assert.strictEqual(isAdminRoute('GET', '/metrics/memory'), false);
-    assert.strictEqual(isAdminRoute('GET', '/metrics/cost'), false);
+    assert.strictEqual(isAdminRoute('GET', '/metrics/cost'), true);
   });
 });
