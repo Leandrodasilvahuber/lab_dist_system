@@ -320,45 +320,58 @@ export class StockSDK {
     if (!Number.isInteger(delta) || delta === 0) {
       throw new ValidationError('delta must be a non-zero integer');
     }
-    if (delta > 0 && this.productClient) {
-      const inventory = await this.db.getItem('inventory', { id: productId }, CONSISTENT);
-      if (!inventory) {
-        // NotFound do Products vira 404; Products fora do ar, 503
-        const product = await this.productClient.getProduct(productId);
-        name ||= product.name;
-      }
-    }
 
-    const now = new Date().toISOString();
-    const setName = name ? ', #name = if_not_exists(#name, :name)' : '';
-
+    // Com o catálogo, o ajuste positivo grava primeiro só em inventário
+    // existente (o caso comum: uma escrita, sem leitura); o produto só é
+    // conferido quando o ajuste criaria o inventário
+    const checkCatalog = delta > 0 && Boolean(this.productClient);
     try {
-      const attributes = await this.db.updateItem(
-        'inventory',
-        { id: productId },
-        `SET stock = if_not_exists(stock, :zero) + :delta, updatedAt = :now, createdAt = if_not_exists(createdAt, :now)${setName}`,
-        {
-          ':delta': delta,
-          ':now': now,
-          ':zero': 0,
-          ':min': Math.max(0, -delta),
-          ...(name && { ':name': name })
-        },
-        {
-          conditionExpression: 'attribute_not_exists(deleted) AND ((attribute_not_exists(stock) AND :min = :zero) OR stock >= :min)',
-          ...(name && { expressionAttributeNames: { '#name': 'name' } }),
-          // Soma o delta: um retry do SDK depois de timeout somaria duas vezes
-          retry: false
-        }
-      );
-      return { productId, previousStock: attributes.stock - delta, stock: attributes.stock };
+      return await this.writeAdjustment(productId, delta, name, { mustExist: checkCatalog });
     } catch (error) {
       if (error.name !== 'ConditionalCheckFailedException') throw error;
-
-      const inventory = await this.db.getItem('inventory', { id: productId }, CONSISTENT);
-      if (!isLive(inventory)) throw new NotFoundError('Inventory not found for product');
-      throw new InsufficientStockError('Insufficient stock for adjustment');
     }
+
+    const inventory = await this.db.getItem('inventory', { id: productId }, CONSISTENT);
+    if (!checkCatalog || inventory) throw adjustmentError(inventory);
+
+    // NotFound do Products vira 404; Products fora do ar, 503
+    const product = await this.productClient.getProduct(productId);
+    try {
+      return await this.writeAdjustment(productId, delta, name || product.name, { mustExist: false });
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+      // Removido (ProductDeleted) entre a leitura e a escrita
+      throw adjustmentError(await this.db.getItem('inventory', { id: productId }, CONSISTENT));
+    }
+  }
+
+  /**
+   * Soma o delta. `mustExist`: só altera inventário existente; sem ele, um
+   * delta positivo cria o inventário. Lança ConditionalCheckFailedException se
+   * o inventário foi removido, não existe (com `mustExist`) ou ficaria negativo.
+   */
+  async writeAdjustment(productId, delta, name, { mustExist }) {
+    const setName = name ? ', #name = if_not_exists(#name, :name)' : '';
+    const condition = 'attribute_not_exists(deleted) AND ((attribute_not_exists(stock) AND :min = :zero) OR stock >= :min)';
+    const attributes = await this.db.updateItem(
+      'inventory',
+      { id: productId },
+      `SET stock = if_not_exists(stock, :zero) + :delta, updatedAt = :now, createdAt = if_not_exists(createdAt, :now)${setName}`,
+      {
+        ':delta': delta,
+        ':now': new Date().toISOString(),
+        ':zero': 0,
+        ':min': Math.max(0, -delta),
+        ...(name && { ':name': name })
+      },
+      {
+        conditionExpression: mustExist ? `attribute_exists(id) AND ${condition}` : condition,
+        ...(name && { expressionAttributeNames: { '#name': 'name' } }),
+        // Soma o delta: um retry do SDK depois de timeout somaria duas vezes
+        retry: false
+      }
+    );
+    return { productId, previousStock: attributes.stock - delta, stock: attributes.stock };
   }
 
   // Só a saga consulta reservas, sempre logo depois de gravar
@@ -514,6 +527,13 @@ function throwIfConflict(error) {
 
 function isLive(inventory) {
   return Boolean(inventory) && !inventory.deleted;
+}
+
+// Ajuste recusado pela condição: inventário inexistente/removido ou estoque insuficiente
+function adjustmentError(inventory) {
+  return isLive(inventory)
+    ? new InsufficientStockError('Insufficient stock for adjustment')
+    : new NotFoundError('Inventory not found for product');
 }
 
 /**

@@ -32,6 +32,8 @@ describe('CloudWatchMetricsClient', () => {
     assert.deepStrictEqual([periodFor(1), periodFor(3), periodFor(24), periodFor(168)], [60, 60, 900, 3600]);
     assert.deepStrictEqual(parseMetricsQuery({}), { hours: 24 });
     assert.deepStrictEqual(parseMetricsQuery({ hours: '99999' }), { hours: 336 });
+    assert.deepStrictEqual(parseMetricsQuery({ hours: '1.0001' }), { hours: 1 });
+    assert.deepStrictEqual(parseMetricsQuery({ hours: '2.5' }), { hours: 3 });
   });
 
   it('align põe cada ponto no seu balde e soma pontos do mesmo balde', () => {

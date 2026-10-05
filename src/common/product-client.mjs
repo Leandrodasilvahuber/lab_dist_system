@@ -25,9 +25,11 @@ const PRODUCT_MAX_ATTEMPTS = 1;
  * Consulta o serviço de Products invocando a Lambda dele ({ action, input }),
  * em vez de ler a tabela de produtos, que pertence àquele serviço.
  *
- * É a única chamada síncrona entre serviços: com Products fora do ar, a
- * compra responde 503 com Retry-After (DependencyUnavailableError) e, depois
- * de falhas seguidas, o circuit breaker responde na hora sem invocar.
+ * Usado em duas chamadas síncronas entre serviços: a saga ao iniciar a
+ * compra (preço e 404 imediato) e o Stock no ajuste que criaria o inventário
+ * (StockSDK.adjustStock). Com Products fora do ar, a requisição responde 503
+ * com Retry-After (DependencyUnavailableError) e, depois de falhas seguidas,
+ * o circuit breaker responde na hora sem invocar.
  */
 export class ProductClient {
   constructor({

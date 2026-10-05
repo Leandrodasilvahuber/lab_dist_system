@@ -1,6 +1,7 @@
 import { CloudWatchClient, GetMetricDataCommand, ListMetricsCommand } from '@aws-sdk/client-cloudwatch';
 import { metricNamespace } from '../../../../common/emf.mjs';
 import { awsClientConfig, QUERY_CLIENT_OPTIONS } from '../../../../common/aws-client.mjs';
+import { parseHours } from '../../../../common/validation.mjs';
 
 // Mesma ideia do SagaMetricsClient: aba aberta em vários navegadores não multiplica as leituras
 export const ERROR_METRICS_CACHE_TTL_MS = 20 * 1000;
@@ -13,8 +14,7 @@ export function periodFor(hours) {
 }
 
 export function parseMetricsQuery(query = {}) {
-  const hours = Number(query.hours);
-  return { hours: Number.isFinite(hours) && hours > 0 ? Math.min(hours, 24 * 14) : 24 };
+  return { hours: parseHours(query.hours, { max: 24 * 14 }) };
 }
 
 const OUTCOMES = ['ok', 'rejected', 'failed'];

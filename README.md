@@ -31,6 +31,7 @@ compensação automática.
 
   Comunicação entre serviços (ninguém lê a tabela de outro):
     SagaOrchestrator ──getProduct (Lambda invoke, síncrono)──▶ Products   preço + 404 imediato
+    Stock ──getProduct (Lambda invoke, síncrono)──▶ Products              só no ajuste que cria o inventário
     Products ──ProductCreated/Deleted (EventBridge, assíncrono)──▶ Stock  cria/remove o inventário
   Gateway: /health, /alarms, /logs, /trace, /metrics/*, /dlq (observabilidade)
 
@@ -381,7 +382,9 @@ Para usar o dashboard com a API publicada na AWS, abra
   `ReserveStock`, antes de cobrar.
 - O inventário é criado de forma assíncrona: logo após `POST /products`, o estoque
   pode levar um instante para aparecer em `/stock` (consistência eventual).
-- A saga depende de forma síncrona do serviço de Products ao iniciar a compra.
+- A saga depende de forma síncrona do serviço de Products ao iniciar a compra; o
+  Stock, só no ajuste que criaria o inventário (`POST /stock/{id}/adjust` com
+  delta positivo para um produto sem inventário: confere se o produto existe).
 - As listagens (`/orders`, `/sagas`, `/products`, `/stock`) usam `Scan`
   paginado, com os filtros aplicados por página. As consultas em caminhos
   críticos usam chave ou GSI (`ActiveReservationsIndex`, índice esparso das

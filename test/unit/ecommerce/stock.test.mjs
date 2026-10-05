@@ -140,34 +140,49 @@ describe('StockSDK.adjustStock', () => {
     assert.deepStrictEqual(result, { productId: 'apple', previousStock: 10, stock: 12 });
   });
 
+  // Inventário em memória que respeita só a condição attribute_exists(id) da 1ª escrita
+  function inventoryDb(initial) {
+    const state = { item: initial, writes: [], reads: 0 };
+    state.db = {
+      async getItem() { state.reads++; return state.item; },
+      async updateItem(table, key, expression, values, options) {
+        if (options.conditionExpression.startsWith('attribute_exists(id)') && !state.item) {
+          throw Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException' });
+        }
+        state.writes.push(values);
+        state.item = { id: key.id, stock: (state.item?.stock || 0) + values[':delta'], name: state.item?.name ?? values[':name'] };
+        return { stock: state.item.stock };
+      }
+    };
+    return state;
+  }
+
   it('não cria inventário de produto que não existe no catálogo', async () => {
     const StockSDK = await loadStockSDK();
     const { NotFoundError } = await import('../../../src/common/errors.mjs');
-    let updated = false;
-    const db = { async getItem() { return undefined; }, async updateItem() { updated = true; return { stock: 2 }; } };
+    const state = inventoryDb(undefined);
     const productClient = { async getProduct() { throw new NotFoundError('Product not found'); } };
-    await assert.rejects(new StockSDK(null, db, { productClient }).adjustStock('typo', 2), NotFoundError);
-    assert.strictEqual(updated, false);
+    await assert.rejects(new StockSDK(null, state.db, { productClient }).adjustStock('typo', 2), NotFoundError);
+    assert.strictEqual(state.writes.length, 0);
   });
 
   it('cria o inventário de produto existente com o nome do catálogo', async () => {
     const StockSDK = await loadStockSDK();
-    let values;
-    const db = { async getItem() { return undefined; }, async updateItem(table, key, expression, v) { values = v; return { stock: 2 }; } };
+    const state = inventoryDb(undefined);
     const productClient = { async getProduct(id) { return { id, name: 'Apple' }; } };
-    const result = await new StockSDK(null, db, { productClient }).adjustStock('apple', 2);
+    const result = await new StockSDK(null, state.db, { productClient }).adjustStock('apple', 2);
     assert.strictEqual(result.stock, 2);
-    assert.strictEqual(values[':name'], 'Apple');
+    assert.strictEqual(state.writes[0][':name'], 'Apple');
   });
 
-  it('inventário existente ou delta negativo não consulta o catálogo', async () => {
+  it('inventário existente: uma escrita, sem leitura nem consulta ao catálogo', async () => {
     const StockSDK = await loadStockSDK();
     let calls = 0;
     const productClient = { async getProduct() { calls++; return {}; } };
-    const db = { async getItem() { return { id: 'apple', stock: 5 }; }, async updateItem() { return { stock: 4 }; } };
-    const sdk = new StockSDK(null, db, { productClient });
-    await sdk.adjustStock('apple', 2);
-    await sdk.adjustStock('apple', -1);
-    assert.strictEqual(calls, 0);
+    const state = inventoryDb({ id: 'apple', stock: 5 });
+    const sdk = new StockSDK(null, state.db, { productClient });
+    assert.strictEqual((await sdk.adjustStock('apple', 2)).stock, 7);
+    assert.strictEqual((await sdk.adjustStock('apple', -1)).stock, 6);
+    assert.deepStrictEqual([calls, state.reads, state.writes.length], [0, 0, 2]);
   });
 });

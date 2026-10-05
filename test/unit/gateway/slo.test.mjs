@@ -69,6 +69,10 @@ describe('parseSloQuery', () => {
     assert.deepStrictEqual(parseSloQuery({ hours: 'x' }), { hours: 24 });
     assert.deepStrictEqual(parseSloQuery({ hours: '1' }), { hours: 1 });
     assert.deepStrictEqual(parseSloQuery({ hours: '9999' }), { hours: 168 });
+    // Inteira: é a chave do cache, frações furariam o cache
+    assert.deepStrictEqual(parseSloQuery({ hours: '1.0001' }), { hours: 1 });
+    assert.deepStrictEqual(parseSloQuery({ hours: '23.6' }), { hours: 24 });
+    assert.deepStrictEqual(parseSloQuery({ hours: '0.2' }), { hours: 1 });
   });
 });
 

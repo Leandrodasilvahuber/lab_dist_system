@@ -2,6 +2,7 @@ import { Database } from '../../../../common/database.mjs';
 import { SAGAS_BY_DAY_INDEX, dayShardsInWindow } from '../../../../common/saga-day-index.mjs';
 import { STUCK_AFTER_MS } from '../../../../common/saga-timing.mjs';
 import { IS_LOCAL } from '../../../../common/aws-client.mjs';
+import { parseHours } from '../../../../common/validation.mjs';
 import { DlqClient } from './DlqClient.js';
 
 // Metas dos SLOs (critério de sucesso dos testes de carga/caos). Os SLOs
@@ -26,8 +27,7 @@ const TERMINAL = [...SUCCESS, 'FAILED', 'COMPENSATION_FAILED'];
 const IN_PROGRESS = ['RUNNING', 'COMPENSATING'];
 
 export function parseSloQuery(query = {}) {
-  const hours = Number(query.hours);
-  return { hours: Number.isFinite(hours) && hours > 0 ? Math.min(hours, 24 * 7) : 24 };
+  return { hours: parseHours(query.hours, { max: 24 * 7 }) };
 }
 
 /**

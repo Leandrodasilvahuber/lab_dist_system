@@ -36,3 +36,15 @@ export function optionalNumber(value, field) {
   }
   return number;
 }
+
+/**
+ * Janela em horas da query string (`?hours=`), em horas inteiras entre 1 e
+ * `max`; ausente ou inválida vira `fallback`. Inteira porque é a chave do
+ * cache das consultas: com frações (1.0001, 1.0002...) cada pedido furaria o
+ * cache e o Map cresceria sem limite. Assim há no máximo `max` chaves.
+ */
+export function parseHours(raw, { fallback = 24, max }) {
+  const hours = Number(raw);
+  if (!Number.isFinite(hours) || hours <= 0) return fallback;
+  return Math.min(Math.max(1, Math.round(hours)), max);
+}
