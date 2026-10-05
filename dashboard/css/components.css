@@ -486,6 +486,8 @@
 
 /* ---------- Gráfico de barras empilhadas (aba Métricas) ---------- */
 .chart svg { display: block; width: 100%; height: 150px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.chart-notes { margin: 10px 0 0; font-size: 12px; }
+.chart-ref { stroke: var(--text-3); stroke-width: 1.5; stroke-dasharray: 6 4; }
 .chart-axis { display: flex; justify-content: space-between; margin-top: 6px; color: var(--text-3); font-size: 12px; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--text-2); font-size: 13px; }

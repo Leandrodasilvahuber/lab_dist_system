@@ -4,6 +4,7 @@ import { isActionInvocation, runAction, isDomainEvent, runEventHandler } from '.
 import { errorResponse, notFoundResponse, sdkErrorResponse } from './response.mjs';
 import { DependencyUnavailableError, DomainError } from './errors.mjs';
 import { isTransientAwsError } from './aws-client.mjs';
+import { withRuntimeMetrics } from './runtime-metrics.mjs';
 
 // Leitura de algo que não existe (GET/HEAD com 404) não é erro de negócio: um
 // cliente com bug ou um robô varrendo URLs dispararia o alarme business-errors.
@@ -40,9 +41,10 @@ function errorMessage(response) {
  *  - ação da saga (Step Functions): { action, input }
  *  - evento de domínio (EventBridge): { source, detail-type, detail }
  *  - requisição HTTP (HttpApi), roteada por `setupRoutes`
+ * Toda invocação grava a memória usada (runtime-metrics.mjs).
  */
 export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers = {} }) {
-  return async function handler(rawEvent) {
+  return withRuntimeMetrics(async function handler(rawEvent) {
     if (isActionInvocation(rawEvent)) {
       return runAction(actions, rawEvent);
     }
@@ -86,5 +88,5 @@ export function createServiceHandler({ setupRoutes, actions = {}, eventHandlers 
       log({ event: 'API_ERROR', correlationId, status: 'error', message: 'API request error', error });
       return errorResponse('Internal server error', 500);
     }
-  };
+  });
 }

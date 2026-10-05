@@ -41,6 +41,13 @@ export function templateRuntime() {
   return process.env.E2E_LAMBDA_RUNTIME || match?.[1] || 'nodejs22.x';
 }
 
+// MemorySize das Lambdas (parâmetro FunctionMemoryMB do template.yaml): as
+// local-* são criadas com ele, e a aba Recursos usa como limite de memória
+export function templateMemoryMb() {
+  const match = fs.readFileSync(path.join(ROOT, 'template.yaml'), 'utf8').match(/^\s+FunctionMemoryMB:\s*\n(?:\s+.*\n)*?\s+Default:\s*(\d+)/m);
+  return Number(match?.[1]) || 256;
+}
+
 export function clients(endpoint) {
   const cfg = { region: 'us-east-1', endpoint, credentials: { accessKeyId: 'test', secretAccessKey: 'test' } };
   return {
@@ -87,12 +94,13 @@ export async function deploySaga({ L, F }, { prefix, tables, environment = {} })
         Runtime: runtime,
         Handler: 'index.handler',
         Timeout: LOCAL_LAMBDA_TIMEOUT_S,
+        MemorySize: templateMemoryMb(),
         Role: `arn:aws:iam::${ACCOUNT}:role/lambda-role`,
         // O LocalStack executa na arquitetura da máquina; o bundle é JS puro
         Architectures: [os.arch() === 'arm64' ? 'arm64' : 'x86_64'],
         Code: { ZipFile: fs.readFileSync(zip) },
         // TIMEOUT_SCALE: perfil local de timeouts (src/common/aws-client.mjs)
-        Environment: { Variables: { ...tables, PAYMENT_MAX_AMOUNT: '10000', TIMEOUT_SCALE: String(LOCAL_TIMEOUT_SCALE), ...environment } }
+        Environment: { Variables: { ...tables, PAYMENT_MAX_AMOUNT: '10000', TIMEOUT_SCALE: String(LOCAL_TIMEOUT_SCALE), FUNCTION_MEMORY_MB: String(templateMemoryMb()), ...environment } }
       }));
       arns[fn] = FunctionArn;
       await lambda.waitUntilFunctionActiveV2({ client: L, maxWaitTime: 180 }, { FunctionName });

@@ -161,6 +161,23 @@ referência (us-east-1, confira as páginas de preço antes de escalar):
 | EventBridge | por evento publicado | |
 | Application Signals (SLOs) | por SLO e por métrica avaliada | 3 SLOs; confira o preço do CloudWatch Application Signals |
 
+A aba 🧠 **Recursos** do dashboard mostra o custo de duas formas:
+
+- **Estimado**: métricas grátis (`AWS/Lambda`, `AWS/States`, `AWS/ApiGateway`,
+  `AWS/DynamoDB`) × a tabela `PRICES` de `CostClient.js`, sem free tier.
+- **Real**: Cost Explorer (custo da **conta inteira**), com previsão do mês. Cada
+  chamada à API custa US$ 0,01, então a GatewayFunction guarda o resultado por
+  6 h. Numa conta nova, o Cost Explorer precisa ser ativado uma vez no console
+  (Billing → Cost Explorer) e leva até 24 h para ter dados.
+
+A métrica de memória (`MemoryUsedMB`, uma série por Lambda) é métrica custom:
+cerca de US$ 0,30 por série por mês, ~US$ 2/mês para as 7 funções.
+
+O `MonthlyBudget` (AWS Budgets, parâmetro `MonthlyBudgetUSD`, padrão US$ 5)
+avisa no tópico dos alarmes (e no `AlertEmail`) com 80% do teto gasto e quando
+a previsão do mês passa de 100%. Para mudar o teto:
+`sam deploy --parameter-overrides MonthlyBudgetUSD=10 ...`.
+
 Cada requisição custa API Gateway + Lambda + DynamoDB: um cliente com bug em
 loop (como abas esquecidas consultando sagas apagadas) vira custo. O throttling
 do template é por rota, somando todos os clientes; se a API ficar pública,

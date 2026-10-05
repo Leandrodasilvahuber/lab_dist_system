@@ -2,12 +2,15 @@ import { successResponse, errorResponse, notFoundResponse } from '../../../../co
 import { DomainError } from '../../../../common/errors.mjs';
 import { normalizeHttpEvent } from '../../../../common/http-event.mjs';
 import { log } from '../../../../common/logger.mjs';
+import { withRuntimeMetrics } from '../../../../common/runtime-metrics.mjs';
 import { AlarmsClient } from '../services/AlarmsClient.js';
 import { LogsClient } from '../services/LogsClient.js';
 import { DlqClient } from '../services/DlqClient.js';
 import { SagaMetricsClient } from '../services/SagaMetricsClient.js';
 import { CloudWatchMetricsClient, parseMetricsQuery } from '../services/CloudWatchMetricsClient.js';
 import { SloClient, parseSloQuery } from '../services/SloClient.js';
+import { MemoryMetricsClient } from '../services/MemoryMetricsClient.js';
+import { CostClient, parseCostQuery } from '../services/CostClient.js';
 import { parseLogQuery, isTraceId } from '../../../../common/log-query.mjs';
 
 /**
@@ -18,7 +21,8 @@ import { parseLogQuery, isTraceId } from '../../../../common/log-query.mjs';
  * os alarmes, os logs de erro e o rastreio por correlationId (CloudWatch Logs),
  * as métricas de erros e ações (CloudWatch, gravadas via EMF), a DLQ dos
  * eventos de produto, as métricas de desempenho da saga (histórico do Step Functions),
- * os SLOs (tabela de sagas e DLQ) e
+ * os SLOs (tabela de sagas e DLQ), a memória das Lambdas e o custo (estimado
+ * pelas métricas e, na AWS, o real do Cost Explorer) e
  * tudo o que não casar com nenhuma rota ({proxy+}), devolvendo a lista de
  * endpoints disponíveis.
  */
@@ -29,6 +33,8 @@ const AVAILABLE_ENDPOINTS = [
   'GET  /metrics/sagas',
   'GET  /metrics/errors',
   'GET  /metrics/slo',
+  'GET  /metrics/memory',
+  'GET  /metrics/cost',
   'GET  /trace/{correlationId}',
   'GET  /dlq',
   'POST /dlq/{messageId}/redrive',
@@ -52,7 +58,9 @@ export function createAPIHandler({
   dlq = new DlqClient(),
   sagaMetrics = new SagaMetricsClient(),
   metrics = new CloudWatchMetricsClient(),
-  slo = new SloClient()
+  slo = new SloClient(),
+  memory = new MemoryMetricsClient(),
+  cost = new CostClient()
 } = {}) {
   return async function handleAPIRequest(rawEvent) {
     const event = normalizeHttpEvent(rawEvent);
@@ -106,6 +114,28 @@ export function createAPIHandler({
       } catch (error) {
         log({ event: 'SLO_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: 'Could not evaluate SLOs', error });
         return errorResponse('SLOs unavailable', 503);
+      }
+    }
+
+    // memória usada por Lambda (MemoryUsedMB, gravada via EMF)
+    if (event.method === 'GET' && event.path === '/metrics/memory') {
+      try {
+        return successResponse(await memory.memoryMetrics(parseMetricsQuery(event.queryStringParameters)));
+      } catch (error) {
+        log({ event: 'MEMORY_METRICS_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: 'Could not read memory metrics', error });
+        return errorResponse('Memory metrics unavailable', 503);
+      }
+    }
+
+    // custo por serviço e por dia: estimado (métricas) e real (Cost Explorer, só AWS)
+    if (event.method === 'GET' && event.path === '/metrics/cost') {
+      try {
+        // apiId do HttpApi que recebeu a requisição: requisições na estimativa
+        const apiId = rawEvent?.requestContext?.apiId;
+        return successResponse(await cost.costs({ ...parseCostQuery(event.queryStringParameters), apiId }));
+      } catch (error) {
+        log({ event: 'COST_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: 'Could not estimate costs', error });
+        return errorResponse('Costs unavailable', 503);
       }
     }
 
@@ -165,5 +195,5 @@ function notFound(event) {
 
 export const handleAPIRequest = createAPIHandler();
 
-// Handler referenciado pelo template SAM
-export const handler = handleAPIRequest;
+// Handler referenciado pelo template SAM (com a métrica de memória, como os serviços)
+export const handler = withRuntimeMetrics(handleAPIRequest);

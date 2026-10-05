@@ -35,6 +35,21 @@ Parameters:
     Type: String
     Default: ''
 
+  # MemorySize de todas as Lambdas (exceto o authorizer). A aba Recursos usa o
+  # mesmo valor como limite no gráfico de memória e na estimativa de custo
+  FunctionMemoryMB:
+    Type: Number
+    Default: 256
+    MinValue: 128
+    MaxValue: 10240
+
+  # Teto mensal (US$) do AWS Budget: avisa no AlarmTopic com 80% gasto e
+  # quando a previsão do mês passa de 100%. É o custo da conta inteira
+  MonthlyBudgetUSD:
+    Type: Number
+    Default: 5
+    MinValue: 1
+
 Conditions:
   # Em prod as tabelas não podem ser apagadas (nem por sam delete); em dev/test
   # a stack continua descartável
@@ -48,7 +63,7 @@ Globals:
   Function:
     Runtime: nodejs22.x
     Architectures: [arm64]
-    MemorySize: 256
+    MemorySize: !Ref FunctionMemoryMB
     Timeout: 15
     # Todas as Lambdas escrevem no mesmo log group (o campo `service` de cada
     # linha diz qual função gerou). As linhas de erro e de ação carregam métricas
@@ -66,6 +81,7 @@ Globals:
         INVENTORY_TABLE: !Ref InventoryTable
         SAGAS_TABLE: !Ref SagasTable
         EVENT_BUS_NAME: !Ref EventBus
+        FUNCTION_MEMORY_MB: !Ref FunctionMemoryMB
 
 Resources:
   # API Gateway Centralizado (HttpApi)
@@ -118,6 +134,12 @@ Resources:
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
         'GET /metrics/slo':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 5
+        'GET /metrics/memory':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 5
+        'GET /metrics/cost':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
       CorsConfiguration:
@@ -175,6 +197,9 @@ Resources:
           LOG_GROUP_NAME: !Ref ServicesLogGroup
           DLQ_URL: !Ref ProductEventsDlq
           SAGA_STATE_MACHINE_ARN: !Ref SagaStateMachine
+          # Aba Recursos: teto do Budget (o id do HttpApi vem no requestContext;
+          # !Ref ApiGateway aqui seria dependência circular)
+          MONTHLY_BUDGET_USD: !Ref MonthlyBudgetUSD
       Policies:
         - Statement:
             # GetMetricData/ListMetrics: aba Métricas (namespace Ecommerce/<env>, gravado via EMF)
@@ -183,6 +208,13 @@ Resources:
                 - cloudwatch:DescribeAlarms
                 - cloudwatch:GetMetricData
                 - cloudwatch:ListMetrics
+              Resource: '*'
+            # Aba Recursos: custo real e previsão do mês (cada chamada custa
+            # US$ 0,01; CostClient guarda o resultado por 6 h)
+            - Effect: Allow
+              Action:
+                - ce:GetCostAndUsage
+                - ce:GetCostForecast
               Resource: '*'
             # Aba Desempenho: lê o histórico das últimas execuções da saga
             - Effect: Allow
@@ -243,6 +275,18 @@ Resources:
           Properties:
             ApiId: !Ref ApiGateway
             Path: /metrics/slo
+            Method: GET
+        MemoryMetrics:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /metrics/memory
+            Method: GET
+        CostMetrics:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /metrics/cost
             Method: GET
         Trace:
           Type: HttpApi
@@ -1046,6 +1090,57 @@ Resources:
       Protocol: email
       Endpoint: !Ref AlertEmail
 
+  # O AWS Budgets publica no mesmo tópico dos alarmes; o SNS só aceita com
+  # permissão explícita para o serviço
+  AlarmTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref AlarmTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowBudgetsPublish
+            Effect: Allow
+            Principal:
+              Service: budgets.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref AlarmTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  # Custo mensal da conta (o Budgets não filtra por stack sem tags de alocação
+  # de custo ativadas). Avisa uma vez ao passar de 80% do gasto real e quando a
+  # previsão do mês passa do teto
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    DependsOn: AlarmTopicPolicy
+    Properties:
+      Budget:
+        BudgetName: !Sub '${Environment}-ecommerce-monthly'
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUSD
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlarmTopic
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlarmTopic
+
   # Cliente consultando em loop o que não existe (ex.: aba esquecida acompanhando
   # sagas apagadas): leituras com 404 (ClientErrors, http-handler.mjs), que ficam
   # fora do business-errors. 300 em 5 min = ~1 req/s sustentado
@@ -1283,7 +1378,13 @@ Resources:
                 "${LambdaThrottlesAlarm.Arn}"
               ]
             } },
-            { "type": "log", "x": 0, "y": 32, "width": 24, "height": 6, "properties": {
+            { "type": "metric", "x": 0, "y": 32, "width": 24, "height": 6, "properties": {
+              "title": "Memória usada por Lambda (MB, RSS ao fim da invocação)", "region": "${AWS::Region}", "view": "timeSeries", "period": 60,
+              "yAxis": { "left": { "min": 0 } },
+              "annotations": { "horizontal": [ { "label": "MemorySize", "value": ${FunctionMemoryMB} } ] },
+              "metrics": [ [ { "expression": "SEARCH('{Ecommerce/${Environment},FunctionName} MetricName=\"MemoryUsedMB\"', 'Maximum', 60)", "id": "memory" } ] ]
+            } },
+            { "type": "log", "x": 0, "y": 38, "width": 24, "height": 6, "properties": {
               "title": "Últimos erros (error e warn)", "region": "${AWS::Region}", "view": "table",
               "query": "SOURCE '${ServicesLogGroup}' | fields @timestamp, status, event, correlationId, message | filter status = 'error' or status = 'warn' | sort @timestamp desc | limit 50"
             } }

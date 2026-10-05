@@ -18,11 +18,22 @@ describe('createServiceHandler: log por request', () => {
     const out = mock.method(console, 'log', () => {});
     const warn = mock.method(console, 'warn', () => {});
     const handler = createServiceHandler({ setupRoutes: async () => response });
+    // A linha só de métrica de memória (runtime-metrics.mjs) sai em toda invocação
+    const lines = calls => calls.map(c => JSON.parse(c.arguments[0]));
     return handler(request('/products')).then(() => ({
-      out: out.mock.calls.map(c => JSON.parse(c.arguments[0])),
-      warn: warn.mock.calls.map(c => JSON.parse(c.arguments[0]))
+      out: lines(out.mock.calls).filter(e => e.event !== 'RUNTIME_METRICS'),
+      warn: lines(warn.mock.calls),
+      runtime: lines(out.mock.calls).filter(e => e.event === 'RUNTIME_METRICS')
     }));
   }
+
+  it('toda invocação grava MemoryUsedMB por FunctionName (linha só de métrica)', async () => {
+    const { runtime } = await run(successResponse({ ok: true }));
+    assert.strictEqual(runtime.length, 1);
+    assert.strictEqual(runtime[0].status, undefined);
+    assert.strictEqual(typeof runtime[0].MemoryUsedMB, 'number');
+    assert.deepStrictEqual(runtime[0]._aws.CloudWatchMetrics[0].Dimensions, [['FunctionName']]);
+  });
 
   it('2xx gera uma linha info API_RESPONSE com método, path, status e duração', async () => {
     const { out, warn } = await run(successResponse({ ok: true }));

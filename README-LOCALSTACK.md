@@ -105,6 +105,11 @@ log groups só para as abas de log (sem republicar métricas).
 - 🔎 **Rastreio**: estado da saga e todas as linhas do mesmo `correlationId`.
 - 🎯 **SLOs**: calculados da tabela `sagas` e da `local-ProductEventsDlq`, como
   na AWS. Os SLOs nativos (Application Signals) existem só no deploy da AWS.
+- 🧠 **Recursos**: memória (`MemoryUsedMB`) das Lambdas `local-*` (criadas com o
+  `FunctionMemoryMB` do `template.yaml`) e do processo do `local-server`, que
+  roda todos os outros handlers e por isso não tem limite. O custo é só
+  estimado, a partir de `InvocationDurationMs`: o LocalStack não tem Cost
+  Explorer e não publica o consumo do DynamoDB, que fica de fora.
 
 Logs e Rastreio leem um buffer em memória (últimas 2000 linhas, desde que o
 servidor subiu, mais a última hora das Lambdas); na AWS, do CloudWatch Logs.

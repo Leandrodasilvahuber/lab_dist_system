@@ -9,6 +9,16 @@ export function money(value) {
     return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+// Custos de laboratório ficam em frações de centavo: abaixo de US$ 0,01,
+// dois dígitos significativos (US$ 0,000026) em vez de arredondar para zero
+export function usd(value) {
+    if (value === null || value === undefined) return '—';
+    const options = value !== 0 && Math.abs(value) < 0.01
+        ? { maximumSignificantDigits: 2 }
+        : { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+    return Number(value).toLocaleString('pt-BR', { style: 'currency', currency: 'USD', ...options });
+}
+
 export function time(iso) {
     return iso ? new Date(iso).toLocaleTimeString('pt-BR') : '';
 }

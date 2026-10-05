@@ -43,7 +43,7 @@ import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
 import { createLogBuffer, parseLogLine, isTraceId } from './src/common/log-query.mjs';
 import { createEmfAgent } from './scripts/lib/emf-agent.mjs';
 import { createLocalstackHealth } from './scripts/lib/localstack-health.mjs';
-import { LOCAL_MAX_CONCURRENCY } from './scripts/lib/localstack.mjs';
+import { LOCAL_MAX_CONCURRENCY, templateMemoryMb } from './scripts/lib/localstack.mjs';
 import { mapLimit } from './scripts/lib/pool.mjs';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from './src/common/database.mjs';
@@ -88,6 +88,8 @@ process.env.PRODUCT_TIMEOUT_MS ||= '30000';
 process.env.ALARM_PREFIX ||= 'local-ecommerce-';
 // GET /dlq lê a DLQ local (criada pelo npm run test:e2e:errors)
 process.env.DLQ_NAME ||= 'local-ProductEventsDlq';
+// Aba Recursos: limite de memória das Lambdas local-* e base da estimativa de custo
+process.env.FUNCTION_MEMORY_MB ||= String(templateMemoryMb());
 
 const { TIMEOUT_SCALE } = await import('./src/common/aws-client.mjs');
 
@@ -114,15 +116,23 @@ const awsConfig = { region: process.env.AWS_REGION, endpoint: process.env.AWS_EN
 const emfAgent = createEmfAgent({
   cloudwatch: new CloudWatchClient(awsConfig),
   logs: new CloudWatchLogsClient(awsConfig),
-  onEntry: entry => logBuffer.capture(entry)
+  onEntry: entry => captureLog(entry)
 });
+// Memória de cada invocação (runtime-metrics.mjs): uma linha só de métrica por
+// invocação; no buffer de 2000 linhas ela empurraria os logs de verdade para fora
+const isRuntimeMetrics = entry => entry.event === 'RUNTIME_METRICS';
+function captureLog(entry) {
+  if (!isRuntimeMetrics(entry)) logBuffer.capture(entry);
+}
 for (const method of ['log', 'warn', 'error']) {
   const original = console[method].bind(console);
   console[method] = (first, ...rest) => {
     const entry = parseLogLine(first);
     if (entry) {
-      logBuffer.capture(entry);
+      captureLog(entry);
       emfAgent.capture(entry);
+      // Vai para o CloudWatch (agente EMF), não para o terminal
+      if (isRuntimeMetrics(entry)) return;
     }
     original(first, ...rest);
   };

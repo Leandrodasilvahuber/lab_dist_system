@@ -29,6 +29,7 @@
   "dependencies": {
     "@aws-sdk/client-cloudwatch": "^3.1146.0",
     "@aws-sdk/client-cloudwatch-logs": "^3.1146.0",
+    "@aws-sdk/client-cost-explorer": "^3.1146.0",
     "@aws-sdk/client-dynamodb": "^3.578.0",
     "@aws-sdk/client-eventbridge": "^3.578.0",
     "@aws-sdk/client-lambda": "^3.1146.0",

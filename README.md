@@ -141,6 +141,8 @@ IAM nas Lambdas. Namespace `Ecommerce/<ambiente>`:
 | `ClientErrors` | total, `ErrorType` | leitura (`GET`/`HEAD`) que respondeu 404: linha `info`, fora dos alarmes. Um cliente consultando o que não existe (id antigo, robô) aparece na aba Métricas sem disparar o `business-errors` |
 | `UnhandledErrors` | total, `ErrorType` | toda linha `error` (alarme `unhandled-errors`) |
 | `ActionCount`, `ActionDuration` (ms) | `Action`+`Outcome` (`ok`/`rejected`/`failed`) | cada ação da saga e evento de domínio (`src/common/actions.mjs`) |
+| `MemoryUsedMB` | `FunctionName` | toda invocação (`src/common/runtime-metrics.mjs`): RSS do processo ao fim da invocação, aproximação do *Max Memory Used* |
+| `InvocationDurationMs` | `FunctionName` | só no perfil local: base da estimativa de custo, já que o LocalStack não publica `AWS/Lambda Duration` |
 
 Linhas abaixo do `LOG_LEVEL` não somem das métricas: sai uma linha mínima, sem
 `status`, só com os campos EMF. Os alarmes `unhandled-errors` e
@@ -150,8 +152,14 @@ No dashboard: 📊 **Métricas** (séries por tipo de erro e tabela por ação),
 📜 **Logs** (warn/error), 🔎 **Rastreio** (estado da saga + todas as linhas
 do mesmo `correlationId`, de todos os serviços), ⏱️ **Desempenho** (últimas 10
 compras em detalhe), 🎯 **SLOs** (p95 da compra < 2 s, ≥ 99,5% das sagas em
-Completed/Compensated, nenhuma mensagem na DLQ há mais de 24 h) e
+Completed/Compensated, nenhuma mensagem na DLQ há mais de 24 h),
+🧠 **Recursos** (memória por Lambda contra o `MemorySize` e custo por serviço:
+estimado pelas métricas × tabela de preços, e o real do Cost Explorer na AWS) e
 🩺 **Monitoramento** (alarmes).
+
+O custo também tem um aviso: o `MonthlyBudget` (AWS Budgets, parâmetro
+`MonthlyBudgetUSD`, padrão US$ 5) publica no mesmo tópico dos alarmes quando o
+gasto do mês passa de 80% ou a previsão passa do teto.
 
 A aba SLOs lê só as sagas da janela pelo índice `SagasByDayIndex` (dia de
 criação dividido em 10 shards, ver `src/common/saga-day-index.mjs`), sem varrer
@@ -170,6 +178,8 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/metrics/errors?hours=24` | Séries de erros de negócio/não tratados por tipo e chamadas/duração por ação, gravadas via EMF (aba Métricas) |
 | GET | `/metrics/sagas` | Tempo por passo das últimas 10 compras, do histórico do Step Functions (aba Desempenho) |
 | GET | `/metrics/slo?hours=24` | SLOs da janela: p95 das compras concluídas, % de sagas Completed/Compensated e mensagens na DLQ há mais de 24 h (aba SLOs) |
+| GET | `/metrics/memory?hours=3` | Memória máxima e média por Lambda (`MemoryUsedMB`) e o limite configurado (aba Recursos) |
+| GET | `/metrics/cost?days=14` | Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pelo Cost Explorer (aba Recursos) |
 | GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) |
 | POST | `/dlq/{messageId}/redrive` | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
 | POST | `/dlq/{messageId}/discard` | Apaga o evento da DLQ |
@@ -301,7 +311,7 @@ O dashboard (`dashboard/`), servido pelo `local-server.mjs`, permite comprar e
 acompanhar cada saga em tempo real: os passos concluídos, o que falhou e as
 compensações executadas. As telas ficam agrupadas por assunto: **Loja**
 (comprar, produtos, estoque, pedidos, resumo), **Observabilidade**
-(monitoramento, métricas, logs, rastreio, desempenho, SLOs) e **Operação**
+(monitoramento, métricas, logs, rastreio, desempenho, SLOs, recursos) e **Operação**
 (DLQ, admin). A tela atual fica na URL (`#/slo`), e há tema claro e escuro.
 
 Sem build: são módulos ES carregados direto pelo navegador.

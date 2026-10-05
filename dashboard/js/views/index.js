@@ -7,6 +7,7 @@ import monitoring from './monitoring.js';
 import orders from './orders.js';
 import performance from './performance.js';
 import products from './products.js';
+import resources from './resources.js';
 import slo from './slo.js';
 import stock from './stock.js';
 import summary from './summary.js';
@@ -17,7 +18,7 @@ import trace from './trace.js';
 // Para uma tela nova: crie o módulo e acrescente-o ao grupo aqui
 export const GROUPS = [
     { id: 'store', label: 'Loja', views: [buy, products, stock, orders, summary] },
-    { id: 'observe', label: 'Observabilidade', views: [monitoring, metrics, logs, trace, performance, slo] },
+    { id: 'observe', label: 'Observabilidade', views: [monitoring, metrics, logs, trace, performance, slo, resources] },
     { id: 'ops', label: 'Operação', views: [dlq, admin] }
 ];
 
