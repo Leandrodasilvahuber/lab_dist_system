@@ -120,8 +120,15 @@ async function fetchSagas({ onlyRunning = false } = {}) {
     try {
         if (onlyRunning) {
             const running = [...sagaCache.values()].filter(s => !TERMINAL.includes(s.status));
-            const updated = await Promise.all(running.map(s => getSaga(s.id).catch(() => s)));
-            updated.forEach(s => sagaCache.set(s.id, s));
+            // 404: a saga sumiu (LocalStack recriado); sem tirá-la do cache, ela
+            // ficaria "em andamento" e o polling não pararia nunca
+            const updated = await Promise.all(running.map(s => getSaga(s.id)
+                .then(saga => [s.id, saga])
+                .catch(error => [s.id, error.status === 404 ? null : s])));
+            for (const [id, saga] of updated) {
+                if (saga) sagaCache.set(id, saga);
+                else sagaCache.delete(id);
+            }
         } else {
             sagaCache = new Map((await listSagas()).map(s => [s.id, s]));
         }
