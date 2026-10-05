@@ -1,5 +1,6 @@
 import { api } from '../core/api.js';
 import { $ } from '../core/dom.js';
+import { newIdempotencyKey } from '../core/ids.js';
 import { on } from '../core/events.js';
 import { escapeHtml, money } from '../core/format.js';
 import { getAdminKey } from '../core/session.js';
@@ -89,10 +90,11 @@ async function startPurchase(event) {
     // falha de rede), repetir a mesma compra reusa a chave e retoma a
     // saga em vez de criar outra
     const request = JSON.stringify({ productId, quantity });
-    if (pendingPurchase?.request !== request) {
-        pendingPurchase = { request, key: crypto.randomUUID() };
-    }
     try {
+        // Dentro do try: uma falha aqui também cai no aviso e no finally (botão de volta)
+        if (pendingPurchase?.request !== request) {
+            pendingPurchase = { request, key: newIdempotencyKey() };
+        }
         const result = await api('/saga/execute', {
             method: 'POST',
             headers: { 'Idempotency-Key': pendingPurchase.key },

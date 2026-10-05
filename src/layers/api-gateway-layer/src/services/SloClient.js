@@ -26,8 +26,11 @@ const SUCCESS = ['COMPLETED', 'COMPENSATED'];
 const TERMINAL = [...SUCCESS, 'FAILED', 'COMPENSATION_FAILED'];
 const IN_PROGRESS = ['RUNNING', 'COMPENSATING'];
 
+// Períodos do dashboard (PERIODS.short): limitam as chaves do cache (parseHours)
+export const SLO_HOURS = [1, 24, 24 * 7];
+
 export function parseSloQuery(query = {}) {
-  return { hours: parseHours(query.hours, { max: 24 * 7 }) };
+  return { hours: parseHours(query.hours, { allowed: SLO_HOURS }) };
 }
 
 /**

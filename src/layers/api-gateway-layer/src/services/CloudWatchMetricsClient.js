@@ -13,8 +13,12 @@ export function periodFor(hours) {
   return 3600;
 }
 
+// Períodos do dashboard (PERIODS.metrics) e 14 dias (retenção de 1 min do
+// CloudWatch: 15 dias). Também vale para /metrics/memory (MemoryMetricsClient)
+export const METRICS_HOURS = [1, 3, 24, 24 * 7, 24 * 14];
+
 export function parseMetricsQuery(query = {}) {
-  return { hours: parseHours(query.hours, { max: 24 * 14 }) };
+  return { hours: parseHours(query.hours, { allowed: METRICS_HOURS }) };
 }
 
 const OUTCOMES = ['ok', 'rejected', 'failed'];

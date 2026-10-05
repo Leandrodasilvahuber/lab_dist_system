@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { SloClient, percentile, parseSloQuery, SLO_TARGETS, STUCK_AFTER_MS } from '../../../src/layers/api-gateway-layer/src/services/SloClient.js';
+import { SloClient, percentile, parseSloQuery, SLO_HOURS, SLO_TARGETS, STUCK_AFTER_MS } from '../../../src/layers/api-gateway-layer/src/services/SloClient.js';
 import { createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
 import { isAdminRoute } from '../../../src/common/auth.mjs';
 import { SAGAS_BY_DAY_INDEX, SAGA_DAY_SHARDS, sagaDayShard } from '../../../src/common/saga-day-index.mjs';
@@ -69,10 +69,15 @@ describe('parseSloQuery', () => {
     assert.deepStrictEqual(parseSloQuery({ hours: 'x' }), { hours: 24 });
     assert.deepStrictEqual(parseSloQuery({ hours: '1' }), { hours: 1 });
     assert.deepStrictEqual(parseSloQuery({ hours: '9999' }), { hours: 168 });
-    // Inteira: é a chave do cache, frações furariam o cache
+    // Período fixo: é a chave do cache, outros valores furariam o cache
     assert.deepStrictEqual(parseSloQuery({ hours: '1.0001' }), { hours: 1 });
     assert.deepStrictEqual(parseSloQuery({ hours: '23.6' }), { hours: 24 });
     assert.deepStrictEqual(parseSloQuery({ hours: '0.2' }), { hours: 1 });
+    assert.deepStrictEqual(parseSloQuery({ hours: '3' }), { hours: 1 });
+    assert.deepStrictEqual(parseSloQuery({ hours: '72' }), { hours: 24 });
+    const seen = new Set();
+    for (let h = 0; h <= 400; h++) seen.add(parseSloQuery({ hours: String(h) }).hours);
+    assert.deepStrictEqual([...seen].sort((a, b) => a - b), SLO_HOURS);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { CloudWatchMetricsClient, periodFor, parseMetricsQuery, align } from '../../../src/layers/api-gateway-layer/src/services/CloudWatchMetricsClient.js';
+import { CloudWatchMetricsClient, METRICS_HOURS, periodFor, parseMetricsQuery, align } from '../../../src/layers/api-gateway-layer/src/services/CloudWatchMetricsClient.js';
 import { LogsClient } from '../../../src/layers/api-gateway-layer/src/services/LogsClient.js';
 import { createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
 import { isAdminRoute } from '../../../src/common/auth.mjs';
@@ -28,12 +28,23 @@ function fakeCloudWatch({ metrics, data }) {
 }
 
 describe('CloudWatchMetricsClient', () => {
-  it('período do gráfico conforme a janela; hours entre 0 e 14 dias', () => {
+  it('período do gráfico conforme a janela; hours arredondado para um período fixo', () => {
     assert.deepStrictEqual([periodFor(1), periodFor(3), periodFor(24), periodFor(168)], [60, 60, 900, 3600]);
     assert.deepStrictEqual(parseMetricsQuery({}), { hours: 24 });
+    assert.deepStrictEqual(parseMetricsQuery({ hours: 'x' }), { hours: 24 });
     assert.deepStrictEqual(parseMetricsQuery({ hours: '99999' }), { hours: 336 });
     assert.deepStrictEqual(parseMetricsQuery({ hours: '1.0001' }), { hours: 1 });
     assert.deepStrictEqual(parseMetricsQuery({ hours: '2.5' }), { hours: 3 });
+    assert.deepStrictEqual(parseMetricsQuery({ hours: '12' }), { hours: 3 });
+    assert.deepStrictEqual(parseMetricsQuery({ hours: '100' }), { hours: 168 });
+  });
+
+  // A rota é pública e o GetMetricData é cobrado por métrica: trocar o hours
+  // a cada requisição não pode criar uma leitura nova (chave nova no cache)
+  it('qualquer hours cai num dos períodos fixos', () => {
+    const seen = new Set();
+    for (let h = 0; h <= 400; h++) seen.add(parseMetricsQuery({ hours: String(h) }).hours);
+    assert.deepStrictEqual([...seen].sort((a, b) => a - b), METRICS_HOURS);
   });
 
   it('align põe cada ponto no seu balde e soma pontos do mesmo balde', () => {

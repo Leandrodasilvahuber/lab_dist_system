@@ -56,13 +56,15 @@ export function optionalNumber(value, field) {
 }
 
 /**
- * Janela em horas da query string (`?hours=`), em horas inteiras entre 1 e
- * `max`; ausente ou inválida vira `fallback`. Inteira porque é a chave do
- * cache das consultas: com frações (1.0001, 1.0002...) cada pedido furaria o
- * cache e o Map cresceria sem limite. Assim há no máximo `max` chaves.
+ * Janela em horas da query string (`?hours=`), arredondada para o período
+ * permitido mais próximo (`allowed`); ausente ou inválida vira `fallback`.
+ * Só períodos fixos porque o valor é a chave do cache das consultas e as rotas
+ * de métricas são públicas: com qualquer inteiro aceito, trocar o `hours` a
+ * cada requisição furaria o cache, e cada leitura do CloudWatch (GetMetricData)
+ * é cobrada por métrica pedida. Assim há no máximo `allowed.length` chaves.
  */
-export function parseHours(raw, { fallback = 24, max }) {
+export function parseHours(raw, { allowed, fallback = 24 }) {
   const hours = Number(raw);
-  if (!Number.isFinite(hours) || hours <= 0) return fallback;
-  return Math.min(Math.max(1, Math.round(hours)), max);
+  if (raw === undefined || raw === null || raw === '' || !Number.isFinite(hours) || hours <= 0) return fallback;
+  return allowed.reduce((best, value) => Math.abs(value - hours) < Math.abs(best - hours) ? value : best);
 }
