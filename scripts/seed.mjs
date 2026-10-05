@@ -19,6 +19,7 @@
  */
 import fs from 'node:fs';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { writeProductUnlessDeleted } from './lib/seed-product.mjs';
 import { ensureTable } from './lib/tables.mjs';
 
 const args = process.argv.slice(2);
@@ -37,7 +38,8 @@ if (stage) {
 }
 
 // Import dinâmico: database.mjs lê as variáveis de ambiente ao carregar
-const { putItem, putItemIfNotExists, tables } = await import('../src/common/database.mjs');
+const db = await import('../src/common/database.mjs');
+const { putItem, putItemIfNotExists, tables } = db;
 
 const endpoint = process.env.DYNAMODB_ENDPOINT || process.env.AWS_ENDPOINT;
 const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1', ...(endpoint && { endpoint }) });
@@ -53,9 +55,22 @@ const { products } = JSON.parse(fs.readFileSync(new URL('./seed-products.json', 
 const now = new Date().toISOString();
 // Com --reset sobrescreve; sem ele, grava só o que falta (true se gravou)
 const write = (table, item) => reset ? putItem(table, item).then(() => true) : putItemIfNotExists(table, item);
+
+// Com --reset sobrescreve; sem ele, não recria produto excluído (ver lib/seed-product.mjs)
+const writeProduct = product => reset
+  ? putItem('products', product).then(() => 'written')
+  : writeProductUnlessDeleted(db, product);
+
 let written = 0;
+let deleted = 0;
 for (const { stock = 0, ...product } of products) {
-  const wroteProduct = await write('products', { ...product, createdAt: now, updatedAt: now });
+  const productResult = await writeProduct({ ...product, createdAt: now, updatedAt: now });
+  if (productResult === 'deleted') {
+    deleted++;
+    console.log(`   🗑️  ${product.id}: ${product.name} (excluído, mantido; --reset recria)`);
+    continue;
+  }
+  const wroteProduct = productResult === 'written';
   const wroteStock = await write('inventory', { id: product.id, name: product.name, stock, createdAt: now, updatedAt: now });
   if (wroteProduct || wroteStock) written++;
   const [icon, result] = wroteProduct && wroteStock ? ['✅', `estoque ${stock}`]
@@ -66,4 +81,5 @@ for (const { stock = 0, ...product } of products) {
 }
 
 console.log(`\n${written} de ${products.length} produtos gravados em ${tables.products} e ${tables.inventory}` +
-  (reset || written === products.length ? '' : ' (os demais já existiam: use --reset para sobrescrever)'));
+  (deleted ? `, ${deleted} excluído(s) mantido(s)` : '') +
+  (reset || written + deleted === products.length ? '' : ' (use --reset para sobrescrever com o seed)'));

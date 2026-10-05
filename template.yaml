@@ -1214,8 +1214,8 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
 
-  # Saga em andamento que a reconciliação não conseguiu fechar (sem
-  # executionArn, Step Functions sem resposta). A varredura (a cada 5 min)
+  # Saga em andamento que a reconciliação não conseguiu fechar (Step Functions
+  # sem resposta, falha ao corrigir). A varredura (a cada 5 min)
   # publica SagasStuck mesmo com 0; duas rodadas seguidas = parada há >10 min
   SagasStuckAlarm:
     Type: AWS::CloudWatch::Alarm

@@ -1,4 +1,4 @@
-import { API_BASE } from './core/api.js';
+import { API_BASE } from './core/config.js';
 import { $ } from './core/dom.js';
 import { on } from './core/events.js';
 import { escapeHtml } from './core/format.js';

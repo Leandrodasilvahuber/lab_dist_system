@@ -1,9 +1,5 @@
+import { API_BASE } from './config.js';
 import { getAdminKey } from './session.js';
-
-// API: o próprio local-server (padrão) ou outra via ?api=https://.../dev
-const params = new URLSearchParams(location.search);
-export const API_BASE = (params.get('api') ||
-    (location.protocol.startsWith('http') ? location.origin : 'http://localhost:3001')).replace(/\/$/, '');
 
 export const isAuthError = error => error.status === 401 || error.status === 403;
 

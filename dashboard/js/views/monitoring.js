@@ -1,4 +1,5 @@
-import { api, API_BASE, isAuthError } from '../core/api.js';
+import { api, isAuthError } from '../core/api.js';
+import { API_BASE } from '../core/config.js';
 import { $ } from '../core/dom.js';
 import { emit } from '../core/events.js';
 import { escapeHtml, nowTime, time } from '../core/format.js';
@@ -51,7 +52,7 @@ const MONITORS = [
                 lastAlarms = { ok: true, items: (await api('/alarms')).alarms || [] };
             } catch (error) {
                 lastAlarms = { ok: false, error };
-                // Rota de admin: sem a chave não é falha do sistema, só falta de acesso
+                // Rota pública; se um deploy a proteger, sem a chave não é falha do sistema
                 if (isAuthError(error)) return adminOnly('os alarmes');
                 return { value: 'indisponível', ok: false, detail: error.message };
             }
