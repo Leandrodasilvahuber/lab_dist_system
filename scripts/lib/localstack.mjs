@@ -15,8 +15,19 @@ import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import { SQSClient } from '@aws-sdk/client-sqs';
 import { ensureTable, logicalName } from './tables.mjs';
 
-// Perfil local de timeouts (src/common/aws-client.mjs): Lambdas e state machine
+// Perfil local de timeouts (src/common/aws-client.mjs) das Lambdas
 export const LOCAL_TIMEOUT_SCALE = 3;
+// No LocalStack, no máximo 2 execuções ao mesmo tempo: cada Lambda local tem
+// concorrência reservada 2 (no máximo 2 contêineres por função; o excedente
+// recebe throttling, que o Step Functions repete com backoff) e os testes e as
+// compras de exemplo disparam 2 por vez (mapLimit, scripts/lib/pool.mjs).
+// Na AWS não há reserva: vale a concorrência da conta
+export const LOCAL_MAX_CONCURRENCY = 2;
+// Timeout das Lambdas no LocalStack: a primeira chamada sobe um contêiner, e
+// vários simultâneos levam dezenas de segundos
+export const LOCAL_LAMBDA_TIMEOUT_S = 30;
+// Teto da execução local: pior caso com passos de 30 s é ~21 min (ver localTimeouts)
+export const LOCAL_EXECUTION_TIMEOUT_S = 3600;
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BUILD = path.join(ROOT, '.aws-sam', 'build');
@@ -75,7 +86,7 @@ export async function deploySaga({ L, F }, { prefix, tables, environment = {} })
         FunctionName,
         Runtime: runtime,
         Handler: 'index.handler',
-        Timeout: 30,
+        Timeout: LOCAL_LAMBDA_TIMEOUT_S,
         Role: `arn:aws:iam::${ACCOUNT}:role/lambda-role`,
         // O LocalStack executa na arquitetura da máquina; o bundle é JS puro
         Architectures: [os.arch() === 'arm64' ? 'arm64' : 'x86_64'],
@@ -85,16 +96,17 @@ export async function deploySaga({ L, F }, { prefix, tables, environment = {} })
       }));
       arns[fn] = FunctionArn;
       await lambda.waitUntilFunctionActiveV2({ client: L, maxWaitTime: 180 }, { FunctionName });
+      await L.send(new lambda.PutFunctionConcurrencyCommand({ FunctionName, ReservedConcurrentExecutions: LOCAL_MAX_CONCURRENCY }));
     }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 
-  const definition = scaleTimeouts(fs.readFileSync(path.join(ROOT, 'src/ecommerce/saga-orchestrator/workflow/saga-workflow.asl.json'), 'utf8')
+  const definition = localTimeouts(fs.readFileSync(path.join(ROOT, 'src/ecommerce/saga-orchestrator/workflow/saga-workflow.asl.json'), 'utf8')
     .replaceAll('${OrderFunctionArn}', arns.OrderFunction)
     .replaceAll('${PaymentFunctionArn}', arns.PaymentFunction)
     .replaceAll('${StockFunctionArn}', arns.StockFunction)
-    .replaceAll('${SagasTableName}', tables.SAGAS_TABLE), LOCAL_TIMEOUT_SCALE);
+    .replaceAll('${SagasTableName}', tables.SAGAS_TABLE));
 
   const name = `${prefix}-purchase-saga`;
   const stateMachineArn = `arn:aws:states:us-east-1:${ACCOUNT}:stateMachine:${name}`;
@@ -110,16 +122,17 @@ export async function deploySaga({ L, F }, { prefix, tables, environment = {} })
 }
 
 /**
- * Mesmo perfil local das Lambdas (TIMEOUT_SCALE): no LocalStack a primeira
- * chamada de cada Lambda sobe um container e leva segundos, então o limite de
- * cada passo e o teto da execução (scripts/generate-saga-workflow.py) são
- * multiplicados, senão toda compra fria viraria timeout e compensação.
+ * Limites do workflow (scripts/generate-saga-workflow.py) no LocalStack: o
+ * passo espera até o timeout da Lambda local, em vez dos 5 s da AWS (onde o
+ * cold start leva menos de 1 s); aqui a primeira chamada sobe um contêiner.
+ * Com no máximo LOCAL_MAX_CONCURRENCY execuções ao mesmo tempo, a invocação
+ * não fica esperando na fila e o limite não corta uma chamada saudável.
  */
-export function scaleTimeouts(definitionJson, scale) {
+export function localTimeouts(definitionJson) {
   const definition = JSON.parse(definitionJson);
-  if (definition.TimeoutSeconds) definition.TimeoutSeconds *= scale;
+  definition.TimeoutSeconds = LOCAL_EXECUTION_TIMEOUT_S;
   for (const state of Object.values(definition.States)) {
-    if (state.TimeoutSeconds) state.TimeoutSeconds *= scale;
+    if (state.TimeoutSeconds) state.TimeoutSeconds = LOCAL_LAMBDA_TIMEOUT_S;
   }
   return JSON.stringify(definition);
 }
@@ -132,11 +145,68 @@ export async function findStateMachine({ F }, prefix) {
 export async function removeSaga({ D, L, F }, { prefix, tables }) {
   const ignore = () => {};
   const arn = await findStateMachine({ F }, prefix).catch(ignore);
-  if (arn) await F.send(new sfn.DeleteStateMachineCommand({ stateMachineArn: arn })).catch(ignore);
+  if (arn) {
+    // Execução ainda rodando continuaria invocando Lambdas que vão sumir
+    const { executions = [] } = await F.send(new sfn.ListExecutionsCommand({ stateMachineArn: arn, statusFilter: 'RUNNING' })).catch(() => ({}));
+    for (const { executionArn } of executions) {
+      await F.send(new sfn.StopExecutionCommand({ executionArn, cause: 'teardown do teste' })).catch(ignore);
+    }
+    await F.send(new sfn.DeleteStateMachineCommand({ stateMachineArn: arn })).catch(ignore);
+  }
   for (const fn of STEP_FUNCTIONS) {
     await L.send(new lambda.DeleteFunctionCommand({ FunctionName: `${prefix}-${fn}` })).catch(ignore);
   }
   await removeTables({ D }, tables);
+}
+
+// Recursos dos testes: e2e-<timestamp>-* e e2e-errors-<timestamp>-*
+const TEST_RUN = /^(e2e(?:-errors)?-(\d{13}))-/;
+export const STALE_RUN_MS = 60 * 60 * 1000;
+
+/**
+ * Remove o que execuções anteriores dos testes deixaram para trás (processo
+ * morto antes da limpeza): Lambdas, state machines e tabelas com o prefixo de
+ * um teste iniciado há mais de STALE_RUN_MS. Execuções mais novas podem estar
+ * rodando em outro terminal e ficam.
+ */
+export async function removeStaleTestRuns({ D, L, F }, { now = Date.now() } = {}) {
+  const stale = name => {
+    const match = TEST_RUN.exec(name);
+    return match && now - Number(match[2]) > STALE_RUN_MS ? match[1] : null;
+  };
+  const prefixes = new Set();
+  const { Functions = [] } = await L.send(new lambda.ListFunctionsCommand({})).catch(() => ({}));
+  const { stateMachines = [] } = await F.send(new sfn.ListStateMachinesCommand({})).catch(() => ({}));
+  const { TableNames = [] } = await D.send(new ddb.ListTablesCommand({})).catch(() => ({}));
+  for (const name of [...Functions.map(f => f.FunctionName), ...stateMachines.map(m => m.name), ...TableNames]) {
+    const prefix = stale(name);
+    if (prefix) prefixes.add(prefix);
+  }
+  for (const prefix of prefixes) {
+    const tables = Object.fromEntries(TableNames.filter(t => t.startsWith(`${prefix}-`)).map(t => [t, t]));
+    await removeSaga({ D, L, F }, { prefix, tables });
+  }
+  return [...prefixes];
+}
+
+/**
+ * Ctrl+C, kill ou promessa rejeitada sem tratamento também limpam: sem isso,
+ * interromper um teste deixava Lambdas, contêineres, tabelas e state machine
+ * pendurados no LocalStack. `cleanup` roda uma vez só.
+ */
+export function cleanupOnExit(cleanup) {
+  let done = false;
+  const run = async (code, error) => {
+    if (done) return;
+    done = true;
+    if (error) console.error(error);
+    await cleanup().catch(e => console.error(`Limpeza incompleta: ${e.message}`));
+    process.exit(code);
+  };
+  process.once('SIGINT', () => run(130));
+  process.once('SIGTERM', () => run(143));
+  process.on('uncaughtException', error => run(1, error));
+  process.on('unhandledRejection', error => run(1, error));
 }
 
 export async function removeTables({ D }, tables) {

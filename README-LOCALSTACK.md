@@ -109,7 +109,7 @@ log groups só para as abas de log (sem republicar métricas).
 Logs e Rastreio leem um buffer em memória (últimas 2000 linhas, desde que o
 servidor subiu, mais a última hora das Lambdas); na AWS, do CloudWatch Logs.
 
-O CloudWatch precisa estar em `SERVICES` no `docker-compose.yml`. Se o
+O CloudWatch (e o SNS, para conferir os avisos dos alarmes) precisa estar em `SERVICES` no `docker-compose.yml`. Se o
 container subiu antes dessa mudança, recrie-o (apaga os dados locais):
 `npm run localstack:stop && npm run localstack:start && npm run seed:local`.
 

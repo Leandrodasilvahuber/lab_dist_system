@@ -28,11 +28,19 @@ Parameters:
     Default: 0
     MinValue: 0
 
+  # E-mail que recebe os alarmes (tópico AlarmTopic). Vazio = só o tópico, sem
+  # assinatura; dá para assinar depois (e-mail, Slack via Chatbot, SMS). A AWS
+  # manda um e-mail de confirmação: o aviso só chega depois de confirmar
+  AlertEmail:
+    Type: String
+    Default: ''
+
 Conditions:
   # Em prod as tabelas não podem ser apagadas (nem por sam delete); em dev/test
   # a stack continua descartável
   IsProd: !Equals [!Ref Environment, prod]
   LimitGatewayConcurrency: !Not [!Equals [!Ref GatewayConcurrencyLimit, 0]]
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
 
 # Todas as funções são empacotadas com esbuild a partir da raiz do projeto,
 # o que inclui automaticamente o código compartilhado de src/common.
@@ -646,6 +654,8 @@ Resources:
   UnhandledErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
       AlarmName: !Sub '${Environment}-ecommerce-unhandled-errors'
       AlarmDescription: 'Erros não tratados nos logs das Lambdas'
       Namespace: !Sub 'Ecommerce/${Environment}'
@@ -662,6 +672,8 @@ Resources:
   BusinessErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
       AlarmName: !Sub '${Environment}-ecommerce-business-errors'
       AlarmDescription: 'Volume alto de erros de negócio (ver aba Métricas, por ErrorType)'
       Namespace: !Sub 'Ecommerce/${Environment}'
@@ -676,6 +688,8 @@ Resources:
   ProductEventsDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
       AlarmName: !Sub '${Environment}-ecommerce-product-events-dlq'
       AlarmDescription: 'Eventos de produto na DLQ: inventário não criado/removido, reprocessar'
       Namespace: AWS/SQS
@@ -698,6 +712,8 @@ Resources:
   CircuitBreakerOpenAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
       AlarmName: !Sub '${Environment}-ecommerce-circuit-open'
       AlarmDescription: 'Circuit breaker products aberto: compras recusadas com 503 (ver CIRCUIT_STATE_CHANGED nos logs e a saúde da ProductFunction)'
       Namespace: !Sub 'Ecommerce/${Environment}'
@@ -742,6 +758,8 @@ Resources:
   SagaExecutionsFailedAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
       AlarmName: !Sub '${Environment}-ecommerce-saga-failed'
       AlarmDescription: 'Saga que nem a compensação conseguiu fechar: CompensationFailed/SagaFailed/timeout (ver SagaStateMachineLogGroup)'
       Metrics:
@@ -790,6 +808,8 @@ Resources:
   SagaCompensationRateAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
       AlarmName: !Sub '${Environment}-ecommerce-saga-compensation-rate'
       AlarmDescription: 'Mais de 5% das sagas compensadas (cartão recusado, falta de estoque...): fora do patamar normal'
       Metrics:
@@ -991,6 +1011,8 @@ Resources:
   ApiServerErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
       AlarmName: !Sub '${Environment}-ecommerce-api-5xx'
       AlarmDescription: 'Respostas 5xx da API'
       Namespace: AWS/ApiGateway
@@ -1002,6 +1024,150 @@ Resources:
           Value: !Ref Environment
       Statistic: Sum
       Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  # ---------- Notificação dos alarmes ----------
+  # Sem AlarmActions, um alarme só muda de cor no console: ninguém fica sabendo.
+  # Todos os alarmes publicam aqui ao entrar em ALARM e ao voltar a OK
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${Environment}-ecommerce-alarms'
+      DisplayName: !Sub 'E-commerce ${Environment}: alarmes'
+
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # Cliente consultando em loop o que não existe (ex.: aba esquecida acompanhando
+  # sagas apagadas): leituras com 404 (ClientErrors, http-handler.mjs), que ficam
+  # fora do business-errors. 300 em 5 min = ~1 req/s sustentado
+  ClientErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      AlarmName: !Sub '${Environment}-ecommerce-client-errors'
+      AlarmDescription: 'Leituras com 404 em volume (cliente em loop consultando o que não existe; ver aba Métricas, cartão 404)'
+      Namespace: !Sub 'Ecommerce/${Environment}'
+      MetricName: ClientErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 300
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  # Saga em andamento que a reconciliação não conseguiu fechar (sem
+  # executionArn, Step Functions sem resposta). A varredura (a cada 5 min)
+  # publica SagasStuck mesmo com 0; duas rodadas seguidas = parada há >10 min
+  SagasStuckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      AlarmName: !Sub '${Environment}-ecommerce-sagas-stuck'
+      AlarmDescription: 'Saga em andamento há mais de 5 min que a reconciliação não fechou (ver log SAGAS_STUCK_CHECKED e aba SLOs, Travadas)'
+      Namespace: !Sub 'Ecommerce/${Environment}'
+      MetricName: SagasStuck
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      # Sem dado (deploy novo, antes da 1ª varredura; ou a varredura parou) o
+      # alarme fica em "Sem dados", visível no painel, sem e-mail. Com
+      # breaching, cada deploy mandava um ALARM falso até a varredura rodar
+      TreatMissingData: missing
+
+  # Throttling nas Lambdas da compra e do gateway: a concorrência acabou (pico,
+  # cliente em loop) e invocações estão sendo recusadas
+  LambdaThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      AlarmName: !Sub '${Environment}-ecommerce-lambda-throttles'
+      AlarmDescription: 'Invocações recusadas por falta de concorrência (Throttles) nas Lambdas do e-commerce'
+      Metrics:
+        - Id: total
+          Label: Throttles (todas as funções)
+          Expression: FILL(t1, 0) + FILL(t2, 0) + FILL(t3, 0) + FILL(t4, 0) + FILL(t5, 0) + FILL(t6, 0)
+          ReturnData: true
+        - Id: t1
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Throttles
+              Dimensions:
+                - Name: FunctionName
+                  Value: !Ref ProductFunction
+            Period: 300
+            Stat: Sum
+        - Id: t2
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Throttles
+              Dimensions:
+                - Name: FunctionName
+                  Value: !Ref OrderFunction
+            Period: 300
+            Stat: Sum
+        - Id: t3
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Throttles
+              Dimensions:
+                - Name: FunctionName
+                  Value: !Ref PaymentFunction
+            Period: 300
+            Stat: Sum
+        - Id: t4
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Throttles
+              Dimensions:
+                - Name: FunctionName
+                  Value: !Ref StockFunction
+            Period: 300
+            Stat: Sum
+        - Id: t5
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Throttles
+              Dimensions:
+                - Name: FunctionName
+                  Value: !Ref SagaOrchestratorFunction
+            Period: 300
+            Stat: Sum
+        - Id: t6
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Throttles
+              Dimensions:
+                - Name: FunctionName
+                  Value: !Ref GatewayFunction
+            Period: 300
+            Stat: Sum
       EvaluationPeriods: 1
       Threshold: 0
       ComparisonOperator: GreaterThanThreshold
@@ -1111,7 +1277,10 @@ Resources:
                 "${SagaCompensationRateAlarm.Arn}",
                 "${ApiServerErrorsAlarm.Arn}",
                 "${ProductEventsDlqAlarm.Arn}",
-                "${CircuitBreakerOpenAlarm.Arn}"
+                "${CircuitBreakerOpenAlarm.Arn}",
+                "${ClientErrorsAlarm.Arn}",
+                "${SagasStuckAlarm.Arn}",
+                "${LambdaThrottlesAlarm.Arn}"
               ]
             } },
             { "type": "log", "x": 0, "y": 32, "width": 24, "height": 6, "properties": {
@@ -1285,6 +1454,10 @@ Resources:
             NonKeyAttributes: [status, updatedAt]
 
 Outputs:
+  AlarmTopicArn:
+    Description: "Tópico SNS dos alarmes (assine e-mail, Slack via Chatbot ou SMS)"
+    Value: !Ref AlarmTopic
+
   ApiGatewayUrl:
     Description: "API Gateway URL (público)"
     Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"

@@ -50,13 +50,28 @@ export class ProductClient {
       maxAttempts: PRODUCT_MAX_ATTEMPTS
     }));
     this.breaker = breaker;
+    // Consultas em andamento por produto (ver getProduct)
+    this.inFlight = new Map();
   }
 
+  /**
+   * Compras simultâneas do mesmo produto esperam a mesma invocação em vez de
+   * uma cada: sem isso, um pico num produto vira N invocações (N cold starts
+   * no LocalStack, onde 10 simultâneos passaram de 30s cada). Não é cache: o
+   * resultado vale só para quem pediu enquanto a consulta estava em andamento.
+   */
   async getProduct(productId) {
     if (!this.functionName) {
       throw new Error('PRODUCT_FUNCTION_NAME is not configured');
     }
-    return this.breaker.call(() => this.invoke(productId));
+    let pending = this.inFlight.get(productId);
+    if (!pending) {
+      pending = this.breaker.call(() => this.invoke(productId))
+        .finally(() => this.inFlight.delete(productId));
+      this.inFlight.set(productId, pending);
+    }
+    // Cópia por chamador: ninguém altera o produto de outra compra
+    return { ...(await pending) };
   }
 
   async invoke(productId) {

@@ -43,6 +43,8 @@ import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
 import { createLogBuffer, parseLogLine, isTraceId } from './src/common/log-query.mjs';
 import { createEmfAgent } from './scripts/lib/emf-agent.mjs';
 import { createLocalstackHealth } from './scripts/lib/localstack-health.mjs';
+import { LOCAL_MAX_CONCURRENCY } from './scripts/lib/localstack.mjs';
+import { mapLimit } from './scripts/lib/pool.mjs';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from './src/common/database.mjs';
 import { SAGAS_BY_DAY_INDEX, dayShardsInWindow } from './src/common/saga-day-index.mjs';
@@ -209,10 +211,23 @@ const SAMPLE_ORDERS = [
   { productId: 'banana', quantity: 1 }
 ];
 
+// Espera a saga terminar (a próxima compra de exemplo só sai depois)
+async function waitSagaDone(sagaId, timeoutMs = 5 * 60 * 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const event = buildEvent({ method: 'GET', url: new URL(`/saga/${sagaId}`, `http://localhost:${PORT}`), headers: {}, body: '' });
+    const { status } = JSON.parse((await handlers.saga(event)).body);
+    if (!['RUNNING', 'COMPENSATING'].includes(status)) return;
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+}
+
+// No máximo LOCAL_MAX_CONCURRENCY compras ao mesmo tempo: as 7 de uma vez
+// subiam dezenas de contêineres no LocalStack (scripts/lib/localstack.mjs)
 async function seedSampleOrders() {
   let created = 0;
   let existing = 0;
-  for (const [index, order] of SAMPLE_ORDERS.entries()) {
+  await mapLimit(SAMPLE_ORDERS, LOCAL_MAX_CONCURRENCY, async (order, index) => {
     const event = buildEvent({
       method: 'POST',
       url: new URL('/saga/execute', `http://localhost:${PORT}`),
@@ -222,8 +237,10 @@ async function seedSampleOrders() {
     try {
       const result = await handlers.saga(event);
       // 202: saga nova; 200: a chave já tinha saga (idempotência), nada foi comprado
-      if (result.statusCode === 202) created++;
-      else if (result.statusCode === 200) existing++;
+      if (result.statusCode === 202) {
+        created++;
+        await waitSagaDone(JSON.parse(result.body).sagaId);
+      } else if (result.statusCode === 200) existing++;
       else {
         const hint = result.statusCode === 404 ? ' (rodou npm run seed:local?)' : '';
         console.warn(`   ⚠️  Compra de exemplo ${order.productId}: HTTP ${result.statusCode}${hint}`);
@@ -231,9 +248,9 @@ async function seedSampleOrders() {
     } catch (error) {
       console.warn(`   ⚠️  Compra de exemplo ${order.productId}: ${error.message}`);
     }
-  }
+  });
   if (process.env.LOG_LEVEL === 'silent') return;
-  if (created) console.log(`   🧾 ${created} compras de exemplo disparadas`);
+  if (created) console.log(`   🧾 ${created} compras de exemplo concluídas (${LOCAL_MAX_CONCURRENCY} por vez)`);
   if (existing) console.log(`   🧾 ${existing} compras de exemplo já existiam (ignoradas pela idempotência)`);
 }
 

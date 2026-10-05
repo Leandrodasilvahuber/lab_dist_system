@@ -414,10 +414,32 @@ describe('SagaService: reconciliação de saga parada', () => {
     const recent = { id: 'saga_i', status: 'RUNNING', updatedAt: ago(1000), createdAt: ago(1000), productId: 'p1', quantity: 1, steps: {} };
     db.tables.sagas.set(recent.id, { ...recent, dayShard: sagaDayShard(recent.id, recent.createdAt) });
 
-    assert.deepStrictEqual(await service.reconcileStuckSagas(), { checked: 1, reconciled: 1 });
+    assert.deepStrictEqual(await service.reconcileStuckSagas(), { checked: 1, reconciled: 1, stuck: 0 });
     assert.strictEqual(db.tables.sagas.get('saga_h').status, 'COMPLETED');
     assert.strictEqual(db.tables.sagas.get('saga_i').status, 'RUNNING');
     assert.ok(RECONCILE_MAX >= 1);
+  });
+
+  // O alarme sagas-stuck lê esta métrica: publicada toda rodada, inclusive 0
+  it('publica SagasStuck com as que a reconciliação não fechou (ex.: sem executionArn)', async () => {
+    const { db, service } = setup({ id: 'saga_j', status: 'RUNNING', updatedAt: ago(6 * 60 * 1000) }, { status: 'SUCCEEDED' });
+    const noArn = { id: 'saga_k', status: 'RUNNING', updatedAt: ago(7 * 60 * 1000), createdAt: ago(7 * 60 * 1000), productId: 'p1', quantity: 1, steps: {} };
+    db.tables.sagas.set(noArn.id, { ...noArn, dayShard: sagaDayShard(noArn.id, noArn.createdAt) });
+
+    const original = process.env.LOG_LEVEL;
+    process.env.LOG_LEVEL = 'info';
+    const lines = [];
+    const log = console.log;
+    console.log = line => lines.push(line);
+    try {
+      assert.deepStrictEqual(await service.reconcileStuckSagas(), { checked: 2, reconciled: 1, stuck: 1 });
+    } finally {
+      console.log = log;
+      process.env.LOG_LEVEL = original;
+    }
+    const line = lines.map(l => JSON.parse(l)).find(l => l.event === 'SAGAS_STUCK_CHECKED');
+    assert.deepStrictEqual([line.status, line.SagasStuck, line.BusinessErrors], ['info', 1, undefined]);
+    assert.deepStrictEqual(line._aws.CloudWatchMetrics[0].Metrics.map(m => m.Name), ['SagasStuck']);
   });
 });
 

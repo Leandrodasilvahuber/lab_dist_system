@@ -25,6 +25,48 @@ describe('ProductClient', () => {
     assert.deepStrictEqual(JSON.parse(client.sent[0].Payload), { action: 'getProduct', input: { productId: 'apple' } });
   });
 
+  // Pico de compras do mesmo produto: uma invocação, não uma por compra
+  it('consultas simultâneas do mesmo produto compartilham uma invocação', async () => {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const client = {
+      sent: [],
+      async send(command) {
+        this.sent.push(JSON.parse(command.input.Payload).input.productId);
+        await gate;
+        return { Payload: Buffer.from(JSON.stringify({ id: 'apple', price: 5 })) };
+      }
+    };
+    const products = new ProductClient({ functionName: 'f', client });
+
+    const calls = [products.getProduct('apple'), products.getProduct('apple'), products.getProduct('banana')];
+    release();
+    const [a, b] = await Promise.all(calls);
+    assert.deepStrictEqual(client.sent, ['apple', 'banana']);
+    assert.deepStrictEqual(a, b);
+    // Cada chamador recebe a sua cópia
+    assert.notStrictEqual(a, b);
+
+    // Terminada a consulta, a próxima invoca de novo (não é cache)
+    await products.getProduct('apple');
+    assert.deepStrictEqual(client.sent, ['apple', 'banana', 'apple']);
+  });
+
+  it('a falha também é compartilhada e não fica guardada', async () => {
+    let fail = true;
+    const client = { calls: 0, async send() {
+      this.calls++;
+      if (fail) throw Object.assign(new Error('socket timeout'), { name: 'TimeoutError' });
+      return { Payload: Buffer.from(JSON.stringify({ id: 'x' })) };
+    } };
+    const products = new ProductClient({ functionName: 'f', client });
+    const results = await Promise.allSettled([products.getProduct('x'), products.getProduct('x')]);
+    assert.ok(results.every(r => r.status === 'rejected' && r.reason instanceof DependencyUnavailableError));
+    assert.strictEqual(client.calls, 1);
+    fail = false;
+    assert.deepStrictEqual(await products.getProduct('x'), { id: 'x' });
+  });
+
   it('uma tentativa só por invocação: o retry do SDK estouraria o timeout da Lambda antes do 503', async () => {
     const products = new ProductClient({ functionName: 'f' });
     assert.strictEqual(await products.client.config.maxAttempts(), 1);

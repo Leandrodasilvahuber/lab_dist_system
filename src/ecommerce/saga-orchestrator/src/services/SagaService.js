@@ -353,7 +353,20 @@ export class SagaService {
       const result = await this.reconcile(saga);
       if (result.status !== before) reconciled++;
     }
-    return { checked: stuck.length, reconciled };
+    // Paradas que continuaram em andamento (sem executionArn, Step Functions
+    // sem resposta, execução ainda rodando, além do limite da rodada).
+    // Publicada toda rodada, inclusive 0: sem dado, o alarme sagas-stuck fica
+    // em "Sem dados" (a varredura parou de rodar)
+    const remaining = stuck.length - reconciled;
+    log({
+      event: 'SAGAS_STUCK_CHECKED',
+      // info: saga parada não é erro de negócio; quem avisa é o alarme sagas-stuck
+      status: 'info',
+      message: `${stuck.length} saga(s) parada(s) em andamento, ${reconciled} corrigida(s), ${remaining} ainda parada(s)`,
+      data: { checked: stuck.length, reconciled, stuck: remaining },
+      metrics: { metrics: { SagasStuck: { value: remaining } } }
+    });
+    return { checked: stuck.length, reconciled, stuck: remaining };
   }
 
   /**

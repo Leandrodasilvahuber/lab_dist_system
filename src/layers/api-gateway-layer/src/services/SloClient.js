@@ -1,12 +1,17 @@
 import { Database } from '../../../../common/database.mjs';
 import { SAGAS_BY_DAY_INDEX, dayShardsInWindow } from '../../../../common/saga-day-index.mjs';
 import { STUCK_AFTER_MS } from '../../../../common/saga-timing.mjs';
+import { IS_LOCAL } from '../../../../common/aws-client.mjs';
 import { DlqClient } from './DlqClient.js';
 
 // Metas dos SLOs (critério de sucesso dos testes de carga/caos). Os SLOs
 // nativos do template.yaml (Application Signals) usam os mesmos valores.
+// No LocalStack cada passo da compra pode subir um contêiner (p50 ~15 s):
+// 2 s ficaria sempre violado. Lá a meta é 1 min, que ainda acusa compra
+// anormalmente lenta; na AWS (IS_LOCAL falso) vale a de produção
+export const PURCHASE_P95_MS = { aws: 2000, local: 60 * 1000 };
 export const SLO_TARGETS = {
-  purchaseP95Ms: 2000,
+  purchaseP95Ms: IS_LOCAL ? PURCHASE_P95_MS.local : PURCHASE_P95_MS.aws,
   sagaSuccessRatio: 0.995,
   dlqMaxAgeHours: 24
 };

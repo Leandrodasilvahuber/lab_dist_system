@@ -16,7 +16,8 @@
  * Cada execução usa nomes próprios (prefixo e2e-<timestamp>) e remove tudo ao final.
  * O runtime das Lambdas é o mesmo do template.yaml.
  */
-import { ROOT, clients, assertBuilt, ensureTables, deploySaga, removeSaga } from './lib/localstack.mjs';
+import { ROOT, LOCAL_MAX_CONCURRENCY, clients, assertBuilt, ensureTables, deploySaga, removeSaga, removeStaleTestRuns, cleanupOnExit } from './lib/localstack.mjs';
+import { mapLimit } from './lib/pool.mjs';
 import { randomUUID } from 'node:crypto';
 
 const endpoint = process.env.LOCALSTACK_ENDPOINT || 'http://localhost:4566';
@@ -31,17 +32,16 @@ const T = {
 };
 const aws = clients(endpoint);
 const teardown = () => removeSaga(aws, { prefix: PREFIX, tables: T });
-// Um cenário que lança (ex.: timeout esperando a saga) também remove as
-// tabelas, Lambdas e state machine desta execução, em vez de deixá-las no LocalStack
-process.on('uncaughtException', async error => {
-  console.error(error);
-  await teardown();
-  process.exit(1);
-});
+// Um cenário que lança (ex.: timeout esperando a saga) ou o teste interrompido
+// (Ctrl+C) também remove as tabelas, Lambdas e state machine desta execução,
+// em vez de deixá-las no LocalStack
+cleanupOnExit(teardown);
 let stateMachineArn;
 
 try {
   assertBuilt();
+  const stale = await removeStaleTestRuns(aws);
+  if (stale.length) console.log(`Sobras de testes anteriores removidas: ${stale.join(', ')}`);
   await ensureTables(aws, T);
   let runtime;
   ({ stateMachineArn, runtime } = await deploySaga(aws, { prefix: PREFIX, tables: T }));
@@ -190,10 +190,15 @@ check('mesma chave com outro pedido responde 409', r3.status === 409);
 const r4 = await call(saga, 'POST', '/saga/execute', { productId: p.id, quantity: 1 });
 check('sem Idempotency-Key responde 400', r4.status === 400);
 
-console.log('\n6) Concorrência: 10 compras simultâneas de 1 unidade, produto com 5 em estoque');
+// No LocalStack, no máximo LOCAL_MAX_CONCURRENCY compras ao mesmo tempo (ver
+// scripts/lib/localstack.mjs): o par concorrente ainda disputa o mesmo estoque
+console.log(`\n6) Concorrência: 10 compras de 1 unidade, ${LOCAL_MAX_CONCURRENCY} por vez, produto com 5 em estoque`);
 const c = (await call(products, 'POST', '/products', { name: 'Mouse', price: 80, stock: 5 })).body;
-const started = await Promise.all(Array.from({ length: 10 }, () => buy({ productId: c.id, quantity: 1 })));
-const finals = await Promise.all(started.map(x => waitSaga(x.body.sagaId)));
+const finals = await mapLimit(Array.from({ length: 10 }), LOCAL_MAX_CONCURRENCY, async () => {
+  const started = await buy({ productId: c.id, quantity: 1 });
+  if (!started.body.sagaId) throw new Error(`compra não iniciou: ${started.status} ${JSON.stringify(started.body)}`);
+  return waitSaga(started.body.sagaId);
+});
 const count = st => finals.filter(f => f.status === st).length;
 console.log(`  COMPLETED=${count('COMPLETED')} COMPENSATED=${count('COMPENSATED')} outros=${10 - count('COMPLETED') - count('COMPENSATED')}`);
 if (!check('exatamente 5 concluídas e 5 compensadas', count('COMPLETED') === 5 && count('COMPENSATED') === 5)) {

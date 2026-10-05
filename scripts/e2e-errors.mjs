@@ -29,7 +29,7 @@
 import * as cw from '@aws-sdk/client-cloudwatch';
 import * as sqs from '@aws-sdk/client-sqs';
 import { randomUUID } from 'node:crypto';
-import { ROOT, clients, ensureTables, removeTables } from './lib/localstack.mjs';
+import { ROOT, clients, ensureTables, removeTables, removeStaleTestRuns, cleanupOnExit } from './lib/localstack.mjs';
 import { extractEmfMetrics } from '../src/common/emf.mjs';
 import { parseLogLine } from '../src/common/log-query.mjs';
 
@@ -67,14 +67,12 @@ const T = {
   SAGAS_TABLE: `${PREFIX}-Sagas`
 };
 
-// Um cenário que lança também remove as tabelas desta execução
-process.on('uncaughtException', async error => {
-  console.error(error);
-  await removeTables(aws, T);
-  process.exit(1);
-});
+// Um cenário que lança ou o teste interrompido (Ctrl+C) também remove as
+// tabelas desta execução
+cleanupOnExit(() => removeTables(aws, T));
 
 try {
+  await removeStaleTestRuns(aws);
   await ensureTables(aws, T);
 } catch (error) {
   out(`Falha ao preparar o LocalStack em ${endpoint}: ${error.message}`);

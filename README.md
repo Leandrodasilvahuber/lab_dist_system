@@ -83,7 +83,8 @@ Lambda) são repetidas com backoff; erros de negócio (`InsufficientStock`,
 `PaymentDeclined`) vão direto para a compensação.
 
 **Prazo:** a compra conclui ou é desfeita em até ~5 min. Cada passo tem limite
-de 5 s (15 s no LocalStack): um passo lento vira `States.Timeout`, é repetido e,
+de 5 s (no LocalStack, 30 s, o timeout das Lambdas locais: lá o cold start sobe
+um contêiner; e no máximo 2 execuções ao mesmo tempo): um passo lento vira `States.Timeout`, é repetido e,
 se continuar falhando, compensado como qualquer falha. O teto da execução (10
 min) é só rede de segurança, porque quando ele estoura o Step Functions encerra
 **sem compensar**. Um teste (`test/unit/saga/workflow.test.mjs`) calcula o pior

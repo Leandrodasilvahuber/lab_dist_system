@@ -57,8 +57,18 @@ npm run build || exit 1
 
 echo ""
 echo "🚀 Fazendo deploy na AWS..."
+# ALERT_EMAIL: assina esse e-mail no tópico dos alarmes (AlarmTopic). A AWS
+# manda um e-mail de confirmação; sem confirmar, nenhum alarme chega.
+# Sem a variável no shell, vem do .env (fora do git). Só essa linha é lida:
+# o .env também guarda o hash da chave de admin e não é executado aqui
+if [ -z "$ALERT_EMAIL" ] && [ -f .env ]; then
+    ALERT_EMAIL=$(sed -n 's/^ALERT_EMAIL=//p' .env | tail -1 | tr -d "\"' \r")
+fi
+OVERRIDES="Environment=$ENVIRONMENT"
+[ -n "$ALERT_EMAIL" ] && OVERRIDES="$OVERRIDES AlertEmail=$ALERT_EMAIL"
 sam deploy --config-file samconfig.toml \
-    --parameter-overrides "Environment=$ENVIRONMENT" || exit 1
+    --parameter-overrides $OVERRIDES || exit 1
+[ -n "$ALERT_EMAIL" ] && echo "📧 Confirme a assinatura no e-mail enviado para $ALERT_EMAIL (sem isso, os alarmes não chegam)"
 
 echo ""
 echo "✅ Deployment concluído!"

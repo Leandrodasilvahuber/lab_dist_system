@@ -53,7 +53,8 @@ BACKOFF = {'IntervalSeconds': 1, 'BackoffRate': 2, 'MaxDelaySeconds': 10, 'Jitte
 # encerra a execução SEM rodar compensação, então é só rede de segurança (entra
 # no alarme saga-failed como ExecutionsTimedOut e o reconciliador do
 # SagaService marca a saga como COMPENSATION_FAILED, intervenção manual).
-# No LocalStack os dois são multiplicados por TIMEOUT_SCALE (scripts/lib/localstack.mjs).
+# No LocalStack o passo espera até o timeout da Lambda local (30 s: lá o cold
+# start sobe um contêiner) e o teto sobe junto (scripts/lib/localstack.mjs).
 STEP_TIMEOUT_SECONDS = 5
 EXECUTION_TIMEOUT_SECONDS = 600
 
