@@ -11,5 +11,10 @@ module.exports = {
   rules: {
     'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     'no-console': 'off'
-  }
+  },
+  // O dashboard roda no navegador (document, confirm, fetch, localStorage)
+  overrides: [{
+    files: ['dashboard/**/*.js'],
+    env: { browser: true, node: false }
+  }]
 }

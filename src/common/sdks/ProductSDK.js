@@ -102,9 +102,10 @@ export class ProductSDK {
   }
 
   /**
-   * Atualizar produto. API interna: não há rota HTTP (o HttpApi só expõe
-   * GET /products, GET /products/{id} e POST /products); quem expuser precisa
-   * protegê-la como admin (ADMIN_ROUTES em auth.mjs e Auth no template.yaml).
+   * Atualizar produto. API interna: não há rota HTTP (o HttpApi expõe
+   * GET /products, GET /products/{id}, POST /products e DELETE /products/{id});
+   * quem expuser precisa protegê-la como admin (ADMIN_ROUTES em auth.mjs e
+   * Auth no template.yaml).
    * Altera só os campos enviados (UpdateItem), sem regravar o item inteiro.
    * Só aceita os campos do catálogo (UPDATABLE_FIELDS), com as mesmas regras
    * da criação; qualquer outro campo é recusado em vez de gravado às cegas.
@@ -155,10 +156,10 @@ export class ProductSDK {
   }
 
   /**
-   * Deletar produto. API interna, como updateProduct (sem rota HTTP).
-   * O evento ProductDeleted é obrigatório, como o ProductCreated: sem ele o
-   * Stock manteria o inventário de um produto que não existe mais. Se a
-   * publicação falhar, o produto volta ao catálogo e o erro é relançado;
+   * Deletar produto (DELETE /products/{id}, rota de admin). O evento
+   * ProductDeleted é obrigatório, como o ProductCreated: sem ele o Stock
+   * manteria o inventário de um produto que não existe mais. Se a publicação
+   * falhar, o produto volta ao catálogo e o erro é relançado;
    * chamar de novo exclui e publica outra vez (a remoção do inventário é
    * idempotente). Uma falha ambígua (timeout) pode ter entregue o evento: o
    * produto volta sem estoque e a nova chamada termina a exclusão.

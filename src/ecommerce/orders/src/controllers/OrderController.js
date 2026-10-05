@@ -7,7 +7,7 @@ const orderSDK = new OrderSDK(eventBus);
 
 export class OrderController {
   /**
-   * GET /orders (admin, paginado: ?limit=&nextToken=)
+   * GET /orders (público, paginado: ?limit=&nextToken=)
    */
   static async listOrders(event, query = {}) {
     try {
