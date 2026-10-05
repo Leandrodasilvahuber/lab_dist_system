@@ -196,8 +196,11 @@ check('log error UNEXPECTED_ERROR com errorType e stack', line?.status === 'erro
 
 // ---------- 6 ----------
 lines = scenario('6) Dependência fora do ar: compras com o serviço de Products indisponível (circuit breaker)');
-// O breaker abre depois de N falhas seguidas (mesmo padrão do ProductClient)
-const THRESHOLD = Number(process.env.PRODUCT_CIRCUIT_FAILURE_THRESHOLD) || 5;
+// O breaker abre depois de N falhas seguidas. N vem do próprio ProductClient,
+// criado com o mesmo ambiente: no perfil local (AWS_ENDPOINT) ele tolera mais
+// falhas que na AWS, e um número fixo aqui deixaria o teste fora de sincronia
+const { ProductClient } = await import(`${ROOT}/src/ecommerce/saga-orchestrator/src/services/ProductClient.js`);
+const THRESHOLD = new ProductClient().breaker.failureThreshold;
 const buy = () => call(saga, 'POST', '/saga/execute', { productId: 'p-qualquer', quantity: 1 }, { 'idempotency-key': randomUUID() });
 const beforeOpen = [];
 for (let i = 0; i < THRESHOLD; i++) beforeOpen.push(await buy());
