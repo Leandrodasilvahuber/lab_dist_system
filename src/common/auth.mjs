@@ -7,10 +7,12 @@ import { promisify } from 'node:util';
  * em cada rota); o local-server usa esta mesma lista. Mantenha os dois iguais.
  */
 export const ADMIN_ROUTES = [
-  // Só as escritas da aba Admin (cadastro de produto e ajuste de estoque);
-  // consultas, observabilidade e DLQ são abertas
+  // As escritas da aba Admin (cadastro de produto e ajuste de estoque) e o
+  // custo, que é o gasto da conta AWS inteira; as outras consultas, a
+  // observabilidade e a DLQ são abertas
   ['POST', /^\/products$/],
-  ['POST', /^\/stock\/[^/]+\/adjust$/]
+  ['POST', /^\/stock\/[^/]+\/adjust$/],
+  ['GET', /^\/metrics\/cost$/]
 ];
 
 export function isAdminRoute(method, path) {

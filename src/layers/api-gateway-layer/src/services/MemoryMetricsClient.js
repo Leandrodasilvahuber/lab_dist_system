@@ -66,16 +66,20 @@ export class MemoryMetricsClient {
       start, end
     );
 
-    // Sem dado no balde = null (lacuna na linha), não 0 MB
-    const series = id => {
-      const values = buckets.map(() => null);
+    // Sem dado no balde = null (lacuna na linha), não 0 MB. O período da
+    // consulta é o do balde, então em geral há um ponto por balde; se vierem
+    // mais, `combine` junta (máximo dos máximos, média das médias)
+    const series = (id, combine) => {
+      const groups = buckets.map(() => []);
       const result = results.get(id);
       result?.timestamps.forEach((t, k) => {
         const index = Math.floor((t - start) / (period * 1000));
-        if (index >= 0 && index < values.length) values[index] = Math.max(values[index] ?? -Infinity, result.values[k]);
+        if (index >= 0 && index < groups.length) groups[index].push(result.values[k]);
       });
-      return values;
+      return groups.map(group => group.length ? combine(group) : null);
     };
+    const maxOf = group => Math.max(...group);
+    const meanOf = group => group.reduce((a, b) => a + b, 0) / group.length;
     const round = v => v === null ? null : Math.round(v * 10) / 10;
 
     return {
@@ -84,8 +88,8 @@ export class MemoryMetricsClient {
       buckets: buckets.map(t => new Date(t).toISOString()),
       functions: names
         .map((name, i) => {
-          const max = series(`max_${i}`).map(round);
-          const avg = series(`avg_${i}`).map(round);
+          const max = series(`max_${i}`, maxOf).map(round);
+          const avg = series(`avg_${i}`, meanOf).map(round);
           const points = max.filter(v => v !== null);
           return { name, limitMb: memoryLimitFor(name, this.env), max, avg, peak: points.length ? Math.max(...points) : null };
         })

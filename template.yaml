@@ -167,6 +167,7 @@ Resources:
     Properties:
       CodeUri: .
       Handler: adminAuthorizer.handler
+      # Igual a AUTHORIZER_MEMORY_MB da GatewayFunction (estimativa de custo)
       MemorySize: 128
       Timeout: 5
       Environment:
@@ -200,6 +201,10 @@ Resources:
           # Aba Recursos: teto do Budget (o id do HttpApi vem no requestContext;
           # !Ref ApiGateway aqui seria dependência circular)
           MONTHLY_BUDGET_USD: !Ref MonthlyBudgetUSD
+          # O authorizer não grava MemoryUsedMB (não passa pelos handlers dos
+          # serviços): entra na estimativa pelo nome e pelo MemorySize dele
+          AUTHORIZER_FUNCTION_NAME: !Ref AdminAuthorizerFunction
+          AUTHORIZER_MEMORY_MB: 128
       Policies:
         - Statement:
             # GetMetricData/ListMetrics: aba Métricas (namespace Ecommerce/<env>, gravado via EMF)
@@ -282,12 +287,15 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /metrics/memory
             Method: GET
+        # Gasto da conta inteira (Cost Explorer): só admin
         CostMetrics:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /metrics/cost
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         Trace:
           Type: HttpApi
           Properties:
@@ -1091,7 +1099,9 @@ Resources:
       Endpoint: !Ref AlertEmail
 
   # O AWS Budgets publica no mesmo tópico dos alarmes; o SNS só aceita com
-  # permissão explícita para o serviço
+  # permissão explícita para o serviço. Uma TopicPolicy SUBSTITUI a política
+  # padrão do tópico: sem as duas primeiras regras, os alarmes do CloudWatch
+  # (e o dono da conta) deixariam de publicar e o e-mail pararia de chegar
   AlarmTopicPolicy:
     Type: AWS::SNS::TopicPolicy
     Properties:
@@ -1099,6 +1109,26 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
+          - Sid: AccountOwner
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action:
+              - sns:Publish
+              - sns:Subscribe
+              - sns:GetTopicAttributes
+              - sns:SetTopicAttributes
+              - sns:ListSubscriptionsByTopic
+            Resource: !Ref AlarmTopic
+          - Sid: AllowCloudWatchAlarmsPublish
+            Effect: Allow
+            Principal:
+              Service: cloudwatch.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref AlarmTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
           - Sid: AllowBudgetsPublish
             Effect: Allow
             Principal:

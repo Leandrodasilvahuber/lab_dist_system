@@ -6,16 +6,17 @@ import { createHandler, createKeyProvider, CACHE_TTL_MS } from '../../../src/lay
 process.env.LOG_LEVEL = 'silent';
 
 describe('rotas de admin', () => {
-  it('protege só as escritas da aba Admin', () => {
+  it('protege as escritas da aba Admin e o custo da conta', () => {
     assert.ok(isAdminRoute('POST', '/products'));
     assert.ok(isAdminRoute('POST', '/stock/p1/adjust'));
+    assert.ok(isAdminRoute('GET', '/metrics/cost'));
   });
 
   it('deixa públicas a vitrine, a compra, as consultas, a observabilidade e a DLQ', () => {
     for (const [method, path] of [['GET', '/products'], ['GET', '/products/p1'], ['GET', '/stock'],
       ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/orders/o1'], ['GET', '/health'],
       ['GET', '/orders'], ['GET', '/sagas'], ['GET', '/logs'], ['GET', '/alarms'], ['GET', '/metrics/sagas'],
-      ['GET', '/metrics/errors'], ['GET', '/metrics/slo'], ['GET', '/trace/s1'],
+      ['GET', '/metrics/errors'], ['GET', '/metrics/slo'], ['GET', '/metrics/memory'], ['GET', '/trace/s1'],
       ['GET', '/dlq'], ['POST', '/dlq/m1/redrive'], ['POST', '/dlq/m1/discard']]) {
       assert.ok(!isAdminRoute(method, path), `${method} ${path}`);
     }

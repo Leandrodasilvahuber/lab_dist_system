@@ -155,7 +155,7 @@ referência (us-east-1, confira as páginas de preço antes de escalar):
 | Serviço | Cobrança | Observação |
 |---|---|---|
 | Lambda | por requisição + duração | 1M requisições/mês grátis |
-| Step Functions Standard | por transição de estado (~US$ 0,025 / 1.000) | 4.000 transições/mês grátis; ~10 por compra |
+| Step Functions Standard | por transição de estado (~US$ 0,025 / 1.000) | 4.000 transições/mês grátis; ~12 por compra sem compensação |
 | API Gateway HttpApi | por requisição | |
 | DynamoDB on-demand | por leitura/escrita | |
 | EventBridge | por evento publicado | |
@@ -167,7 +167,9 @@ A aba 🧠 **Recursos** do dashboard mostra o custo de duas formas:
   `AWS/DynamoDB`) × a tabela `PRICES` de `CostClient.js`, sem free tier.
 - **Real**: Cost Explorer (custo da **conta inteira**), com previsão do mês. Cada
   chamada à API custa US$ 0,01, então a GatewayFunction guarda o resultado por
-  6 h. Numa conta nova, o Cost Explorer precisa ser ativado uma vez no console
+  6 h. O cache é de cada container da Lambda: um container novo paga a primeira
+  leitura (US$ 0,02, com a previsão). Por mostrar o gasto da conta, a rota
+  `GET /metrics/cost` exige a chave de admin. Numa conta nova, o Cost Explorer precisa ser ativado uma vez no console
   (Billing → Cost Explorer) e leva até 24 h para ter dados.
 
 A métrica de memória (`MemoryUsedMB`, uma série por Lambda) é métrica custom:

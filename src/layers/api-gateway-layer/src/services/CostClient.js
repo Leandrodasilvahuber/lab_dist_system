@@ -11,7 +11,9 @@ const DAY_S = DAY_MS / 1000;
 // Estimativa muda pouco de um minuto para o outro e lê várias métricas
 export const COST_ESTIMATE_CACHE_TTL_MS = 5 * 60 * 1000;
 // Cada chamada ao Cost Explorer custa US$ 0,01 e os dados dele atualizam
-// poucas vezes por dia: uma leitura a cada 6 h por container da Lambda
+// poucas vezes por dia: uma leitura a cada 6 h. O cache é do container da
+// Lambda, então cada container novo paga a 1ª leitura (2 chamadas, US$ 0,02);
+// a rota é só de admin e o throttling dela (5 req/s) limita quantos sobem
 export const COST_ACTUAL_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 // Janela fixa do Cost Explorer: qualquer período da aba sai da mesma leitura
 const ACTUAL_WINDOW_DAYS = 90;
@@ -110,20 +112,24 @@ export class CostClient {
     const buckets = [];
     for (let t = start; t < end; t += DAY_MS) buckets.push(t);
 
-    const [estimated, actual] = await Promise.all([
+    // Uma fonte fora do ar não esconde a outra: a estimativa que falha vira
+    // estimatedError (como actualReason no Cost Explorer); 503 só sem nenhuma
+    const [estimated, actual] = await Promise.allSettled([
       this.estimate(start, end, buckets, apiId),
       this.local
         ? { actual: null, forecast: null, actualReason: 'Cost Explorer não existe no LocalStack' }
         : this.readActual(buckets)
     ]);
+    if (estimated.status === 'rejected' && !actual.value?.actual) throw estimated.reason;
     const budget = Number(this.env.MONTHLY_BUDGET_USD);
 
     return {
       days,
       currency: 'USD',
       buckets: buckets.map(isoDay),
-      estimated,
-      ...actual,
+      estimated: estimated.value ?? null,
+      ...(estimated.status === 'rejected' && { estimatedError: `Estimativa indisponível: ${estimated.reason.message}` }),
+      ...actual.value,
       budgetUsd: Number.isFinite(budget) && budget > 0 ? budget : null
     };
   }
@@ -167,18 +173,28 @@ export class CostClient {
     };
   }
 
-  lambdaCost(names, durationMs, invocations) {
-    const gb = functionMemoryMb(this.env) / 1024;
-    return value => sum(names.map((_, i) =>
-      value(durationMs(i)) / 1000 * gb * PRICES.lambdaGbSecondArm + value(invocations(i)) * PRICES.lambdaRequest));
+  // memoryMb: um MemorySize por função (o authorizer tem o dele)
+  lambdaCost(memoryMb, durationMs, invocations) {
+    return value => sum(memoryMb.map((mb, i) =>
+      value(durationMs(i)) / 1000 * (mb / 1024) * PRICES.lambdaGbSecondArm + value(invocations(i)) * PRICES.lambdaRequest));
   }
 
   awsQueries(names, apiId) {
-    const queries = names.flatMap((FunctionName, i) => [
+    // As funções vêm do MemoryUsedMB (runtime-metrics.mjs); o authorizer não
+    // passa por ele e entra pelo nome que o template passa
+    const functions = names.map(name => ({ name, memoryMb: functionMemoryMb(this.env) }));
+    const authorizer = this.env.AUTHORIZER_FUNCTION_NAME;
+    if (authorizer && !names.includes(authorizer)) {
+      functions.push({ name: authorizer, memoryMb: Number(this.env.AUTHORIZER_MEMORY_MB) || 128 });
+    }
+    const queries = functions.flatMap(({ name: FunctionName }, i) => [
       this.query(`lambda_ms_${i}`, 'AWS/Lambda', 'Duration', 'Sum', { FunctionName }),
       this.query(`lambda_n_${i}`, 'AWS/Lambda', 'Invocations', 'Sum', { FunctionName })
     ]);
-    const services = [{ service: SERVICES.lambda, cost: this.lambdaCost(names, i => `lambda_ms_${i}`, i => `lambda_n_${i}`) }];
+    const services = [{
+      service: SERVICES.lambda,
+      cost: this.lambdaCost(functions.map(f => f.memoryMb), i => `lambda_ms_${i}`, i => `lambda_n_${i}`)
+    }];
 
     const stateMachine = this.env.SAGA_STATE_MACHINE_ARN;
     if (stateMachine) {
@@ -204,7 +220,10 @@ export class CostClient {
     return {
       queries,
       services,
-      notes: [`Step Functions: ${TRANSITIONS_PER_SAGA} transições por compra (sem compensação)`, 'Sem free tier, EventBridge, CloudWatch e Application Signals']
+      notes: [
+        `Step Functions: ${TRANSITIONS_PER_SAGA} transições por compra (sem compensação)`,
+        'Fora da estimativa: free tier, EventBridge, SQS, SNS, CloudWatch (logs, métricas custom, alarmes) e Application Signals'
+      ]
     };
   }
 
@@ -217,7 +236,7 @@ export class CostClient {
     const steps = names.map((name, i) => [name, i]).filter(([name]) => name.startsWith('local-') && name !== 'local-server').map(([, i]) => `lambda_n_${i}`);
     const server = names.indexOf('local-server');
     const services = [
-      { service: SERVICES.lambda, cost: this.lambdaCost(names, i => `lambda_ms_${i}`, i => `lambda_n_${i}`) },
+      { service: SERVICES.lambda, cost: this.lambdaCost(names.map(() => functionMemoryMb(this.env)), i => `lambda_ms_${i}`, i => `lambda_n_${i}`) },
       { service: SERVICES.stepFunctions, cost: value => sum(steps.map(value)) * TRANSITIONS_PER_LOCAL_STEP * PRICES.stepFunctionsTransition }
     ];
     // No local-server cada invocação de handler é uma requisição HTTP (ou um

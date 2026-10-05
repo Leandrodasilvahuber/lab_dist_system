@@ -53,6 +53,15 @@ describe('MemoryMetricsClient', () => {
     assert.strictEqual(order.avg.filter(v => v !== null)[0], 80);
   });
 
+  it('mais de um ponto no balde: máximo dos máximos e média das médias', async () => {
+    const t = minute(30);
+    const client = fakeCloudWatch({ functions: ['fn'], data: { max_0: [[t, 90], [t, 110]], avg_0: [[t, 60], [t, 80]] } });
+    const result = await new MemoryMetricsClient({ client, now: () => NOW }).memoryMetrics({ hours: 1 });
+    const index = result.functions[0].max.findIndex(v => v !== null);
+    assert.strictEqual(result.functions[0].max[index], 110);
+    assert.strictEqual(result.functions[0].avg[index], 70);
+  });
+
   it('limite: MemorySize do template; o local-server não tem', () => {
     assert.strictEqual(memoryLimitFor('local-OrderFunction', { FUNCTION_MEMORY_MB: '512' }), 512);
     assert.strictEqual(memoryLimitFor('x', {}), 256);
@@ -172,6 +181,30 @@ describe('CostClient', () => {
     assert.ok(result.estimated);
   });
 
+  it('estimativa fora do ar não esconde o custo real; sem nenhum dos dois, erro (503)', async () => {
+    const broken = { async send() { throw new Error('CloudWatch down'); } };
+    const ok = new CostClient({ cloudwatch: broken, costExplorer: fakeCostExplorer({ days: { '2026-10-04': { 'AWS Lambda': 1 } } }), local: false, now: () => NOW, env: {} });
+    const result = await ok.costs({ days: 1 });
+    assert.strictEqual(result.estimated, null);
+    assert.match(result.estimatedError, /CloudWatch down/);
+    close(result.actual.total, 1);
+
+    const none = new CostClient({ cloudwatch: broken, local: true, now: () => NOW, env: {} });
+    await assert.rejects(none.costs({ days: 1 }), /CloudWatch down/);
+  });
+
+  it('AWS: o authorizer (sem MemoryUsedMB) entra na estimativa com o MemorySize dele', async () => {
+    const cloudwatch = fakeCloudWatch({
+      functions: [],
+      data: { lambda_ms_0: [[new Date(TODAY), 1_000_000]], lambda_n_0: [[new Date(TODAY), 100]] }
+    });
+    const cost = new CostClient({ cloudwatch, costExplorer: fakeCostExplorer(), local: false, now: () => NOW, env: { AUTHORIZER_FUNCTION_NAME: 'dev-Authorizer', AUTHORIZER_MEMORY_MB: '128' } });
+    const result = await cost.costs({ days: 1 });
+    const query = cloudwatch.sent.find(c => c.name === 'GetMetricDataCommand').input.MetricDataQueries[0];
+    assert.deepStrictEqual(query.MetricStat.Metric.Dimensions, [{ Name: 'FunctionName', Value: 'dev-Authorizer' }]);
+    close(result.estimated.byService[0].total, 1000 * 0.125 * PRICES.lambdaGbSecondArm + 100 * PRICES.lambdaRequest);
+  });
+
   it('local: estimativa pelo InvocationDurationMs, sem Cost Explorer', async () => {
     const cloudwatch = fakeCloudWatch({
       functions: ['local-OrderFunction', 'local-server'],
@@ -221,8 +254,8 @@ describe('GET /metrics/memory e /metrics/cost', () => {
     assert.strictEqual((await handler(req('/metrics/cost'))).statusCode, 503);
   });
 
-  it('são rotas públicas', () => {
+  it('memória é pública; custo (gasto da conta inteira) só para admin', () => {
     assert.strictEqual(isAdminRoute('GET', '/metrics/memory'), false);
-    assert.strictEqual(isAdminRoute('GET', '/metrics/cost'), false);
+    assert.strictEqual(isAdminRoute('GET', '/metrics/cost'), true);
   });
 });

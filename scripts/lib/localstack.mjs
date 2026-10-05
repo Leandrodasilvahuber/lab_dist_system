@@ -44,8 +44,18 @@ export function templateRuntime() {
 // MemorySize das Lambdas (parâmetro FunctionMemoryMB do template.yaml): as
 // local-* são criadas com ele, e a aba Recursos usa como limite de memória
 export function templateMemoryMb() {
-  const match = fs.readFileSync(path.join(ROOT, 'template.yaml'), 'utf8').match(/^\s+FunctionMemoryMB:\s*\n(?:\s+.*\n)*?\s+Default:\s*(\d+)/m);
-  return Number(match?.[1]) || 256;
+  const lines = fs.readFileSync(path.join(ROOT, 'template.yaml'), 'utf8').split('\n');
+  const start = lines.findIndex(line => /^\s+FunctionMemoryMB:\s*$/.test(line));
+  if (start === -1) return 256;
+  // Só as linhas do bloco do parâmetro (mais indentadas que o nome dele): sem
+  // Default ali, não pega o do parâmetro seguinte
+  const indent = lines[start].search(/\S/);
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() && line.search(/\S/) <= indent) break;
+    const match = line.match(/^\s+Default:\s*(\d+)/);
+    if (match) return Number(match[1]);
+  }
+  return 256;
 }
 
 export function clients(endpoint) {

@@ -179,7 +179,7 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/metrics/sagas` | Tempo por passo das últimas 10 compras, do histórico do Step Functions (aba Desempenho) |
 | GET | `/metrics/slo?hours=24` | SLOs da janela: p95 das compras concluídas, % de sagas Completed/Compensated e mensagens na DLQ há mais de 24 h (aba SLOs) |
 | GET | `/metrics/memory?hours=3` | Memória máxima e média por Lambda (`MemoryUsedMB`) e o limite configurado (aba Recursos) |
-| GET | `/metrics/cost?days=14` | Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pelo Cost Explorer (aba Recursos) |
+| GET | `/metrics/cost?days=14` | Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pelo Cost Explorer (aba Recursos). **Admin** (`X-Api-Key`): é o gasto da conta inteira |
 | GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) |
 | POST | `/dlq/{messageId}/redrive` | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
 | POST | `/dlq/{messageId}/discard` | Apaga o evento da DLQ |

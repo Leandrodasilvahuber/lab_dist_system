@@ -1,4 +1,4 @@
-import { api } from '../core/api.js';
+import { api, isAuthError } from '../core/api.js';
 import { $ } from '../core/dom.js';
 import { escapeHtml, nowTime, usd } from '../core/format.js';
 import { lineChart, periodLabel, stackedChart } from '../components/chart.js';
@@ -23,7 +23,7 @@ export default {
         ${hint(`Memória: cada invocação grava <code>MemoryUsedMB</code> (RSS do processo ao fim da invocação, via EMF), uma
             aproximação do <em>Max Memory Used</em> da Lambda; no local-server os handlers dividem um processo só.
             Custo: a estimativa multiplica as métricas de uso pela tabela de preços (sem free tier); o valor real vem do
-            Cost Explorer (só na AWS, conta inteira, atualizado a cada 6 h).`)}
+            Cost Explorer (só na AWS, conta inteira, atualizado a cada 6 h). O custo exige login de admin.`)}
         <div class="stat-grid" id="memoryCards"></div>
         ${panel({ title: 'Memória usada por função (máximo por balde)', icon: 'cpu', bodyId: 'memoryChart' })}
         <div class="stat-grid" id="costCards"></div>
@@ -111,15 +111,21 @@ async function fetchCost() {
     } catch (error) {
         cards.innerHTML = '';
         panels.forEach(el => { el.innerHTML = ''; });
-        panels[0].innerHTML = errorState('Não foi possível calcular o custo', error);
+        // O custo é o gasto da conta AWS inteira: rota só de admin (auth.mjs)
+        if (isAuthError(error)) {
+            panels[0].innerHTML = emptyState('O custo mostra o gasto da conta AWS: entre como admin (botão no canto superior direito).', { icon: 'lock' });
+            panels.slice(1).forEach(el => { el.innerHTML = emptyState('Disponível para admin.', { icon: 'lock' }); });
+        } else {
+            panels[0].innerHTML = errorState('Não foi possível calcular o custo', error);
+        }
         return;
     }
-    const { buckets, estimated, actual, actualReason, forecast, budgetUsd, days } = data;
+    const { buckets, estimated, estimatedError, actual, actualReason, forecast, budgetUsd, days } = data;
     const period = 86400;
     const budgetRatio = budgetUsd && forecast ? forecast.monthTotal / budgetUsd : null;
 
     cards.innerHTML = statCards([
-        { label: 'Estimado no período', value: usd(estimated.total), icon: 'dollar', tone: 'brand', detail: `${days} dias · métricas × preço` },
+        { label: 'Estimado no período', value: estimated ? usd(estimated.total) : '—', icon: 'dollar', tone: 'brand', detail: estimated ? `${days} dias · métricas × preço` : estimatedError },
         {
             label: 'Real no período',
             value: actual ? usd(actual.total) : '—',
@@ -144,14 +150,16 @@ async function fetchCost() {
         }
     ]);
 
-    panels[0].innerHTML = stackedChart(buckets, period, topSeries(estimated.byService), { format: usd })
-        + (estimated.notes?.length ? `<p class="muted chart-notes">${estimated.notes.map(escapeHtml).join(' · ')}</p>` : '');
+    panels[0].innerHTML = estimated
+        ? stackedChart(buckets, period, topSeries(estimated.byService), { format: usd })
+            + (estimated.notes?.length ? `<p class="muted chart-notes">${estimated.notes.map(escapeHtml).join(' · ')}</p>` : '')
+        : emptyState(estimatedError || 'Estimativa indisponível', { icon: 'alert', tone: 'bad' });
     panels[1].innerHTML = actual
         ? stackedChart(buckets, period, topSeries(actual.byService), { format: usd })
         : emptyState(actualReason || 'Custo real indisponível', { icon: 'info' });
 
     // Estimado × real lado a lado (os nomes da estimativa são os SERVICE do Cost Explorer)
-    const services = new Map(estimated.byService.map(s => [s.service, { estimated: s.total, actual: null }]));
+    const services = new Map((estimated?.byService || []).map(s => [s.service, { estimated: s.total, actual: null }]));
     for (const s of actual?.byService || []) {
         services.set(s.service, { estimated: services.get(s.service)?.estimated ?? null, actual: s.total });
     }

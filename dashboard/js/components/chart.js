@@ -32,7 +32,8 @@ const legend = (series, format) => `
 export function stackedChart(buckets, periodSeconds, series, { format = v => v } = {}) {
     if (!series.length) return emptyState('Nenhum registro no período', { icon: 'check', tone: 'ok' });
     const totals = buckets.map((_, i) => series.reduce((sum, s) => sum + s.values[i], 0));
-    const max = Math.max(...totals, 1e-9);
+    // Sem nenhum valor, escala 1 (evita divisão por zero e um "máx 0" no eixo)
+    const max = Math.max(...totals) || 1;
     const bars = buckets.map((bucket, i) => {
         if (!totals[i]) return '';
         let y = 100;
@@ -64,7 +65,7 @@ export function stackedChart(buckets, periodSeconds, series, { format = v => v }
 export function lineChart(buckets, periodSeconds, series, { refLines = [], format = v => v } = {}) {
     if (!series.length) return emptyState('Nenhum registro no período', { icon: 'check', tone: 'ok' });
     const points = series.flatMap(s => s.values.filter(v => v !== null));
-    const max = Math.max(...points, ...refLines.map(r => r.value), 1e-9) * 1.08;
+    const max = (Math.max(...points, ...refLines.map(r => r.value)) || 1) * 1.08;
     const n = buckets.length;
     const x = i => i + 0.5;
     const y = v => 100 - v / max * 100;
