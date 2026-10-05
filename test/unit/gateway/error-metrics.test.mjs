@@ -161,7 +161,7 @@ describe('GET /trace/{correlationId}', () => {
     assert.strictEqual(called, false);
   });
 
-  it('devolve { correlationId, logs }; erro do CloudWatch vira 503; rota é de admin', async () => {
+  it('devolve { correlationId, logs }; erro do CloudWatch vira 503; rota é pública', async () => {
     const ok = createAPIHandler({ logs: { trace: async id => [{ event: 'A', correlationId: id }] } });
     const response = await ok(req('saga_1'));
     assert.strictEqual(response.statusCode, 200);
@@ -169,6 +169,6 @@ describe('GET /trace/{correlationId}', () => {
 
     const failing = createAPIHandler({ logs: { trace: async () => { throw new Error('AccessDenied'); } } });
     assert.strictEqual((await failing(req('saga_1'))).statusCode, 503);
-    assert.ok(isAdminRoute('GET', '/trace/saga_1'));
+    assert.ok(!isAdminRoute('GET', '/trace/saga_1'));
   });
 });

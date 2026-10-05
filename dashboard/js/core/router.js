@@ -4,6 +4,7 @@ import { $ } from './dom.js';
 import { escapeHtml } from './format.js';
 import { setNavigator } from './nav.js';
 import { getAdminKey } from './session.js';
+import { showToast } from '../components/toast.js';
 
 // Monta a navegação e todas as telas uma vez; trocar de tela só mostra/esconde
 // e chama refresh(). A tela atual fica no hash (#/slo), então recarregar ou
@@ -66,9 +67,13 @@ export function syncAdminViews() {
     }
 }
 
-export function show(name) {
+// `notify: false`: quem chama já avisou (ex.: saiu do modo admin)
+export function show(name, { notify = true } = {}) {
     let view = views.get(name) || views.get(DEFAULT_VIEW);
-    if (view.requiresAdmin && !getAdminKey()) view = views.get(DEFAULT_VIEW);
+    if (view.requiresAdmin && !getAdminKey()) {
+        if (notify) showToast(`${view.label} exige a chave de admin (botão no canto superior direito).`, 'info');
+        view = views.get(DEFAULT_VIEW);
+    }
     if (fromHash() !== view.id) history.replaceState(null, '', `#/${view.id}`);
     current = view;
 

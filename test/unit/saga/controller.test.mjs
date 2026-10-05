@@ -18,3 +18,18 @@ describe('POST /saga/execute', () => {
     assert.strictEqual((await execute({ 'idempotency-key': 'abc' })).statusCode, 400);
   });
 });
+
+describe('POST /saga/execute: quantity', () => {
+  const withQuantity = quantity => SagaOrchestratorController.executeSaga({
+    headers: { 'idempotency-key': '0b9a6f3e-quantidade-teste' },
+    body: JSON.stringify({ productId: 'apple', quantity })
+  });
+
+  // Mesma regra das outras validações: número JSON, não texto
+  it('quantity em texto responde 400', async () => {
+    for (const quantity of ['2', '1', 'abc', true, null]) {
+      const response = await withQuantity(quantity);
+      assert.strictEqual(response.statusCode, 400, JSON.stringify(quantity));
+    }
+  });
+});

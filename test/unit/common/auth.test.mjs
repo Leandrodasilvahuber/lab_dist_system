@@ -6,24 +6,18 @@ import { createHandler, createKeyProvider, CACHE_TTL_MS } from '../../../src/lay
 process.env.LOG_LEVEL = 'silent';
 
 describe('rotas de admin', () => {
-  it('protege as escritas da aba Admin e o custo da conta', () => {
+  it('protege só as escritas da aba Admin: cadastrar e remover produto e ajustar estoque', () => {
     assert.ok(isAdminRoute('POST', '/products'));
+    assert.ok(isAdminRoute('DELETE', '/products/p1'));
     assert.ok(isAdminRoute('POST', '/stock/p1/adjust'));
-    assert.ok(isAdminRoute('GET', '/metrics/cost'));
   });
 
-  it('exige admin nas ações da DLQ e nas leituras que expõem compras de outras pessoas', () => {
-    for (const [method, path] of [['POST', '/dlq/m1/redrive'], ['POST', '/dlq/m1/discard'], ['GET', '/orders'],
-      ['GET', '/sagas'], ['GET', '/logs'], ['GET', '/trace/s1'], ['GET', '/metrics/sagas']]) {
-      assert.ok(isAdminRoute(method, path), `${method} ${path}`);
-    }
-  });
-
-  it('deixa públicas a vitrine, a compra, a consulta de uma compra, as métricas agregadas e a leitura da DLQ', () => {
+  it('deixa público todo o resto: vitrine, compras, pedidos, logs, rastreio, métricas, custo e DLQ', () => {
     for (const [method, path] of [['GET', '/products'], ['GET', '/products/p1'], ['GET', '/stock'],
-      ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/orders/o1'], ['GET', '/health'],
-      ['GET', '/alarms'], ['GET', '/metrics/errors'], ['GET', '/metrics/slo'], ['GET', '/metrics/memory'],
-      ['GET', '/dlq']]) {
+      ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/sagas'], ['GET', '/orders'], ['GET', '/orders/o1'],
+      ['GET', '/health'], ['GET', '/alarms'], ['GET', '/logs'], ['GET', '/trace/s1'], ['GET', '/metrics/sagas'],
+      ['GET', '/metrics/errors'], ['GET', '/metrics/slo'], ['GET', '/metrics/memory'], ['GET', '/metrics/cost'],
+      ['GET', '/dlq'], ['POST', '/dlq/m1/redrive'], ['POST', '/dlq/m1/discard']]) {
       assert.ok(!isAdminRoute(method, path), `${method} ${path}`);
     }
   });

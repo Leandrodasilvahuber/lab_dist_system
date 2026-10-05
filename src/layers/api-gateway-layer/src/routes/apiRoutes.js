@@ -41,6 +41,7 @@ const AVAILABLE_ENDPOINTS = [
   'POST /dlq/{messageId}/discard',
   'GET  /products',
   'POST /products',
+  'DELETE /products/{id}',
   'GET  /products/{id}',
   'GET  /orders',
   'GET  /orders/{id}',

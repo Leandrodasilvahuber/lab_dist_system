@@ -101,6 +101,12 @@ describe('CostClient', () => {
     assert.deepStrictEqual(parseCostQuery({}), { days: 14 });
     assert.deepStrictEqual(parseCostQuery({ days: '500' }), { days: 90 });
     assert.deepStrictEqual(parseCostQuery({ days: '7' }), { days: 7 });
+    // Rota pública: o days é a chave do cache, então só os períodos da aba
+    assert.deepStrictEqual(parseCostQuery({ days: '10' }), { days: 7 });
+    assert.deepStrictEqual(parseCostQuery({ days: '45' }), { days: 30 });
+    const seen = new Set();
+    for (let d = 0; d <= 200; d++) seen.add(parseCostQuery({ days: String(d) }).days);
+    assert.deepStrictEqual([...seen].sort((a, b) => a - b), [7, 14, 30, 90]);
   });
 
   it('AWS: estimativa por serviço e dia a partir das métricas dos serviços', async () => {
@@ -254,8 +260,8 @@ describe('GET /metrics/memory e /metrics/cost', () => {
     assert.strictEqual((await handler(req('/metrics/cost'))).statusCode, 503);
   });
 
-  it('memória é pública; custo (gasto da conta inteira) só para admin', () => {
+  it('memória e custo são públicos', () => {
     assert.strictEqual(isAdminRoute('GET', '/metrics/memory'), false);
-    assert.strictEqual(isAdminRoute('GET', '/metrics/cost'), true);
+    assert.strictEqual(isAdminRoute('GET', '/metrics/cost'), false);
   });
 });

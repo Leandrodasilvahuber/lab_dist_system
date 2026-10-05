@@ -11,7 +11,7 @@ import { isTransientAwsError } from './aws-client.mjs';
 // Allow-Origin '*'.
 export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': process.env.CORS_ALLOW_ORIGIN || '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key, Idempotency-Key, X-Idempotency-Key, X-Correlation-ID',
   // Sem isto o navegador esconde o Retry-After do 503 do JavaScript da página
   'Access-Control-Expose-Headers': 'Retry-After'

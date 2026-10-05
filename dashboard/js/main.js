@@ -94,7 +94,7 @@ on('admin', () => {
     syncAdminViews();
     toggleAdminPopover(false);
     // Saiu do admin estando numa tela de admin: show() volta para a inicial
-    if (!getAdminKey()) show(currentView());
+    if (!getAdminKey()) show(currentView(), { notify: false });
     else refreshCurrent();
 });
 

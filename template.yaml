@@ -86,7 +86,7 @@ Globals:
 Resources:
   # API Gateway Centralizado (HttpApi)
   # Rotas específicas vão para cada serviço; o resto cai na GatewayFunction ({proxy+}).
-  # Rotas administrativas usam o authorizer AdminApiKey (mesma lista de src/common/auth.mjs).
+  # Cadastrar/remover produto e ajustar estoque usam o authorizer AdminApiKey (mesma lista de src/common/auth.mjs).
   ApiGateway:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -152,7 +152,7 @@ Resources:
           ThrottlingRateLimit: 5
       CorsConfiguration:
         AllowOrigins: [!Ref AllowedOrigin]
-        AllowMethods: [GET, POST, OPTIONS]
+        AllowMethods: [GET, POST, DELETE, OPTIONS]
         AllowHeaders: [content-type, x-api-key, idempotency-key, x-idempotency-key, x-correlation-id]
         ExposeHeaders: [retry-after]
       Auth:
@@ -271,16 +271,12 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /logs
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         SagaMetrics:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /metrics/sagas
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         ErrorMetrics:
           Type: HttpApi
           Properties:
@@ -306,16 +302,12 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /metrics/cost
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         Trace:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /trace/{correlationId}
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         ListDlq:
           Type: HttpApi
           Properties:
@@ -328,8 +320,6 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /dlq/{messageId}/{action}
             Method: POST
-            Auth:
-              Authorizer: AdminApiKey
         Proxy:
           Type: HttpApi
           Properties:
@@ -375,6 +365,14 @@ Resources:
             Method: POST
             Auth:
               Authorizer: AdminApiKey
+        DeleteProduct:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /products/{id}
+            Method: DELETE
+            Auth:
+              Authorizer: AdminApiKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ProductsTable
@@ -405,8 +403,6 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /orders
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         GetOrder:
           Type: HttpApi
           Properties:
@@ -560,8 +556,6 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /sagas
             Method: GET
-            Auth:
-              Authorizer: AdminApiKey
         # Corrige o status de saga parada em andamento: execução que terminou
         # sem conseguir gravar o status final ou que estourou o teto da execução
         # (SagaService.reconcileStuckSagas)

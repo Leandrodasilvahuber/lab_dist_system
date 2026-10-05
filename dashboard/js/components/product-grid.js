@@ -14,8 +14,9 @@ export function stockBadge(stock) {
 
 export const stockLabel = stock => stock === undefined ? '—' : stock;
 
-// buy: mostra o botão Comprar (data-buy-id); compact: uma linha por produto
-export function productGrid({ products, error, empty, buy = false, compact = false }) {
+// buy: mostra o botão Comprar (data-buy-id); remove: o botão Remover
+// (data-remove-id, aba Admin); compact: uma linha por produto
+export function productGrid({ products, error, empty, buy = false, remove = false, compact = false }) {
     if (error) return errorState('Erro ao carregar produtos', error);
     if (!products.length) return emptyState(empty, { icon: 'package' });
     return `<div class="product-grid${compact ? ' compact' : ''}">${products.map(p => `
@@ -29,6 +30,7 @@ export function productGrid({ products, error, empty, buy = false, compact = fal
             </div>
             <div class="product-meta">${stockBadge(p.stock)}</div>
             ${buy ? `<button type="button" class="btn btn-primary btn-sm" data-buy-id="${escapeHtml(p.id)}">${icon('cart', { size: 15 })}<span>Comprar</span></button>` : ''}
+            ${remove ? `<button type="button" class="btn btn-danger btn-sm" data-remove-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}">${icon('trash', { size: 14 })}<span>Remover</span></button>` : ''}
         </article>`).join('')}
     </div>`;
 }

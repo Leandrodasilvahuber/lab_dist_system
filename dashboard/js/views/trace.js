@@ -15,8 +15,6 @@ let traceEntries = [];
 
 export default {
     id: 'trace',
-    // Mostra compras de outras pessoas (ids das sagas): só admin
-    requiresAdmin: true,
     label: 'Rastreio',
     icon: 'search',
     template: () => `

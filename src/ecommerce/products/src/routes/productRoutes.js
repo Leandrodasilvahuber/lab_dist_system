@@ -23,5 +23,10 @@ export async function setupRoutes(event) {
     return ProductController.createProduct(event);
   }
 
+  // DELETE /products/{id} (admin)
+  if (method === 'DELETE' && idMatch) {
+    return ProductController.deleteProduct(event, decodePathSegment(idMatch[1]));
+  }
+
   return notFoundResponse(path);
 }

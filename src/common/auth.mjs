@@ -7,22 +7,12 @@ import { promisify } from 'node:util';
  * em cada rota); o local-server usa esta mesma lista. Mantenha os dois iguais.
  */
 export const ADMIN_ROUTES = [
-  // Escritas: cadastro de produto, ajuste de estoque e as ações da DLQ
-  // (descartar apaga o evento de vez; reprocessar republica no EventBus)
+  // Só as escritas da aba Admin: cadastrar e remover produto, e o ajuste de
+  // estoque (cria inventário). O resto (pedidos, compras, logs, rastreio,
+  // métricas, custo, DLQ) é aberto, como pede o laboratório
   ['POST', /^\/products$/],
-  ['POST', /^\/stock\/[^/]+\/adjust$/],
-  ['POST', /^\/dlq\/[^/]+\/[^/]+$/],
-  // Leituras que expõem compras de outras pessoas: listagens de pedidos e
-  // sagas, e os sagaIds que aparecem nos logs, no rastreio e no histórico do
-  // Step Functions. Sem elas, o id de uma compra só é conhecido por quem a
-  // fez (GET /saga/{id} e /orders/{id} seguem públicos)
-  ['GET', /^\/orders$/],
-  ['GET', /^\/sagas$/],
-  ['GET', /^\/logs$/],
-  ['GET', /^\/trace\/[^/]+$/],
-  ['GET', /^\/metrics\/sagas$/],
-  // Custo: o gasto da conta AWS inteira
-  ['GET', /^\/metrics\/cost$/]
+  ['DELETE', /^\/products\/[^/]+$/],
+  ['POST', /^\/stock\/[^/]+\/adjust$/]
 ];
 
 export function isAdminRoute(method, path) {

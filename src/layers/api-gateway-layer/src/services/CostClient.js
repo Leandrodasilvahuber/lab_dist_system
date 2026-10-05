@@ -4,6 +4,7 @@ import { metricNamespace } from '../../../../common/emf.mjs';
 import { awsClientConfig, IS_LOCAL, QUERY_CLIENT_OPTIONS } from '../../../../common/aws-client.mjs';
 import { CloudWatchMetricsClient } from './CloudWatchMetricsClient.js';
 import { functionMemoryMb } from './MemoryMetricsClient.js';
+import { parseHours } from '../../../../common/validation.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAY_S = DAY_MS / 1000;
@@ -48,9 +49,13 @@ export const SERVICES = {
 
 const TABLE_ENV = ['PRODUCTS_TABLE', 'ORDERS_TABLE', 'PAYMENTS_TABLE', 'STOCK_RESERVATIONS_TABLE', 'INVENTORY_TABLE', 'SAGAS_TABLE'];
 
+// Períodos da aba Recursos. Fixos porque a rota é pública e o `days` é a chave
+// do cache da estimativa (GetMetricData é cobrado por métrica): trocar o days
+// a cada requisição furaria o cache, como em parseHours
+export const COST_DAYS = [7, 14, 30, ACTUAL_WINDOW_DAYS];
+
 export function parseCostQuery(query = {}) {
-  const days = Math.floor(Number(query.days));
-  return { days: Number.isFinite(days) && days > 0 ? Math.min(days, ACTUAL_WINDOW_DAYS) : 14 };
+  return { days: parseHours(query.days, { allowed: COST_DAYS, fallback: 14 }) };
 }
 
 const isoDay = ms => new Date(ms).toISOString().slice(0, 10);

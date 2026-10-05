@@ -1,4 +1,4 @@
-import { api, isAuthError } from '../core/api.js';
+import { api } from '../core/api.js';
 import { $ } from '../core/dom.js';
 import { escapeHtml, nowTime, usd } from '../core/format.js';
 import { lineChart, periodLabel, stackedChart } from '../components/chart.js';
@@ -23,7 +23,7 @@ export default {
         ${hint(`Memória: cada invocação grava <code>MemoryUsedMB</code> (RSS do processo ao fim da invocação, via EMF), uma
             aproximação do <em>Max Memory Used</em> da Lambda; no local-server os handlers dividem um processo só.
             Custo: a estimativa multiplica as métricas de uso pela tabela de preços (sem free tier); o valor real vem do
-            Cost Explorer (só na AWS, conta inteira, atualizado a cada 6 h). O custo exige login de admin.`)}
+            Cost Explorer (só na AWS, conta inteira, atualizado a cada 6 h).`)}
         <div class="stat-grid" id="memoryCards"></div>
         ${panel({ title: 'Memória usada por função (máximo por balde)', icon: 'cpu', bodyId: 'memoryChart' })}
         <div class="stat-grid" id="costCards"></div>
@@ -111,13 +111,7 @@ async function fetchCost() {
     } catch (error) {
         cards.innerHTML = '';
         panels.forEach(el => { el.innerHTML = ''; });
-        // O custo é o gasto da conta AWS inteira: rota só de admin (auth.mjs)
-        if (isAuthError(error)) {
-            panels[0].innerHTML = emptyState('O custo mostra o gasto da conta AWS: entre como admin (botão no canto superior direito).', { icon: 'lock' });
-            panels.slice(1).forEach(el => { el.innerHTML = emptyState('Disponível para admin.', { icon: 'lock' }); });
-        } else {
-            panels[0].innerHTML = errorState('Não foi possível calcular o custo', error);
-        }
+        panels[0].innerHTML = errorState('Não foi possível calcular o custo', error);
         return;
     }
     const { buckets, estimated, estimatedError, actual, actualReason, forecast, budgetUsd, days } = data;

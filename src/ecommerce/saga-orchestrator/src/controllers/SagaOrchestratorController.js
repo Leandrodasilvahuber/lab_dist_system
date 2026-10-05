@@ -1,7 +1,6 @@
 import { log } from '../../../../common/logger.mjs';
 import { successResponse, errorResponse, parseBody, sdkErrorResponse } from '../../../../common/response.mjs';
 import { SagaService } from '../services/SagaService.js';
-import { toNumber } from '../../../../common/validation.mjs';
 import { parsePagination } from '../../../../common/pagination.mjs';
 
 const sagaService = new SagaService();
@@ -37,10 +36,14 @@ export class SagaOrchestratorController {
       if (typeof productId !== 'string' || !productId || quantity === undefined) {
         return errorResponse('Missing required fields: productId, quantity', 400);
       }
+      // Número JSON, não texto ("2"): mesma regra das outras validações
+      if (typeof quantity !== 'number') {
+        return errorResponse('quantity must be a number', 400);
+      }
 
       const { saga, created } = await sagaService.startSaga({
         productId,
-        quantity: toNumber(quantity),
+        quantity,
         correlationId,
         idempotencyKey
       });

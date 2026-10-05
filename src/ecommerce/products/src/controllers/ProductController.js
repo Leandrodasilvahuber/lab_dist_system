@@ -31,6 +31,20 @@ export class ProductController {
   }
 
   /**
+   * DELETE /products/{id} (admin). O Stock remove o inventário pelo evento
+   * ProductDeleted; se a publicação falhar, o produto volta (503/500) e a
+   * mesma chamada pode ser repetida
+   */
+  static async deleteProduct(event, productId) {
+    try {
+      await productSDK.deleteProduct(productId);
+      return successResponse({ deleted: productId });
+    } catch (error) {
+      return sdkErrorResponse(error, 'Failed to delete product', event.headers?.correlationId);
+    }
+  }
+
+  /**
    * POST /products
    */
   static async createProduct(event) {

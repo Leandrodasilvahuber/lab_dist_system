@@ -42,8 +42,9 @@ export default {
 
     mount() {
         $('productForm').addEventListener('submit', createProduct);
+        $('adminProductList').addEventListener('click', removeProduct);
         on('products', ({ products, error }) => {
-            $('adminProductList').innerHTML = productGrid({ products, error, compact: true, empty: 'Nenhum produto cadastrado ainda.' });
+            $('adminProductList').innerHTML = productGrid({ products, error, compact: true, remove: true, empty: 'Nenhum produto cadastrado ainda.' });
         });
     },
 
@@ -69,4 +70,20 @@ async function createProduct(event) {
     } catch (error) {
         showToast(`Erro ao adicionar produto: ${error.message}`, 'error');
     }
+}
+
+// DELETE /products/{id} (admin): o Stock remove o inventário pelo evento ProductDeleted
+async function removeProduct(event) {
+    const button = event.target.closest('button[data-remove-id]');
+    if (!button) return;
+    const { removeId, name } = button.dataset;
+    if (!confirm(`Remover o produto "${name}"? O estoque dele também é removido.`)) return;
+    button.disabled = true;
+    try {
+        await api(`/products/${encodeURIComponent(removeId)}`, { method: 'DELETE' });
+        showToast('Produto removido.', 'success');
+    } catch (error) {
+        showToast(`Erro ao remover produto: ${error.message}`, 'error');
+    }
+    await loadProducts();
 }

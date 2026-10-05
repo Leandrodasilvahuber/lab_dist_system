@@ -163,3 +163,22 @@ describe('ProductSDK.deleteProduct', () => {
     assert.deepStrictEqual(calls.published, []);
   });
 });
+
+describe('DELETE /products/{id}', () => {
+  const event = (method, id) => ({ requestContext: { http: { method } }, rawPath: `/products/${id}`, headers: {} });
+
+  // Rota e controller ligados: id inválido é recusado antes de tocar o banco
+  it('chega ao deleteProduct (id longo demais: 400)', async () => {
+    const { setupRoutes } = await import('../../../src/ecommerce/products/src/routes/productRoutes.js');
+    const { normalizeHttpEvent } = await import('../../../src/common/http-event.mjs');
+    const response = await setupRoutes(normalizeHttpEvent(event('DELETE', 'x'.repeat(200))));
+    assert.strictEqual(response.statusCode, 400);
+    assert.match(JSON.parse(response.body).error, /productId/);
+  });
+
+  it('é a única rota de produto além do cadastro que exige admin', async () => {
+    const { isAdminRoute } = await import('../../../src/common/auth.mjs');
+    assert.ok(isAdminRoute('DELETE', '/products/p1'));
+    assert.ok(!isAdminRoute('GET', '/products/p1'));
+  });
+});
