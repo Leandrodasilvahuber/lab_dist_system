@@ -1,5 +1,5 @@
 import { ValidationError } from './errors.mjs';
-import { toNumber } from './validation.mjs';
+import { MAX_ID_LENGTH, toNumber } from './validation.mjs';
 
 export const DEFAULT_PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 100;
@@ -20,12 +20,16 @@ export function encodeToken(lastKey) {
   return lastKey ? Buffer.from(JSON.stringify(lastKey)).toString('base64url') : undefined;
 }
 
+const isCursorId = id => typeof id === 'string' && id.length > 0 && id.length <= MAX_ID_LENGTH;
+
 function decodeToken(token) {
   if (token === undefined || token === '') return undefined;
   try {
     const key = JSON.parse(Buffer.from(String(token), 'base64url').toString('utf8'));
-    // Só a chave da tabela (id): atributos extras fariam o DynamoDB recusar o cursor
-    if (key && typeof key === 'object' && !Array.isArray(key) && typeof key.id === 'string') return { id: key.id };
+    // Só a chave da tabela (id): atributos extras fariam o DynamoDB recusar o
+    // cursor. Id vazio ou longo demais também (ValidationException, 500 nas
+    // listagens públicas): mesmo limite dos ids vindos do cliente (requireId)
+    if (key && typeof key === 'object' && !Array.isArray(key) && isCursorId(key.id)) return { id: key.id };
   } catch { /* token inválido */ }
   throw new ValidationError('Invalid nextToken');
 }
