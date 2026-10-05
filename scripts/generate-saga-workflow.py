@@ -31,7 +31,7 @@ import os
 # PaymentDeclined, NotFound...) não são repetidos e vão direto para a compensação.
 TRANSIENT_ERRORS = [
     'Lambda.ServiceException', 'Lambda.AWSLambdaException', 'Lambda.SdkClientException',
-    'Lambda.TooManyRequestsException', 'States.Timeout',
+    'States.Timeout',
     'ThrottlingException', 'ProvisionedThroughputExceededException',
     'TransactionConflictException', 'InternalServerError', 'ServiceUnavailable',
     # Timeout, throttling e conexão caída do SDK dentro da Lambda: runAction
@@ -45,13 +45,25 @@ TRANSIENT_ERRORS = [
 # produto (TransactionConflict) não repetem em sincronia e voltam a colidir
 BACKOFF = {'IntervalSeconds': 1, 'BackoffRate': 2, 'MaxDelaySeconds': 10, 'JitterStrategy': 'FULL'}
 
-# Prazo da compra: conclui ou é desfeita em ~5 min no pior caso.
+# Throttling da Lambda (concorrência esgotada: pico de compras; no LocalStack,
+# a concorrência reservada de 2 por função) tem retry próprio, mais paciente:
+# a recusa é imediata (não gasta o TimeoutSeconds do passo) e só passa quando
+# outra invocação termina, o que leva segundos. Com o retry dos transitórios
+# (3 tentativas, esperas de até 4 s), 4 compras simultâneas no LocalStack
+# esgotavam as tentativas e a compra falhava (ou era desfeita) sem motivo de
+# negócio. Esperas de até 2+4+8+16+20+20 = 70 s por passo
+THROTTLE_ERRORS = ['Lambda.TooManyRequestsException']
+THROTTLE_ATTEMPTS = 6
+THROTTLE_BACKOFF = {'IntervalSeconds': 2, 'BackoffRate': 2, 'MaxDelaySeconds': 20, 'JitterStrategy': 'FULL'}
+
+# Prazo da compra: sem throttling, conclui ou é desfeita em ~5 min no pior caso.
 # Cada passo é uma escrita no DynamoDB (milissegundos); passar de 5 s vira
 # States.Timeout, que é repetido (TRANSIENT_ERRORS) e depois compensado como
 # qualquer falha. Os passos são idempotentes, então a chamada abandonada que
 # ainda terminar não duplica nada. Pior caso, com o backoff no teto do jitter:
 #   ida:          5 passos x (4 tentativas x 5 s + 1+2+4 s)       ~ 2,5 min
 #   compensação:  3 passos x (6 tentativas x 5 s + 1+2+4+8+10 s)  ~ 2,5 min
+# Throttling em todos os passos (pico extremo) soma até 8 x 70 s ~ 9,5 min.
 # O teto da execução fica bem acima disso: quando ele estoura o Step Functions
 # encerra a execução SEM rodar compensação, então é só rede de segurança (entra
 # no alarme saga-failed como ExecutionsTimedOut e o reconciliador do
@@ -59,7 +71,7 @@ BACKOFF = {'IntervalSeconds': 1, 'BackoffRate': 2, 'MaxDelaySeconds': 10, 'Jitte
 # No LocalStack o passo espera até o timeout da Lambda local (30 s: lá o cold
 # start sobe um contêiner) e o teto sobe junto (scripts/lib/localstack.mjs).
 STEP_TIMEOUT_SECONDS = 5
-EXECUTION_TIMEOUT_SECONDS = 600
+EXECUTION_TIMEOUT_SECONDS = 1800
 
 FUNCTIONS = {'orders': '${OrderFunctionArn}', 'payments': '${PaymentFunctionArn}', 'stock': '${StockFunctionArn}'}
 TABLE = '${SagasTableName}'
@@ -114,7 +126,12 @@ def lambda_task(service, action, payload_input, next_state, retry_attempts, catc
             'Payload': {'action': action, 'input': payload_input}
         },
         'TimeoutSeconds': STEP_TIMEOUT_SECONDS,
+        # O primeiro retrier que casa com o erro vale: throttling antes dos transitórios
         'Retry': [{
+            'ErrorEquals': THROTTLE_ERRORS,
+            'MaxAttempts': THROTTLE_ATTEMPTS,
+            **THROTTLE_BACKOFF
+        }, {
             'ErrorEquals': TRANSIENT_ERRORS,
             'MaxAttempts': retry_attempts,
             **BACKOFF

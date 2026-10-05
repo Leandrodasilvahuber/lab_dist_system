@@ -537,21 +537,32 @@ function withProgress(saga) {
   };
 }
 
+// Erros do próprio Step Functions/Lambda (não da regra de negócio): mensagem
+// para o cliente no lugar do texto técnico da AWS
+const FRIENDLY_ERRORS = {
+  'Lambda.TooManyRequestsException': 'Service busy: too many purchases at the same time, please try again',
+  'States.Timeout': 'A step took too long to respond, please try again'
+};
+
 /**
  * O Step Functions grava o erro como {"Error": "...", "Cause": "<JSON da Lambda>"}.
- * Extrai o tipo e a mensagem de negócio, sem o stack trace.
+ * Extrai o tipo e a mensagem de negócio, sem o stack trace. Erro do próprio
+ * Step Functions ou do serviço Lambda (throttling, timeout) traz uma Cause em
+ * texto, não JSON: vale o Error, com mensagem legível.
  */
 export function parseLambdaError(raw) {
+  let outer;
   try {
-    const outer = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    const inner = typeof outer.Cause === 'string' ? JSON.parse(outer.Cause) : null;
-    return {
-      type: inner?.errorType || outer.Error,
-      message: inner?.errorMessage || outer.Cause
-    };
+    outer = typeof raw === 'string' ? JSON.parse(raw) : raw;
   } catch {
     return { type: 'Unknown', message: String(raw) };
   }
+  let inner = null;
+  try {
+    inner = typeof outer?.Cause === 'string' ? JSON.parse(outer.Cause) : null;
+  } catch { /* Cause em texto */ }
+  const type = inner?.errorType || outer?.Error || 'Unknown';
+  return { type, message: FRIENDLY_ERRORS[type] || inner?.errorMessage || outer?.Cause || type };
 }
 
 /**

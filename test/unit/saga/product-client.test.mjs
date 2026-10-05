@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { ProductClient } from '../../../src/common/product-client.mjs';
+import { ProductClient, THROTTLE_DELAYS_MS } from '../../../src/common/product-client.mjs';
 import { DependencyUnavailableError, NotFoundError, ValidationError } from '../../../src/common/errors.mjs';
 import { CircuitBreaker } from '../../../src/common/circuit-breaker.mjs';
 
@@ -157,5 +157,36 @@ describe('ProductClient: id inválido', () => {
     }
     assert.strictEqual(client.sent.length, 0);
     assert.strictEqual(breaker.state, 'closed');
+  });
+});
+
+describe('ProductClient: throttling da Lambda de produtos', () => {
+  const throttled = () => Object.assign(new Error('Rate Exceeded.'), { name: 'TooManyRequestsException', $metadata: { httpStatusCode: 429 } });
+
+  // 4 compras simultâneas no LocalStack (concorrência 2) respondiam 503 na largada
+  it('repete o throttling com espera curta e devolve o produto', async () => {
+    let calls = 0;
+    const waits = [];
+    const client = { async send() {
+      calls++;
+      if (calls <= 2) throw throttled();
+      return { Payload: Buffer.from(JSON.stringify({ id: 'apple', price: 5 })) };
+    } };
+    const products = new ProductClient({ functionName: 'f', client, sleep: async ms => { waits.push(ms); }, random: () => 1 });
+    assert.deepStrictEqual(await products.getProduct('apple'), { id: 'apple', price: 5 });
+    assert.strictEqual(calls, 3);
+    assert.deepStrictEqual(waits, THROTTLE_DELAYS_MS.slice(0, 2));
+  });
+
+  it('throttling que não passa vira 503 depois das esperas; outros erros não são repetidos', async () => {
+    let calls = 0;
+    const always = new ProductClient({ functionName: 'f', client: { async send() { calls++; throw throttled(); } }, sleep: async () => {} });
+    await assert.rejects(always.getProduct('apple'), DependencyUnavailableError);
+    assert.strictEqual(calls, THROTTLE_DELAYS_MS.length + 1);
+
+    calls = 0;
+    const timeout = new ProductClient({ functionName: 'f', client: { async send() { calls++; throw Object.assign(new Error('timed out'), { name: 'TimeoutError' }); } }, sleep: async () => {} });
+    await assert.rejects(timeout.getProduct('apple'), DependencyUnavailableError);
+    assert.strictEqual(calls, 1);
   });
 });

@@ -132,20 +132,40 @@ describe('saga-workflow.asl.json', () => {
     const lambdaTasks = Object.entries(states).filter(([, s]) => s.Resource === 'arn:aws:states:::lambda:invoke');
     assert.ok(lambdaTasks.every(([, s]) => s.TimeoutSeconds === 5), 'TimeoutSeconds 5 em todos os passos com Lambda');
 
-    // Tentativas x limite + esperas do backoff no teto do jitter
-    const worst = name => {
-      const { TimeoutSeconds, Retry: [retry] } = states[name];
-      let waits = 0;
+    // Esperas do backoff no teto do jitter
+    const waits = retry => {
+      let total = 0;
       for (let k = 0; k < retry.MaxAttempts; k++) {
-        waits += Math.min(retry.IntervalSeconds * retry.BackoffRate ** k, retry.MaxDelaySeconds);
+        total += Math.min(retry.IntervalSeconds * retry.BackoffRate ** k, retry.MaxDelaySeconds);
       }
-      return (retry.MaxAttempts + 1) * TimeoutSeconds + waits;
+      return total;
     };
+    const retrier = (name, error) => states[name].Retry.find(r => r.ErrorEquals.includes(error));
+    // Transitórios: cada tentativa pode esgotar o TimeoutSeconds do passo
+    const worstTransient = name => {
+      const retry = retrier(name, 'States.Timeout');
+      return (retry.MaxAttempts + 1) * states[name].TimeoutSeconds + waits(retry);
+    };
+    // Throttling: a recusa é imediata, só as esperas contam
+    const worstThrottle = name => waits(retrier(name, 'Lambda.TooManyRequestsException'));
     const path = ['CreateOrder', 'ReserveStock', 'ProcessPayment', 'CommitReservation', 'ConfirmOrder',
       'RefundPayment', 'ReleaseStock', 'CancelOrder'];
-    const total = path.reduce((sum, name) => sum + worst(name), 0);
+    const transient = path.reduce((sum, name) => sum + worstTransient(name), 0);
+    const total = transient + path.reduce((sum, name) => sum + worstThrottle(name), 0);
 
-    assert.ok(total <= 330, `pior caso ${total}s deve ficar em ~5 min`);
+    assert.ok(transient <= 330, `pior caso sem throttling ${transient}s deve ficar em ~5 min`);
     assert.ok(definition.TimeoutSeconds >= total * 1.5, `teto ${definition.TimeoutSeconds}s acima do pior caso ${total}s`);
+  });
+
+  // 4 compras simultâneas no LocalStack (concorrência 2 por função) esgotavam o
+  // retry dos transitórios e a compra falhava sem motivo de negócio
+  it('throttling da Lambda tem retry próprio, antes dos transitórios e mais paciente', () => {
+    for (const [name, state] of Object.entries(states).filter(([, s]) => s.Parameters?.Payload)) {
+      const index = state.Retry.findIndex(r => r.ErrorEquals.includes('Lambda.TooManyRequestsException'));
+      assert.strictEqual(index, 0, `${name}: throttling é o primeiro retrier`);
+      const [throttle, transient] = state.Retry;
+      assert.ok(!transient.ErrorEquals.includes('Lambda.TooManyRequestsException'), name);
+      assert.ok(throttle.MaxAttempts >= 6 && throttle.MaxDelaySeconds >= 20, name);
+    }
   });
 });

@@ -520,8 +520,10 @@ Resources:
       Handler: index.handler
       # Pior caso do POST /saga/execute com uma tentativa por chamada do SDK
       # (SDK_MAX_ATTEMPTS: 1; cada chamada tem até 1s de conexão + 3s de
-      # resposta, ver src/common/aws-client.mjs): getItem 4s + Products 6s +
-      # putItem 4s + StartExecution 4s + gravação do resultado 4s = 22s. O
+      # resposta, ver src/common/aws-client.mjs): getItem 4s + Products 6s
+      # (+ até 4,6s de espera se a Lambda de produtos recusar por throttling,
+      # THROTTLE_DELAYS_MS em product-client.mjs) + putItem 4s + StartExecution
+      # 4s + gravação do resultado 4s = 26,6s. O
       # reinício de uma saga que falhou ao iniciar é o caminho mais longo:
       # getItem 4s + updateItem 4s + StartExecution 4s + novo executionName 4s
       # + StartExecution 4s + gravação do resultado 4s = 24s. Com 28s a Lambda

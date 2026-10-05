@@ -1,7 +1,7 @@
 {
   "Comment": "Saga de compra: pedido -> estoque -> pagamento -> baixa da reserva -> confirmação, com compensação. Gerado por scripts/generate-saga-workflow.py - não edite à mão.",
   "StartAt": "CreateOrder",
-  "TimeoutSeconds": 600,
+  "TimeoutSeconds": 1800,
   "States": {
     "CreateOrder": {
       "Type": "Task",
@@ -23,10 +23,19 @@
       "Retry": [
         {
           "ErrorEquals": [
+            "Lambda.TooManyRequestsException"
+          ],
+          "MaxAttempts": 6,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 20,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
             "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
             "States.Timeout",
             "ThrottlingException",
             "ProvisionedThroughputExceededException",
@@ -193,10 +202,19 @@
       "Retry": [
         {
           "ErrorEquals": [
+            "Lambda.TooManyRequestsException"
+          ],
+          "MaxAttempts": 6,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 20,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
             "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
             "States.Timeout",
             "ThrottlingException",
             "ProvisionedThroughputExceededException",
@@ -419,10 +437,19 @@
       "Retry": [
         {
           "ErrorEquals": [
+            "Lambda.TooManyRequestsException"
+          ],
+          "MaxAttempts": 6,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 20,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
             "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
             "States.Timeout",
             "ThrottlingException",
             "ProvisionedThroughputExceededException",
@@ -644,10 +671,19 @@
       "Retry": [
         {
           "ErrorEquals": [
+            "Lambda.TooManyRequestsException"
+          ],
+          "MaxAttempts": 6,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 20,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
             "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
             "States.Timeout",
             "ThrottlingException",
             "ProvisionedThroughputExceededException",
@@ -865,10 +901,19 @@
       "Retry": [
         {
           "ErrorEquals": [
+            "Lambda.TooManyRequestsException"
+          ],
+          "MaxAttempts": 6,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 20,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
             "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
             "States.Timeout",
             "ThrottlingException",
             "ProvisionedThroughputExceededException",
@@ -1137,10 +1182,19 @@
       "Retry": [
         {
           "ErrorEquals": [
+            "Lambda.TooManyRequestsException"
+          ],
+          "MaxAttempts": 6,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 20,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
             "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
             "States.Timeout",
             "ThrottlingException",
             "ProvisionedThroughputExceededException",
@@ -1301,10 +1355,19 @@
       "Retry": [
         {
           "ErrorEquals": [
+            "Lambda.TooManyRequestsException"
+          ],
+          "MaxAttempts": 6,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 20,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
             "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
             "States.Timeout",
             "ThrottlingException",
             "ProvisionedThroughputExceededException",
@@ -1465,10 +1528,19 @@
       "Retry": [
         {
           "ErrorEquals": [
+            "Lambda.TooManyRequestsException"
+          ],
+          "MaxAttempts": 6,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 20,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
             "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
             "States.Timeout",
             "ThrottlingException",
             "ProvisionedThroughputExceededException",
@@ -1692,10 +1764,19 @@
       "Retry": [
         {
           "ErrorEquals": [
+            "Lambda.TooManyRequestsException"
+          ],
+          "MaxAttempts": 6,
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 20,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
             "Lambda.SdkClientException",
-            "Lambda.TooManyRequestsException",
             "States.Timeout",
             "ThrottlingException",
             "ProvisionedThroughputExceededException",

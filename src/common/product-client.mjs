@@ -22,6 +22,16 @@ const LOCAL_CIRCUIT = IS_LOCAL ? { failureThreshold: 10, resetTimeoutMs: 10000 }
 // registraria a falha. Quem repete é o cliente (Retry-After) e o breaker.
 const PRODUCT_MAX_ATTEMPTS = 1;
 
+// Throttling da Lambda de produtos (concorrência esgotada: pico de compras; no
+// LocalStack, a concorrência reservada de 2) é a exceção: a recusa é imediata,
+// então algumas esperas curtas cabem no orçamento, e passam assim que outra
+// consulta termina. Sem elas, 4 compras simultâneas no LocalStack respondiam
+// 503 na largada. Esperas com jitter completo, até 0,2+0,4+0,8+1,6+1,6 = 4,6 s
+// na AWS; no LocalStack escalam com TIMEOUT_SCALE (cada consulta sobe um
+// contêiner e leva segundos para liberar a vaga)
+export const THROTTLE_DELAYS_MS = [200, 400, 800, 1600, 1600].map(scaled);
+const isThrottle = error => error?.name === 'TooManyRequestsException';
+
 /**
  * Consulta o serviço de Products invocando a Lambda dele ({ action, input }),
  * em vez de ler a tabela de produtos, que pertence àquele serviço.
@@ -45,8 +55,12 @@ export class ProductClient {
       resetTimeoutMs: Number(process.env.PRODUCT_CIRCUIT_RESET_MS) || LOCAL_CIRCUIT.resetTimeoutMs,
       // Só indisponibilidade abre o circuito; erro de configuração (500) não
       isFailure: error => error instanceof DependencyUnavailableError
-    })
+    }),
+    sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
+    random = Math.random
   } = {}) {
+    this.sleep = sleep;
+    this.random = random;
     this.functionName = functionName;
     this.client = client || new LambdaClient(awsClientConfig('LAMBDA_ENDPOINT', {
       requestTimeout: PRODUCT_TIMEOUT_MS,
@@ -79,13 +93,26 @@ export class ProductClient {
     return { ...(await pending) };
   }
 
+  // Invoca a Lambda de produtos, repetindo só o throttling (THROTTLE_DELAYS_MS)
+  async send(productId) {
+    const command = new InvokeCommand({
+      FunctionName: this.functionName,
+      Payload: JSON.stringify({ action: 'getProduct', input: { productId } })
+    });
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.client.send(command);
+      } catch (error) {
+        if (!isThrottle(error) || attempt >= THROTTLE_DELAYS_MS.length) throw error;
+        await this.sleep(this.random() * THROTTLE_DELAYS_MS[attempt]);
+      }
+    }
+  }
+
   async invoke(productId) {
     let response;
     try {
-      response = await this.client.send(new InvokeCommand({
-        FunctionName: this.functionName,
-        Payload: JSON.stringify({ action: 'getProduct', input: { productId } })
-      }));
+      response = await this.send(productId);
     } catch (error) {
       // Permissão, parâmetro inválido, função inexistente
       // (PRODUCT_FUNCTION_NAME errado): erro de configuração (500), repetir não

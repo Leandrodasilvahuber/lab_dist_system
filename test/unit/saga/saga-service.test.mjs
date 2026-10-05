@@ -374,6 +374,21 @@ describe('SagaService', () => {
 });
 
 describe('parseLambdaError', () => {
+  // Throttling vem do serviço Lambda: a Cause é texto, não o JSON da função
+  it('erro do serviço Lambda (Cause em texto) vira tipo e mensagem legível', () => {
+    const raw = JSON.stringify({
+      Error: 'Lambda.TooManyRequestsException',
+      Cause: 'Rate Exceeded. (Service: AWSLambda; Status Code: 429; Error Code: TooManyRequestsException)'
+    });
+    assert.deepStrictEqual(parseLambdaError(raw), {
+      type: 'Lambda.TooManyRequestsException',
+      message: 'Service busy: too many purchases at the same time, please try again'
+    });
+    // Outro erro com Cause em texto: a própria Cause, sem cair em Unknown
+    assert.deepStrictEqual(parseLambdaError(JSON.stringify({ Error: 'Lambda.ServiceException', Cause: 'boom' })),
+      { type: 'Lambda.ServiceException', message: 'boom' });
+  });
+
   it('extrai tipo e mensagem do erro gravado pelo Step Functions', () => {
     const raw = JSON.stringify({
       Error: 'PaymentDeclined',
