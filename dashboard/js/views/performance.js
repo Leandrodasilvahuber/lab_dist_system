@@ -1,7 +1,7 @@
 import { api } from '../core/api.js';
 import { $ } from '../core/dom.js';
 import { escapeHtml, ms, nowTime, time } from '../core/format.js';
-import { EXECUTION_STATUS, statusBadge } from '../components/badge.js';
+import { SAGA_STATUS, statusBadge } from '../components/badge.js';
 import { dataTable } from '../components/data-table.js';
 import { emptyState, errorState } from '../components/empty.js';
 import { bindRefresh, hint, panel, refreshButton, spacer, status, toolbar } from '../components/layout.js';
@@ -70,8 +70,10 @@ async function fetchPerformance() {
 
     summaryEl.innerHTML = statCards([
         { label: 'Compras analisadas', value: summary.total, icon: 'cart', tone: 'brand' },
-        { label: 'Concluídas', value: summary.succeeded, icon: 'check', tone: 'ok', ok: true },
-        { label: 'Falharam / desfeitas', value: summary.failed, icon: 'undo', tone: 'bad', ok: summary.failed === 0 },
+        { label: 'Concluídas', value: summary.completed, icon: 'check', tone: 'ok', ok: true },
+        // Mesmos nomes de GET /saga/{id}: desfeita (compensada) não é falha
+        { label: 'Desfeitas', value: summary.compensated, icon: 'undo', tone: 'warn', detail: 'compensadas' },
+        { label: 'Falharam', value: summary.failed, icon: 'alert', tone: 'bad', ok: summary.failed === 0 },
         { label: 'Em andamento', value: summary.running, icon: 'workflow', tone: 'info' },
         { label: 'Tempo médio', value: ms(summary.avgMs), icon: 'clock', tone: 'brand' },
         { label: 'Mais lenta', value: ms(summary.maxMs), icon: 'gauge', tone: 'warn' }
@@ -102,7 +104,7 @@ async function fetchPerformance() {
             <tr>
                 <td class="nowrap" title="${escapeHtml(saga.startedAt)}">${escapeHtml(time(saga.startedAt))}</td>
                 <td class="mono"><span class="clickable" data-trace="${escapeHtml(saga.sagaId)}" title="Rastrear ${escapeHtml(saga.sagaId)}">${escapeHtml(saga.sagaId)}</span></td>
-                <td>${statusBadge(EXECUTION_STATUS, saga.status, { pulse: saga.status === 'RUNNING' })}</td>
+                <td>${statusBadge(SAGA_STATUS, saga.status, { pulse: ['RUNNING', 'COMPENSATING'].includes(saga.status) })}</td>
                 <td class="num nowrap">${escapeHtml(ms(saga.durationMs))}</td>
                 <td><div class="timeline">${timelineBars(saga)}</div></td>
             </tr>`)

@@ -15,14 +15,6 @@ export const SAGA_STATUS = {
     COMPENSATION_FAILED: ['Compensação falhou', 'bad']
 };
 
-export const EXECUTION_STATUS = {
-    SUCCEEDED: ['Concluída', 'ok'],
-    RUNNING: ['Em andamento', 'info'],
-    FAILED: ['Falhou / desfeita', 'bad'],
-    TIMED_OUT: ['Timeout', 'bad'],
-    ABORTED: ['Abortada', 'bad']
-};
-
 export const ORDER_STATUS = {
     pending: ['Pendente', 'warn'],
     confirmed: ['Confirmado', 'ok'],

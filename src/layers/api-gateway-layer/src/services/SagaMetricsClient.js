@@ -1,5 +1,6 @@
 import { SFNClient, ListExecutionsCommand, GetExecutionHistoryCommand } from '@aws-sdk/client-sfn';
 import { awsClientConfig, QUERY_CLIENT_OPTIONS } from '../../../../common/aws-client.mjs';
+import { SagaStatus, finalStatus } from '../../../../common/saga-status.mjs';
 
 // Quantidade fixa de compras analisadas: uma GetExecutionHistory por compra
 export const RECENT_EXECUTIONS = 10;
@@ -52,13 +53,17 @@ export class SagaMetricsClient {
       maxResults: RECENT_EXECUTIONS
     }));
 
-    const sagas = await Promise.all(executions.map(async execution => ({
-      sagaId: sagaIdFromExecution(execution.name),
-      status: execution.status,
-      startedAt: iso(execution.startDate),
-      durationMs: execution.stopDate ? execution.stopDate - execution.startDate : null,
-      steps: stepsFromHistory(await this.history(execution.executionArn))
-    })));
+    const sagas = await Promise.all(executions.map(async execution => {
+      const events = await this.history(execution.executionArn);
+      const steps = stepsFromHistory(events);
+      return {
+        sagaId: sagaIdFromExecution(execution.name),
+        status: sagaStatus(execution.status, events, steps),
+        startedAt: iso(execution.startDate),
+        durationMs: execution.stopDate ? execution.stopDate - execution.startDate : null,
+        steps
+      };
+    }));
 
     return { sagas, summary: summarize(sagas), steps: aggregateSteps(sagas) };
   }
@@ -139,13 +144,31 @@ function toStep({ name, enteredAt, attempts, ok, error }, exitedAt) {
   };
 }
 
+/**
+ * Status da saga (os mesmos nomes de GET /saga/{id}) a partir da execução: o
+ * Step Functions marca FAILED também a compra compensada, e só o Error do
+ * evento ExecutionFailed (SagaCompensated, SagaFailed...) separa as duas.
+ * Em andamento, COMPENSATING se alguma compensação já começou.
+ */
+export function sagaStatus(executionStatus, events, steps) {
+  if (executionStatus === 'RUNNING') {
+    return steps.some(step => step.compensation) ? SagaStatus.COMPENSATING : SagaStatus.RUNNING;
+  }
+  const failed = events.findLast(event => event.type === 'ExecutionFailed');
+  return finalStatus({ status: executionStatus, error: failed?.executionFailedEventDetails?.error })?.status ?? executionStatus;
+}
+
+const count = (sagas, ...statuses) => sagas.filter(saga => statuses.includes(saga.status)).length;
+
 function summarize(sagas) {
   const finished = sagas.filter(saga => saga.durationMs !== null);
   return {
     total: sagas.length,
-    succeeded: sagas.filter(saga => saga.status === 'SUCCEEDED').length,
-    failed: sagas.filter(saga => ['FAILED', 'TIMED_OUT', 'ABORTED'].includes(saga.status)).length,
-    running: sagas.filter(saga => saga.status === 'RUNNING').length,
+    completed: count(sagas, SagaStatus.COMPLETED),
+    // Desfeita de propósito (pagamento recusado, sem estoque): resultado esperado
+    compensated: count(sagas, SagaStatus.COMPENSATED),
+    failed: count(sagas, SagaStatus.FAILED, SagaStatus.COMPENSATION_FAILED),
+    running: count(sagas, SagaStatus.RUNNING, SagaStatus.COMPENSATING),
     avgMs: average(finished.map(saga => saga.durationMs)),
     maxMs: max(finished.map(saga => saga.durationMs))
   };

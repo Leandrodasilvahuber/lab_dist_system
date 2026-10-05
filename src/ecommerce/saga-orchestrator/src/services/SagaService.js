@@ -8,15 +8,9 @@ import { STUCK_AFTER_MS } from '../../../../common/saga-timing.mjs';
 import { StepFunctionsClient } from './StepFunctionsClient.js';
 import { requireId } from '../../../../common/validation.mjs';
 import { ProductClient } from '../../../../common/product-client.mjs';
+import { SagaStatus, finalStatus } from '../../../../common/saga-status.mjs';
 
-export const SagaStatus = {
-  RUNNING: 'RUNNING',
-  COMPLETED: 'COMPLETED',
-  COMPENSATING: 'COMPENSATING',
-  COMPENSATED: 'COMPENSATED',
-  FAILED: 'FAILED',
-  COMPENSATION_FAILED: 'COMPENSATION_FAILED'
-};
+export { SagaStatus, finalStatus };
 
 // Ordem dos passos, para exibir o progresso
 export const SAGA_STEPS = ['createOrder', 'reserveStock', 'processPayment', 'commitReservation', 'confirmOrder'];
@@ -37,14 +31,9 @@ export const STUCK_START_MS = 60 * 1000;
 
 // Reconciliação: a execução terminou mas a gravação do status final falhou
 // (o Catch das gravações deixa o fluxo seguir) ou a execução estourou o teto
-// (TimeoutSeconds, encerrada sem compensar). Status final pelo Error do estado
-// Fail do workflow; o resto exige intervenção manual
+// (TimeoutSeconds, encerrada sem compensar). Status final por finalStatus
+// (saga-status.mjs), o mesmo da aba Desempenho
 const IN_PROGRESS = [SagaStatus.RUNNING, SagaStatus.COMPENSATING];
-const STATUS_BY_EXECUTION_ERROR = {
-  SagaCompensated: SagaStatus.COMPENSATED,
-  SagaFailed: SagaStatus.FAILED,
-  CompensationFailed: SagaStatus.COMPENSATION_FAILED
-};
 // A varredura (reconcileStuckSagas) olha as sagas criadas neste período e
 // corrige até RECONCILE_MAX por rodada (cabe no Timeout da Lambda; o resto
 // fica para a próxima)
@@ -500,17 +489,6 @@ function restartCondition(saga, now) {
 function legacyExecutionName(saga) {
   const previous = (saga.startAttempts || 1) - 1;
   return previous <= 1 ? saga.id : `${saga.id}-${previous}`;
-}
-
-/**
- * Status final de uma execução encerrada, ou null se ainda está rodando.
- * TIMED_OUT/ABORTED encerram sem compensar: intervenção manual.
- */
-export function finalStatus({ status, error }) {
-  if (status === 'RUNNING' || !status) return null;
-  if (status === 'SUCCEEDED') return { status: SagaStatus.COMPLETED };
-  if (status === 'FAILED' && STATUS_BY_EXECUTION_ERROR[error]) return { status: STATUS_BY_EXECUTION_ERROR[error] };
-  return { status: SagaStatus.COMPENSATION_FAILED, error: `Execution${status === 'FAILED' ? `Failed:${error || 'unknown'}` : status}` };
 }
 
 // Campos só do orquestrador (reconciliação, reinício, índice por dia). O

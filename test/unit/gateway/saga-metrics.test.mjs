@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { SagaMetricsClient, stepsFromHistory, sagaIdFromExecution, RECENT_EXECUTIONS, METRICS_CACHE_TTL_MS } from '../../../src/layers/api-gateway-layer/src/services/SagaMetricsClient.js';
+import { SagaMetricsClient, sagaStatus, stepsFromHistory, sagaIdFromExecution, RECENT_EXECUTIONS, METRICS_CACHE_TTL_MS } from '../../../src/layers/api-gateway-layer/src/services/SagaMetricsClient.js';
 import { createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
 import { isAdminRoute } from '../../../src/common/auth.mjs';
 
@@ -72,7 +72,8 @@ describe('SagaMetricsClient', () => {
     assert.deepStrictEqual(client.sent[0].input, { stateMachineArn: 'arn:sm', maxResults: RECENT_EXECUTIONS });
     assert.strictEqual(sagas[0].durationMs, 3000);
     assert.strictEqual(sagas[1].durationMs, null);
-    assert.deepStrictEqual(summary, { total: 2, succeeded: 0, failed: 1, running: 1, avgMs: 3000, maxMs: 3000 });
+    // A execução 1 terminou FAILED sem ExecutionFailed conhecido: falha de fato
+    assert.deepStrictEqual(summary, { total: 2, completed: 0, compensated: 0, failed: 1, running: 1, avgMs: 3000, maxMs: 3000 });
 
     const createOrder = steps.find(s => s.name === 'CreateOrder');
     assert.deepStrictEqual(createOrder, { name: 'CreateOrder', compensation: false, count: 2, failed: 0, retries: 0, avgMs: 100, maxMs: 100 });
@@ -144,5 +145,31 @@ describe('GET /metrics/sagas', () => {
   it('erro do Step Functions vira 503', async () => {
     const handler = createAPIHandler({ sagaMetrics: { recentMetrics: async () => { throw new Error('boom'); } } });
     assert.strictEqual((await handler(event)).statusCode, 503);
+  });
+});
+
+describe('SagaMetricsClient: status com os nomes da API de saga', () => {
+  const failedWith = error => ({ type: 'ExecutionFailed', timestamp: at(3), executionFailedEventDetails: { error, cause: '...' } });
+
+  // O Step Functions marca FAILED a compra compensada; GET /saga/{id} diz COMPENSATED
+  it('converte o resultado da execução como a API de saga', () => {
+    assert.strictEqual(sagaStatus('SUCCEEDED', [], []), 'COMPLETED');
+    assert.strictEqual(sagaStatus('FAILED', [failedWith('SagaCompensated')], []), 'COMPENSATED');
+    assert.strictEqual(sagaStatus('FAILED', [failedWith('SagaFailed')], []), 'FAILED');
+    assert.strictEqual(sagaStatus('FAILED', [failedWith('CompensationFailed')], []), 'COMPENSATION_FAILED');
+    assert.strictEqual(sagaStatus('TIMED_OUT', [], []), 'COMPENSATION_FAILED');
+    assert.strictEqual(sagaStatus('RUNNING', [], [{ compensation: false }]), 'RUNNING');
+    assert.strictEqual(sagaStatus('RUNNING', [], [{ compensation: false }, { compensation: true }]), 'COMPENSATING');
+  });
+
+  it('o resumo separa desfeitas (compensadas) de falhas', async () => {
+    const execution = (n, status) => ({ executionArn: `arn:${n}`, name: `saga-${n}`, status, startDate: at(0), stopDate: at(1) });
+    const client = fakeSfn({
+      executions: [execution(1, 'SUCCEEDED'), execution(2, 'FAILED'), execution(3, 'FAILED')],
+      histories: { 'arn:1': [], 'arn:2': [failedWith('SagaCompensated')], 'arn:3': [failedWith('CompensationFailed')] }
+    });
+    const { sagas, summary } = await new SagaMetricsClient({ stateMachineArn: 'arn:sm', client }).recentMetrics();
+    assert.deepStrictEqual(sagas.map(s => s.status), ['COMPLETED', 'COMPENSATED', 'COMPENSATION_FAILED']);
+    assert.deepStrictEqual([summary.completed, summary.compensated, summary.failed, summary.running], [1, 1, 1, 0]);
   });
 });
