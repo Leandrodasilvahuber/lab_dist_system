@@ -54,6 +54,10 @@ Depois do deploy, popule o catálogo e o estoque (as tabelas já foram criadas p
 npm run seed -- --stage dev
 ```
 
+O seed só grava o que ainda não existe: rodar de novo não mexe no estoque de
+quem já está comprando nem recria produto excluído. Para voltar catálogo e
+estoque aos valores do seed, use `npm run seed -- --stage dev --reset`.
+
 ## Recursos criados
 
 | Recurso | Descrição |

@@ -35,6 +35,23 @@ describe('AlarmsClient', () => {
       { name: 'dev-ecommerce-b', description: null, state: 'OK', reason: 'ok', updatedAt: '2026-10-04T10:00:00.000Z' }
     ]);
   });
+
+  it('abas abertas dividem a mesma leitura por 20 s; falha não fica no cache', async () => {
+    let clock = 0;
+    const client = fakeCloudWatch({ MetricAlarms: [] });
+    const alarms = new AlarmsClient({ client, now: () => clock });
+    await alarms.listAlarms();
+    await alarms.listAlarms();
+    assert.strictEqual(client.sent.length, 1);
+    clock = 20001;
+    await alarms.listAlarms();
+    assert.strictEqual(client.sent.length, 2);
+
+    const failing = new AlarmsClient({ client: fakeCloudWatch(new Error('Throttling')), now: () => clock });
+    await assert.rejects(failing.listAlarms());
+    await assert.rejects(failing.listAlarms());
+    assert.strictEqual(failing.client.sent.length, 2);
+  });
 });
 
 describe('GET /alarms', () => {

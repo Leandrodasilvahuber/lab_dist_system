@@ -28,6 +28,7 @@ npm install
 npm run localstack:start
 
 # 2. Cria as tabelas (products, orders, payments, stock-reservations, inventory, sagas) e popula catálogo e estoque
+#    (de novo, só grava o que falta; npm run seed:local -- --reset volta aos valores do seed)
 npm run seed:local
 
 # 3. Publica as Lambdas e a saga no LocalStack e abre o dashboard

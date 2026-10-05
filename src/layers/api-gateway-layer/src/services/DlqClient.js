@@ -14,6 +14,9 @@ const BATCH = 10;
 const MAX_BATCHES = 5;
 // Tempo em que a mensagem fica escondida enquanto é reprocessada/descartada
 const LOCK_SECONDS = 30;
+// A listagem custa até MAX_BATCHES + 1 chamadas ao SQS e a rota é pública:
+// abas abertas e recarregamentos dividem a mesma leitura por este tempo
+export const DLQ_LIST_CACHE_TTL_MS = 20 * 1000;
 
 /**
  * Lista, reprocessa e descarta os eventos da ProductEventsDlq para a aba DLQ
@@ -28,10 +31,13 @@ const LOCK_SECONDS = 30;
  *    `requestPayload` e o erro em `responsePayload`.
  */
 export class DlqClient {
-  constructor({ queueUrl = process.env.DLQ_URL, queueName = process.env.DLQ_NAME, client, eventBus = defaultEventBus } = {}) {
+  constructor({ queueUrl = process.env.DLQ_URL, queueName = process.env.DLQ_NAME, client, eventBus = defaultEventBus, cacheTtlMs = DLQ_LIST_CACHE_TTL_MS, now = Date.now } = {}) {
     this.queueUrl = queueUrl;
     this.queueName = queueName;
     this.eventBus = eventBus;
+    this.cacheTtlMs = cacheTtlMs;
+    this.now = now;
+    this.listed = null;
     this.client = client || new SQSClient(awsClientConfig('SQS_ENDPOINT'));
   }
 
@@ -59,7 +65,19 @@ export class DlqClient {
     })).then(({ Messages = [] }) => Messages);
   }
 
-  async listMessages() {
+  /**
+   * Mesma ideia do SagaMetricsClient: guarda a promessa, falha não fica no
+   * cache. Reprocessar ou descartar limpa o cache deste container
+   */
+  listMessages() {
+    if (this.listed && this.listed.expiresAt > this.now()) return this.listed.value;
+    const value = this.readMessages();
+    this.listed = { value, expiresAt: this.now() + this.cacheTtlMs };
+    value.catch(() => { if (this.listed?.value === value) this.listed = null; });
+    return value;
+  }
+
+  async readMessages() {
     const QueueUrl = await this.resolveQueueUrl();
     if (!QueueUrl) return { queue: this.queueName, approximateTotal: 0, messages: [] };
 
@@ -136,12 +154,14 @@ export class DlqClient {
       throw error;
     }
     await this.client.send(new DeleteMessageCommand({ QueueUrl, ReceiptHandle: message.ReceiptHandle }));
+    this.listed = null;
     return entry;
   }
 
   async discard(messageId) {
     const { message, QueueUrl } = await this.lock(messageId);
     await this.client.send(new DeleteMessageCommand({ QueueUrl, ReceiptHandle: message.ReceiptHandle }));
+    this.listed = null;
     return toEntry(message);
   }
 }

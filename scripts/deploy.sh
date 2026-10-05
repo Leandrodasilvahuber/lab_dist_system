@@ -51,8 +51,9 @@ fi
 
 echo ""
 echo "📦 Empacotando código..."
-# npm run adiciona node_modules/.bin ao PATH, onde está o esbuild usado pelo SAM
-npm install --no-audit --no-fund
+# npm run adiciona node_modules/.bin ao PATH, onde está o esbuild usado pelo SAM.
+# npm ci instala exatamente o package-lock.json (sem alterá-lo)
+npm ci --no-audit --no-fund || exit 1
 npm run build || exit 1
 
 echo ""
@@ -78,9 +79,7 @@ echo ""
 echo "📊 Recursos Criados:"
 echo "=================="
 
-# Aguarda alguns segundos para o stack estar pronto
-sleep 10
-
+# O sam deploy só termina com o changeset aplicado: os outputs já existem
 # Pega o URL da API Gateway
 API_URL=$(aws cloudformation describe-stacks \
     --stack-name distributed-ecommerce-system \

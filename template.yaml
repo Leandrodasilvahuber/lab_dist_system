@@ -124,6 +124,14 @@ Resources:
         'GET /logs':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
+        # Públicas e com cache de 20 s (AlarmsClient, DlqClient), mas sem
+        # limite próprio ficariam com os 100 req/s do stage na GatewayFunction
+        'GET /alarms':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 5
+        'GET /dlq':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 5
         'GET /trace/{correlationId}':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5

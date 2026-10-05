@@ -11,6 +11,11 @@
  *
  * Os nomes das tabelas seguem as mesmas variáveis de src/common/database.mjs
  * (PRODUCTS_TABLE, ORDERS_TABLE...). Com --stage, viram <stage>-Products etc.
+ *
+ * Só grava o que ainda não existe: rodar de novo numa stack em uso não volta
+ * o estoque ao valor do seed (as reservas ativas já debitaram unidades, que
+ * contariam duas vezes) nem recria produto excluído. Para sobrescrever
+ * catálogo e estoque com o seed, passe --reset.
  */
 import fs from 'node:fs';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -18,6 +23,7 @@ import { ensureTable } from './lib/tables.mjs';
 
 const args = process.argv.slice(2);
 const stage = args.includes('--stage') ? args[args.indexOf('--stage') + 1] : null;
+const reset = args.includes('--reset');
 
 if (stage) {
   Object.assign(process.env, {
@@ -31,7 +37,7 @@ if (stage) {
 }
 
 // Import dinâmico: database.mjs lê as variáveis de ambiente ao carregar
-const { putItem, tables } = await import('../src/common/database.mjs');
+const { putItem, putItemIfNotExists, tables } = await import('../src/common/database.mjs');
 
 const endpoint = process.env.DYNAMODB_ENDPOINT || process.env.AWS_ENDPOINT;
 const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1', ...(endpoint && { endpoint }) });
@@ -45,10 +51,19 @@ for (const [logical, name] of Object.entries(tables)) {
 
 const { products } = JSON.parse(fs.readFileSync(new URL('./seed-products.json', import.meta.url)));
 const now = new Date().toISOString();
+// Com --reset sobrescreve; sem ele, grava só o que falta (true se gravou)
+const write = (table, item) => reset ? putItem(table, item).then(() => true) : putItemIfNotExists(table, item);
+let written = 0;
 for (const { stock = 0, ...product } of products) {
-  await putItem('products', { ...product, createdAt: now, updatedAt: now });
-  await putItem('inventory', { id: product.id, name: product.name, stock, createdAt: now, updatedAt: now });
-  console.log(`   ✅ ${product.id}: ${product.name} (R$ ${product.price}, estoque ${stock})`);
+  const wroteProduct = await write('products', { ...product, createdAt: now, updatedAt: now });
+  const wroteStock = await write('inventory', { id: product.id, name: product.name, stock, createdAt: now, updatedAt: now });
+  if (wroteProduct || wroteStock) written++;
+  const [icon, result] = wroteProduct && wroteStock ? ['✅', `estoque ${stock}`]
+    : wroteProduct ? ['➕', 'produto gravado; estoque já existia, mantido']
+      : wroteStock ? ['➕', `produto já existia; estoque ${stock}`]
+        : ['⏭️ ', 'já existia, mantido'];
+  console.log(`   ${icon} ${product.id}: ${product.name} (R$ ${product.price}, ${result})`);
 }
 
-console.log(`\n${products.length} produtos gravados em ${tables.products} e ${tables.inventory}`);
+console.log(`\n${written} de ${products.length} produtos gravados em ${tables.products} e ${tables.inventory}` +
+  (reset || written === products.length ? '' : ' (os demais já existiam: use --reset para sobrescrever)'));

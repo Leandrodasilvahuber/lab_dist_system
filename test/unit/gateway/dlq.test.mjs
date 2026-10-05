@@ -125,6 +125,25 @@ describe('DlqClient', () => {
     assert.strictEqual(bus.published.length, 0);
     await assert.rejects(client.discard('x'), { name: 'NotFound' });
   });
+
+  it('listagem em cache por 20 s; reprocessar ou descartar limpa o cache', async () => {
+    let clock = 0;
+    const sqs = fakeSqs([message('a', '2026-10-04T10:00:00Z'), message('b', '2026-10-04T11:00:00Z')]);
+    const client = new DlqClient({ queueUrl: QUEUE, client: sqs, eventBus: fakeBus(), now: () => clock });
+    const reads = () => sqs.calls.filter(c => c.name === 'GetQueueAttributesCommand').length;
+
+    await client.listMessages();
+    await client.listMessages();
+    assert.strictEqual(reads(), 1);
+
+    await client.discard('a');
+    assert.deepStrictEqual((await client.listMessages()).messages.map(m => m.messageId), ['b']);
+    assert.strictEqual(reads(), 2);
+
+    clock = 20001;
+    await client.listMessages();
+    assert.strictEqual(reads(), 3);
+  });
 });
 
 describe('rotas /dlq', () => {
