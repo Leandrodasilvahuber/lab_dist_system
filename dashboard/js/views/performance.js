@@ -17,6 +17,8 @@ const LEGEND = `
 
 export default {
     id: 'performance',
+    // Mostra compras de outras pessoas (ids das sagas): só admin
+    requiresAdmin: true,
     label: 'Desempenho',
     icon: 'gauge',
     template: () => `

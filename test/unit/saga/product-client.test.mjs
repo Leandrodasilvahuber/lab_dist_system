@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { ProductClient } from '../../../src/ecommerce/saga-orchestrator/src/services/ProductClient.js';
+import { ProductClient } from '../../../src/common/product-client.mjs';
 import { DependencyUnavailableError, NotFoundError } from '../../../src/common/errors.mjs';
 import { CircuitBreaker } from '../../../src/common/circuit-breaker.mjs';
 

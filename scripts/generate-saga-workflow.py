@@ -34,6 +34,9 @@ TRANSIENT_ERRORS = [
     'Lambda.TooManyRequestsException', 'States.Timeout',
     'ThrottlingException', 'ProvisionedThroughputExceededException',
     'TransactionConflictException', 'InternalServerError', 'ServiceUnavailable',
+    # Timeout, throttling e conexão caída do SDK dentro da Lambda: runAction
+    # (src/common/actions.mjs) relança como TransientError
+    'TransientError',
     # Timeout/erro da própria Lambda: os passos são idempotentes, repetir é seguro
     'Sandbox.Timedout', 'Lambda.Unknown'
 ]

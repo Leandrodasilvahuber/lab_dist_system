@@ -33,6 +33,7 @@
             "TransactionConflictException",
             "InternalServerError",
             "ServiceUnavailable",
+            "TransientError",
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
@@ -202,6 +203,7 @@
             "TransactionConflictException",
             "InternalServerError",
             "ServiceUnavailable",
+            "TransientError",
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
@@ -427,6 +429,7 @@
             "TransactionConflictException",
             "InternalServerError",
             "ServiceUnavailable",
+            "TransientError",
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
@@ -651,6 +654,7 @@
             "TransactionConflictException",
             "InternalServerError",
             "ServiceUnavailable",
+            "TransientError",
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
@@ -871,6 +875,7 @@
             "TransactionConflictException",
             "InternalServerError",
             "ServiceUnavailable",
+            "TransientError",
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
@@ -1142,6 +1147,7 @@
             "TransactionConflictException",
             "InternalServerError",
             "ServiceUnavailable",
+            "TransientError",
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
@@ -1305,6 +1311,7 @@
             "TransactionConflictException",
             "InternalServerError",
             "ServiceUnavailable",
+            "TransientError",
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
@@ -1468,6 +1475,7 @@
             "TransactionConflictException",
             "InternalServerError",
             "ServiceUnavailable",
+            "TransientError",
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],
@@ -1694,6 +1702,7 @@
             "TransactionConflictException",
             "InternalServerError",
             "ServiceUnavailable",
+            "TransientError",
             "Sandbox.Timedout",
             "Lambda.Unknown"
           ],

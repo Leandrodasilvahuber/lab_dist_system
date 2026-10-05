@@ -29,9 +29,11 @@ mantida. Para trocar a chave sem redeploy:
 A chave antiga ainda é aceita por até ~6 minutos depois da troca: 1 minuto de
 cache no authorizer mais os 5 minutos em que o HttpApi guarda a decisão
 (`ReauthorizeEvery: 300` no template).
-Só as rotas
-`POST /products` e `POST /stock/{id}/adjust` exigem o header `X-Api-Key` com essa
-chave; as consultas (`/orders`, `/sagas`, `/logs`, `/metrics/*`, `/dlq`...) são abertas. Para restringir o CORS a uma origem, passe
+Exigem o header `X-Api-Key` com essa chave as escritas (`POST /products`,
+`POST /stock/{id}/adjust`, `POST /dlq/{id}/redrive|discard`) e as leituras que
+expõem compras de outras pessoas ou a conta (`/orders`, `/sagas`, `/logs`,
+`/trace/{id}`, `/metrics/sagas`, `/metrics/cost`). O catálogo, a compra, a
+consulta de uma compra pelo id, as métricas agregadas e a leitura da DLQ são abertos. Para restringir o CORS a uma origem, passe
 também `AllowedOrigin=https://...` em `--parameter-overrides`.
 
 O `sam deploy` mostra o changeset e pede confirmação antes de criar os recursos

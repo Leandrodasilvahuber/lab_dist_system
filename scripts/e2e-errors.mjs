@@ -199,7 +199,7 @@ lines = scenario('6) Dependência fora do ar: compras com o serviço de Products
 // O breaker abre depois de N falhas seguidas. N vem do próprio ProductClient,
 // criado com o mesmo ambiente: no perfil local (AWS_ENDPOINT) ele tolera mais
 // falhas que na AWS, e um número fixo aqui deixaria o teste fora de sincronia
-const { ProductClient } = await import(`${ROOT}/src/ecommerce/saga-orchestrator/src/services/ProductClient.js`);
+const { ProductClient } = await import(`${ROOT}/src/common/product-client.mjs`);
 const THRESHOLD = new ProductClient().breaker.failureThreshold;
 const buy = () => call(saga, 'POST', '/saga/execute', { productId: 'p-qualquer', quantity: 1 }, { 'idempotency-key': randomUUID() });
 const beforeOpen = [];

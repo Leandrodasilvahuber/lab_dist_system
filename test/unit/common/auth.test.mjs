@@ -12,12 +12,18 @@ describe('rotas de admin', () => {
     assert.ok(isAdminRoute('GET', '/metrics/cost'));
   });
 
-  it('deixa públicas a vitrine, a compra, as consultas, a observabilidade e a DLQ', () => {
+  it('exige admin nas ações da DLQ e nas leituras que expõem compras de outras pessoas', () => {
+    for (const [method, path] of [['POST', '/dlq/m1/redrive'], ['POST', '/dlq/m1/discard'], ['GET', '/orders'],
+      ['GET', '/sagas'], ['GET', '/logs'], ['GET', '/trace/s1'], ['GET', '/metrics/sagas']]) {
+      assert.ok(isAdminRoute(method, path), `${method} ${path}`);
+    }
+  });
+
+  it('deixa públicas a vitrine, a compra, a consulta de uma compra, as métricas agregadas e a leitura da DLQ', () => {
     for (const [method, path] of [['GET', '/products'], ['GET', '/products/p1'], ['GET', '/stock'],
       ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/orders/o1'], ['GET', '/health'],
-      ['GET', '/orders'], ['GET', '/sagas'], ['GET', '/logs'], ['GET', '/alarms'], ['GET', '/metrics/sagas'],
-      ['GET', '/metrics/errors'], ['GET', '/metrics/slo'], ['GET', '/metrics/memory'], ['GET', '/trace/s1'],
-      ['GET', '/dlq'], ['POST', '/dlq/m1/redrive'], ['POST', '/dlq/m1/discard']]) {
+      ['GET', '/alarms'], ['GET', '/metrics/errors'], ['GET', '/metrics/slo'], ['GET', '/metrics/memory'],
+      ['GET', '/dlq']]) {
       assert.ok(!isAdminRoute(method, path), `${method} ${path}`);
     }
   });

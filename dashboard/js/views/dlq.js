@@ -1,6 +1,7 @@
 import { api } from '../core/api.js';
 import { $ } from '../core/dom.js';
 import { dateTime, escapeHtml, nowTime } from '../core/format.js';
+import { getAdminKey } from '../core/session.js';
 import { dataTable, expandableRows } from '../components/data-table.js';
 import { allClear, errorState } from '../components/empty.js';
 import { icon } from '../components/icons.js';
@@ -22,7 +23,7 @@ export default {
         ${toolbar(status('dlqSummary'), spacer, refreshButton('dlqRefresh'))}
         ${hint(`Eventos <code>ProductCreated</code>/<code>ProductDeleted</code> que o Stock não processou por falha transitória,
             depois de todas as tentativas. <strong>Reprocessar</strong> republica o evento (o Stock tenta de novo);
-            <strong>Descartar</strong> apaga. Clique numa linha para ver o evento.`)}
+            <strong>Descartar</strong> apaga (as duas ações são de admin). Clique numa linha para ver o evento.`)}
         ${panel({ title: 'DLQ dos eventos de produto', icon: 'inbox', bodyId: 'dlqTable', flush: true })}`,
 
     mount() {
@@ -59,13 +60,18 @@ async function fetchDlq() {
             <td><span class="mono">${escapeHtml(m.detail?.productId || '—')}</span>${m.detail?.name ? `<div class="muted">${escapeHtml(m.detail.name)}</div>` : ''}</td>
             <td class="muted">${escapeHtml(m.errorMessage || m.errorCode || '—')}</td>
             <td class="num">${escapeHtml(m.attempts ?? '—')}</td>
-            <td>
+            <td>${actionButtons(m)}</td>
+        </tr>`));
+}
+
+// Reprocessar e descartar são de admin: sem a chave, só a leitura
+function actionButtons(m) {
+    if (!getAdminKey()) return '<span class="muted">admin</span>';
+    return `
                 <div class="actions-cell">
                     <button type="button" class="btn btn-success btn-sm" data-action="redrive" data-id="${escapeHtml(m.messageId)}" ${m.detailType ? '' : 'disabled'}>${icon('undo', { size: 14 })}<span>Reprocessar</span></button>
                     <button type="button" class="btn btn-danger btn-sm" data-action="discard" data-id="${escapeHtml(m.messageId)}">${icon('trash', { size: 14 })}<span>Descartar</span></button>
-                </div>
-            </td>
-        </tr>`));
+                </div>`;
 }
 
 async function runAction(event) {

@@ -36,9 +36,15 @@ const INVENTORY_LIVE = 'attribute_exists(id) AND attribute_not_exists(deleted)';
 // saga): a leitura eventualmente consistente poderia não ver o item gravado
 const CONSISTENT = { consistentRead: true };
 export class StockSDK {
-  constructor(eventBridgeClient, db = new Database()) {
+  /**
+   * `productClient` (ProductClient): confere no serviço de Products que o
+   * produto existe antes de um ajuste criar o inventário. Sem ele (testes,
+   * scripts), o ajuste não confere.
+   */
+  constructor(eventBridgeClient, db = new Database(), { productClient } = {}) {
     this.eventBridgeClient = eventBridgeClient;
     this.db = db;
+    this.productClient = productClient;
   }
 
   /**
@@ -305,11 +311,22 @@ export class StockSDK {
   /**
    * Ajustar estoque do produto (delta positivo ou negativo).
    * Um delta positivo cria o inventário se ele não existir (recupera um
-   * ProductCreated perdido); `name` só é gravado se ainda não houver um.
+   * ProductCreated perdido), desde que o produto exista no catálogo: sem a
+   * conferência, um id digitado errado criaria estoque de um produto que não
+   * existe. `name` só é gravado se ainda não houver um (sem ele, vale o do
+   * catálogo).
    */
   async adjustStock(productId, delta, { name } = {}) {
     if (!Number.isInteger(delta) || delta === 0) {
       throw new ValidationError('delta must be a non-zero integer');
+    }
+    if (delta > 0 && this.productClient) {
+      const inventory = await this.db.getItem('inventory', { id: productId }, CONSISTENT);
+      if (!inventory) {
+        // NotFound do Products vira 404; Products fora do ar, 503
+        const product = await this.productClient.getProduct(productId);
+        name ||= product.name;
+      }
     }
 
     const now = new Date().toISOString();
@@ -434,7 +451,14 @@ export class StockSDK {
       throw new ValidationError('productId is required');
     }
     const now = new Date().toISOString();
-    await this.db.putItem('inventory', { id: productId, deleted: true, stock: 0, deletedAt: now, updatedAt: now });
+    // UpdateItem, não PutItem: mantém nome e createdAt do inventário removido
+    // (ou cria o registro, se o ProductCreated ainda não chegou)
+    await this.db.updateItem(
+      'inventory',
+      { id: productId },
+      'SET deleted = :true, stock = :zero, deletedAt = if_not_exists(deletedAt, :now), updatedAt = :now',
+      { ':true': true, ':zero': 0, ':now': now }
+    );
     return { productId, removed: true };
   }
 

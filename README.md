@@ -173,31 +173,34 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 |---|---|---|
 | GET | `/health` | Health check |
 | GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) |
-| GET | `/logs?level=warn\|error&hours=24` | Linhas de log warn/error, mais recentes primeiro (aba Logs) |
-| GET | `/trace/{correlationId}` | Todas as linhas de log de uma compra, em ordem (aba Rastreio) |
+| GET | `/logs?level=warn\|error&hours=24` 🔑 | Linhas de log warn/error, mais recentes primeiro (aba Logs) |
+| GET | `/trace/{correlationId}` 🔑 | Todas as linhas de log de uma compra, em ordem (aba Rastreio) |
 | GET | `/metrics/errors?hours=24` | Séries de erros de negócio/não tratados por tipo e chamadas/duração por ação, gravadas via EMF (aba Métricas) |
-| GET | `/metrics/sagas` | Tempo por passo das últimas 10 compras, do histórico do Step Functions (aba Desempenho) |
+| GET | `/metrics/sagas` 🔑 | Tempo por passo das últimas 10 compras, do histórico do Step Functions (aba Desempenho) |
 | GET | `/metrics/slo?hours=24` | SLOs da janela: p95 das compras concluídas, % de sagas Completed/Compensated e mensagens na DLQ há mais de 24 h (aba SLOs) |
 | GET | `/metrics/memory?hours=3` | Memória máxima e média por Lambda (`MemoryUsedMB`) e o limite configurado (aba Recursos) |
 | GET | `/metrics/cost?days=14` | Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pelo Cost Explorer (aba Recursos). **Admin** (`X-Api-Key`): é o gasto da conta inteira |
 | GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) |
-| POST | `/dlq/{messageId}/redrive` | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
-| POST | `/dlq/{messageId}/discard` | Apaga o evento da DLQ |
+| POST | `/dlq/{messageId}/redrive` 🔑 | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
+| POST | `/dlq/{messageId}/discard` 🔑 | Apaga o evento da DLQ |
 | GET | `/products` | Lista produtos, paginado (`?name=&priceMin=&priceMax=&limit=&nextToken=`) |
 | POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`price > 0`; `stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
-| GET | `/orders` | Lista pedidos, paginado (`?status=&productId=&limit=&nextToken=`) |
+| GET | `/orders` 🔑 | Lista pedidos, paginado (`?status=&productId=&limit=&nextToken=`) |
 | GET | `/orders/{id}` | Busca pedido |
 | GET | `/stock` | Estoque dos produtos, paginado (`?productId=&stockMin=&stockMax=&limit=&nextToken=`; `reserved: null` e `degraded: true` se as reservas não puderem ser lidas) |
 | GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento; com o índice de reservas fora do ar, `reserved`/`activeReservations` vêm `null` e `degraded: true`) |
 | POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir; não é idempotente: depois de um 503, confira o estoque antes de repetir) |
 | **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` + header `Idempotency-Key` (obrigatório, 400 sem ele) → 202; `503` + `Retry-After`: repita com a mesma chave |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
-| GET | `/sagas` | Lista as compras, paginado (`?status=&limit=&nextToken=`) |
+| GET | `/sagas` 🔑 | Lista as compras, paginado (`?status=&limit=&nextToken=`) |
 
 🔑 Rota administrativa: exige o header `X-Api-Key` com a chave de admin, guardada
 no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) e
-conferida por um authorizer Lambda do HttpApi. As demais rotas são públicas; o
+conferida por um authorizer Lambda do HttpApi. Além das escritas, são de admin as
+leituras que expõem compras de outras pessoas (`/orders`, `/sagas`, `/logs`,
+`/trace/{id}`, `/metrics/sagas`), as ações da DLQ e o custo: sem elas, o id de
+uma compra só é conhecido por quem a fez. As demais rotas são públicas; o
 stage tem throttling (100 req/s, rajada de 50), e as leituras caras têm limite
 próprio (`RouteSettings` no template; `GET /saga/{id}`, o polling do dashboard,
 20 req/s). O limite é da rota, somando todos os clientes.

@@ -11,6 +11,8 @@ let logEntries = [];
 
 export default {
     id: 'logs',
+    // Mostra compras de outras pessoas (ids das sagas): só admin
+    requiresAdmin: true,
     label: 'Logs',
     icon: 'file',
     template: () => `

@@ -1,5 +1,6 @@
 import { log } from './logger.mjs';
 import { ValidationError, isRetryable } from './errors.mjs';
+import { isTransientAwsError } from './aws-client.mjs';
 
 /**
  * Invocação direta da Lambda pelo Step Functions: { action, input }.
@@ -61,8 +62,26 @@ export async function runAction(actions, { action, input = {} }, { logRejection 
       // Quem chamou registra o warn (e conta o BusinessErrors); aqui só as métricas da ação
       log({ event: 'ACTION_REJECTED', correlationId: input.correlationId, status: 'debug', message: `Action ${action} rejected: ${error.message}`, metrics: actionMetrics('rejected') });
     }
-    throw error;
+    throw asTransient(error);
   }
+}
+
+/**
+ * Falha transitória da AWS (timeout, throttling, conexão caída, 5xx) sai com
+ * um nome só, TransientError, que o Retry do workflow repete
+ * (scripts/generate-saga-workflow.py). Sem isso o errorType seria o do SDK
+ * (TimeoutError, RequestTimeout...) ou só "Error" (ECONNRESET), e o passo iria
+ * direto para a compensação. O erro original já foi registrado acima.
+ */
+export class TransientError extends Error {
+  constructor(cause) {
+    super(`${cause.name}: ${cause.message}`, { cause });
+    this.name = 'TransientError';
+  }
+}
+
+function asTransient(error) {
+  return isTransientAwsError(error) && !(error instanceof TransientError) ? new TransientError(error) : error;
 }
 
 /**

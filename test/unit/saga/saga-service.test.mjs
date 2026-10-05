@@ -63,6 +63,7 @@ class FakeProductClient {
 // andamento devolve a mesma; nome de execução já encerrada falha
 class FakeStepFunctions {
   constructor({ fail = false, executions = {} } = {}) { this.fail = fail; this.started = []; this.closed = new Set(); this.executions = executions; this.described = 0; }
+  executionArn(name) { return `arn:aws:states:::execution:saga:${name}`; }
   async describeExecution(arn) {
     this.described++;
     if (!this.executions[arn]) throw new Error('SFN indisponível');
@@ -418,6 +419,41 @@ describe('SagaService: reconciliação de saga parada', () => {
     assert.strictEqual(db.tables.sagas.get('saga_h').status, 'COMPLETED');
     assert.strictEqual(db.tables.sagas.get('saga_i').status, 'RUNNING');
     assert.ok(RECONCILE_MAX >= 1);
+  });
+
+  it('saga sem executionArn cuja execução nunca existiu vira START_FAILED e a mesma chave a reinicia', async () => {
+    const key = 'never-started-key-0001';
+    const id = sagaIdFromKey(key);
+    const { db, stepFunctions, service } = setup({ id, status: 'RUNNING', updatedAt: ago(6 * 60 * 1000), executionArn: undefined, executionName: id, startAttempts: 1 });
+    stepFunctions.describeExecution = async () => { throw Object.assign(new Error('nope'), { name: 'ExecutionDoesNotExist' }); };
+
+    const saga = await service.getSaga(id);
+    assert.deepStrictEqual([saga.status, saga.error], ['FAILED', 'StartExecutionFailed']);
+
+    const { created } = await service.startSaga({ productId: 'p1', quantity: 1, idempotencyKey: key });
+    assert.strictEqual(created, true);
+    assert.strictEqual(db.tables.sagas.get(id).status, 'RUNNING');
+    assert.strictEqual(stepFunctions.started.length, 1);
+  });
+
+  it('saga sem executionArn gravado é reconciliada pela execução procurada pelo nome', async () => {
+    const { db, service } = setup({ id: 'saga_m', status: 'RUNNING', updatedAt: ago(6 * 60 * 1000), executionArn: undefined, executionName: 'saga_m' }, { status: 'SUCCEEDED' });
+    assert.strictEqual((await service.getSaga('saga_m')).status, 'COMPLETED');
+    assert.strictEqual(db.tables.sagas.get('saga_m').reconciledFrom, 'SUCCEEDED');
+  });
+
+  it('uma saga que falha não interrompe a varredura nem a métrica', async () => {
+    const { db, service } = setup({ id: 'saga_n', status: 'RUNNING', updatedAt: ago(6 * 60 * 1000) }, { status: 'SUCCEEDED' });
+    const broken = { id: 'saga_o', status: 'RUNNING', updatedAt: ago(8 * 60 * 1000), createdAt: ago(8 * 60 * 1000), productId: 'p1', quantity: 1, steps: {} };
+    db.tables.sagas.set(broken.id, { ...broken, dayShard: sagaDayShard(broken.id, broken.createdAt) });
+    const getItem = db.getItem.bind(db);
+    db.getItem = async (table, key, options) => {
+      if (key.id === 'saga_o') throw Object.assign(new Error('timeout'), { name: 'TimeoutError' });
+      return getItem(table, key, options);
+    };
+
+    assert.deepStrictEqual(await service.reconcileStuckSagas(), { checked: 2, reconciled: 1, stuck: 1 });
+    assert.strictEqual(db.tables.sagas.get('saga_n').status, 'COMPLETED');
   });
 
   // O alarme sagas-stuck lê esta métrica: publicada toda rodada, inclusive 0

@@ -1,4 +1,5 @@
 import { escapeHtml, time } from '../core/format.js';
+import { getAdminKey } from '../core/session.js';
 import { SAGA_STATUS, statusBadge } from './badge.js';
 import { icon } from './icons.js';
 
@@ -17,8 +18,9 @@ const FORWARD = ['createOrder', 'reserveStock', 'processPayment', 'commitReserva
 const COMPENSATIONS = ['refundPayment', 'releaseStock', 'cancelOrder'];
 const ARROW = `<span class="arrow">${icon('arrowRight', { size: 13 })}</span>`;
 
+// O rastreio (GET /trace) é de admin: sem a chave, a lupa não aparece
 export function traceButton(id) {
-    return id
+    return id && getAdminKey()
         ? `<button type="button" class="icon-btn trace-btn" data-trace="${escapeHtml(id)}" title="Rastrear ${escapeHtml(id)}" aria-label="Rastrear ${escapeHtml(id)}">${icon('search', { size: 14 })}</button>`
         : '';
 }

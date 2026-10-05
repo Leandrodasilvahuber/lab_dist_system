@@ -6,7 +6,7 @@ import { encodeToken } from '../../../../common/pagination.mjs';
 import { SAGAS_BY_DAY_INDEX, dayShardsInWindow, sagaDayShard } from '../../../../common/saga-day-index.mjs';
 import { STUCK_AFTER_MS } from '../../../../common/saga-timing.mjs';
 import { StepFunctionsClient } from './StepFunctionsClient.js';
-import { ProductClient } from './ProductClient.js';
+import { ProductClient } from '../../../../common/product-client.mjs';
 
 export const SagaStatus = {
   RUNNING: 'RUNNING',
@@ -128,7 +128,7 @@ export class SagaService {
     if (existing.productId !== productId || existing.quantity !== quantity) {
       throw new IdempotencyConflictError();
     }
-    const restart = restartCondition(existing, Date.now());
+    const restart = restartCondition(existing, this.now());
     if (!restart) {
       return { saga: existing, created: false };
     }
@@ -271,15 +271,23 @@ export class SagaService {
    * Functions como a execução terminou e grava o status final. Execução ainda
    * rodando não é mexida (o teto da execução resolve). Sem resposta do Step
    * Functions, devolve a saga como está: a consulta não pode falhar por isso.
+   *
+   * Sem executionArn gravado, a execução é procurada pelo nome: ou ela rodou e
+   * só a gravação do ARN falhou (SAGA_ARN_NOT_RECORDED), ou nunca existiu (a
+   * Lambda morreu antes do StartExecution). No segundo caso a saga vira
+   * FAILED/START_FAILED: a mesma Idempotency-Key a inicia de novo, e ela deixa
+   * de contar como parada no alarme sagas-stuck.
    */
   async reconcile(saga) {
-    if (!IN_PROGRESS.includes(saga.status) || !saga.executionArn) return saga;
+    if (!IN_PROGRESS.includes(saga.status)) return saga;
     if (this.now() - Date.parse(saga.updatedAt) <= STUCK_AFTER_MS) return saga;
 
     let execution;
     try {
-      execution = await this.stepFunctions.describeExecution(saga.executionArn);
+      const executionArn = saga.executionArn || this.stepFunctions.executionArn(saga.executionName || saga.id);
+      execution = await this.stepFunctions.describeExecution(executionArn);
     } catch (error) {
+      if (error.name === 'ExecutionDoesNotExist' && !saga.executionArn) return this.markNeverStarted(saga);
       log({ event: 'SAGA_RECONCILE_SKIPPED', correlationId: saga.correlationId, status: 'info', message: `Could not check execution of saga ${saga.id}: ${error.message}` });
       return saga;
     }
@@ -328,6 +336,48 @@ export class SagaService {
   }
 
   /**
+   * A execução da saga nunca existiu: marca START_FAILED (restartCondition
+   * permite reiniciar), só se ninguém mexeu nela desde a leitura
+   */
+  async markNeverStarted(saga) {
+    let updated;
+    try {
+      updated = await this.db.updateItem(
+        'sagas',
+        { id: saga.id },
+        'SET #status = :status, #error = :error, updatedAt = :now',
+        {
+          ':status': SagaStatus.FAILED,
+          ':error': START_FAILED,
+          ':now': new Date(this.now()).toISOString(),
+          ':running': SagaStatus.RUNNING,
+          ':zero': 0,
+          ':seen': saga.updatedAt
+        },
+        {
+          conditionExpression: '#status = :running AND attribute_not_exists(executionArn) AND size(steps) = :zero AND updatedAt = :seen',
+          expressionAttributeNames: { '#status': 'status', '#error': 'error' },
+          returnValues: 'ALL_NEW'
+        }
+      );
+    } catch (error) {
+      if (error.name !== 'ConditionalCheckFailedException') throw error;
+      return (await this.db.getItem('sagas', { id: saga.id }, CONSISTENT)) || saga;
+    }
+    // error: a Lambda morreu (timeout, OOM) entre gravar a saga e iniciá-la
+    const message = `Saga ${saga.id} was never started: marked ${SagaStatus.FAILED} (${START_FAILED}), the same Idempotency-Key starts it again`;
+    log({
+      event: 'SAGA_NEVER_STARTED',
+      correlationId: saga.correlationId,
+      status: 'error',
+      message,
+      data: { sagaId: saga.id, from: saga.status, to: SagaStatus.FAILED },
+      error: { name: 'SagaNeverStarted', message }
+    });
+    return updated;
+  }
+
+  /**
    * Varredura periódica (agendada no template.yaml; no local-server, a cada
    * minuto): reconcilia as sagas do último dia paradas em andamento. O índice
    * por dia projeta status e updatedAt; só as paradas são lidas por inteiro.
@@ -347,14 +397,20 @@ export class SagaService {
 
     let reconciled = 0;
     for (const { id } of stuck.slice(0, RECONCILE_MAX)) {
-      const saga = await this.db.getItem('sagas', { id }, CONSISTENT);
-      if (!saga) continue;
-      const before = saga.status;
-      const result = await this.reconcile(saga);
-      if (result.status !== before) reconciled++;
+      // Uma saga que falha (DynamoDB fora do ar) não interrompe a rodada: a
+      // métrica abaixo precisa sair sempre
+      try {
+        const saga = await this.db.getItem('sagas', { id }, CONSISTENT);
+        if (!saga) continue;
+        const before = saga.status;
+        const result = await this.reconcile(saga);
+        if (result.status !== before) reconciled++;
+      } catch (error) {
+        log({ event: 'SAGA_RECONCILE_FAILED', status: 'error', message: `Could not reconcile saga ${id}`, data: { sagaId: id }, error });
+      }
     }
-    // Paradas que continuaram em andamento (sem executionArn, Step Functions
-    // sem resposta, execução ainda rodando, além do limite da rodada).
+    // Paradas que continuaram em andamento (Step Functions sem resposta,
+    // execução ainda rodando, falha ao corrigir, além do limite da rodada).
     // Publicada toda rodada, inclusive 0: sem dado, o alarme sagas-stuck fica
     // em "Sem dados" (a varredura parou de rodar)
     const remaining = stuck.length - reconciled;

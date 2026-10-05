@@ -27,6 +27,18 @@ export class StepFunctionsClient {
     return executionArn;
   }
 
+  /**
+   * ARN da execução pelo nome, para quando o executionArn não foi gravado
+   * (SAGA_ARN_NOT_RECORDED): arn:...:stateMachine:<máquina> vira
+   * arn:...:execution:<máquina>:<nome>
+   */
+  executionArn(name) {
+    if (!this.stateMachineArn) {
+      throw new Error('SAGA_STATE_MACHINE_ARN is not configured');
+    }
+    return `${this.stateMachineArn.replace(':stateMachine:', ':execution:')}:${name}`;
+  }
+
   async describeExecution(executionArn) {
     const { status, error, cause } = await this.client.send(new DescribeExecutionCommand({ executionArn }));
     return { status, error, cause };

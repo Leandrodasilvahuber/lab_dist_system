@@ -16,7 +16,7 @@ Coordena a compra como uma **saga orquestrada pelo AWS Step Functions**.
 | Arquivo | Papel |
 |---|---|
 | `src/services/SagaService.js` | Valida a compra, consulta o produto, cria o registro da saga (status `RUNNING`) e inicia a execução |
-| `src/services/ProductClient.js` | Consulta o produto invocando a Lambda de Products (`getProduct`); a saga não lê a tabela de produtos |
+| `src/common/product-client.mjs` | Consulta o produto invocando a Lambda de Products (`getProduct`); a saga não lê a tabela de produtos. Também usado pelo Stock no ajuste que cria o inventário |
 | `src/services/StepFunctionsClient.js` | `StartExecution` no Step Functions |
 | `src/controllers/SagaOrchestratorController.js` | Rotas HTTP `/saga/execute`, `/saga/{id}`, `/sagas` |
 | `workflow/saga-workflow.asl.json` | Máquina de estados (gerada, não edite à mão) |

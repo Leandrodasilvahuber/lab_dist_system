@@ -156,6 +156,6 @@ describe('GET /trace/{correlationId}', () => {
 
     const failing = createAPIHandler({ logs: { trace: async () => { throw new Error('AccessDenied'); } } });
     assert.strictEqual((await failing(req('saga_1'))).statusCode, 503);
-    assert.ok(!isAdminRoute('GET', '/trace/saga_1'));
+    assert.ok(isAdminRoute('GET', '/trace/saga_1'));
   });
 });

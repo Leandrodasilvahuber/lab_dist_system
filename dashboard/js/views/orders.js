@@ -9,6 +9,8 @@ import { panel } from '../components/layout.js';
 
 export default {
     id: 'orders',
+    // Mostra compras de outras pessoas (ids das sagas): só admin
+    requiresAdmin: true,
     label: 'Pedidos',
     icon: 'receipt',
     template: () => panel({ title: 'Pedidos', icon: 'receipt', bodyId: 'orderList', flush: true, body: loading('Carregando pedidos...') }),

@@ -2,8 +2,9 @@ import { api } from '../core/api.js';
 import { $ } from '../core/dom.js';
 import { on } from '../core/events.js';
 import { escapeHtml, money } from '../core/format.js';
+import { getAdminKey } from '../core/session.js';
 import { loadProducts, productNames } from '../services/catalog.js';
-import { getSaga, listSagas } from '../services/sagas.js';
+import { forgetSaga, getSaga, listSagas, mySagaIds, rememberSaga } from '../services/sagas.js';
 import { emptyState, errorState, loading } from '../components/empty.js';
 import { icon } from '../components/icons.js';
 import { hint, panel } from '../components/layout.js';
@@ -98,6 +99,7 @@ async function startPurchase(event) {
             body: request
         });
         pendingPurchase = null;
+        rememberSaga(result.sagaId);
         showToast('Compra iniciada! Acompanhe o andamento ao lado.', 'info');
         $('buyQuantity').value = 1;
         await fetchSagas();
@@ -143,11 +145,15 @@ async function fetchSagas({ onlyRunning = false } = {}) {
                     return [s.id, s];
                 })));
             for (const [id, saga] of updated) {
-                if (saga) sagaCache.set(id, saga);
-                else sagaCache.delete(id);
+                if (saga) {
+                    sagaCache.set(id, saga);
+                } else {
+                    sagaCache.delete(id);
+                    forgetSaga(id);
+                }
             }
         } else {
-            sagaCache = new Map((await listSagas()).map(s => [s.id, s]));
+            sagaCache = new Map((await (getAdminKey() ? listSagas() : loadMySagas())).map(s => [s.id, s]));
         }
     } catch (error) {
         $('sagaList').innerHTML = errorState('Não foi possível carregar as compras', error);
@@ -159,12 +165,23 @@ async function fetchSagas({ onlyRunning = false } = {}) {
     const names = productNames();
     $('sagaList').innerHTML = sagas.length
         ? sagas.slice(0, 20).map(s => sagaCard(s, names)).join('')
-        : emptyState('Nenhuma compra ainda.', { icon: 'cart' });
+        : emptyState(getAdminKey() ? 'Nenhuma compra ainda.' : 'Nenhuma compra feita neste navegador ainda.', { icon: 'cart' });
 
     const running = sagas.filter(isRunning);
     const allSlow = running.every(s => Date.now() - Date.parse(s.createdAt) > SLOW_AFTER_MS);
     pollDelay = failed ? Math.min(pollDelay * 2, POLL_MAX_MS) : allSlow ? POLL_SLOW_MS : POLL_MS;
     schedulePoll(running.length > 0);
+}
+
+// Sem a chave de admin: só as compras feitas neste navegador. As que sumiram
+// (404: LocalStack recriado) saem da lista guardada
+async function loadMySagas() {
+    const sagas = await Promise.all(mySagaIds().map(id => getSaga(id).catch(error => {
+        if (error.status === 404) forgetSaga(id);
+        else throw error;
+        return null;
+    })));
+    return sagas.filter(Boolean);
 }
 
 // Continua atualizando (só as em andamento) enquanto houver saga rodando e a

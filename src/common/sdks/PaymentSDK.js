@@ -8,7 +8,22 @@ const CONSISTENT = { consistentRead: true };
 
 // Gateway de pagamento simulado: recusa valores acima do limite.
 // Permite testar a compensação da saga de forma determinística.
-const MAX_APPROVED_AMOUNT = Number(process.env.PAYMENT_MAX_AMOUNT || 10000);
+const DEFAULT_MAX_APPROVED_AMOUNT = 10000;
+export const MAX_APPROVED_AMOUNT = maxApprovedAmount(process.env.PAYMENT_MAX_AMOUNT);
+
+/**
+ * Limite configurado em PAYMENT_MAX_AMOUNT. Valor inválido (texto, zero,
+ * negativo) viraria NaN e recusaria todo pagamento sem aviso: falha na
+ * carga do módulo, que aparece no primeiro deploy.
+ */
+export function maxApprovedAmount(raw) {
+  if (raw === undefined || raw === '') return DEFAULT_MAX_APPROVED_AMOUNT;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`PAYMENT_MAX_AMOUNT must be a positive number, got "${raw}"`);
+  }
+  return value;
+}
 
 /**
  * SDK Público - Interface uniforme para operações de pagamento

@@ -51,3 +51,34 @@ describe('runAction: métricas EMF por ação', () => {
     assert.deepStrictEqual([action.status, action.Outcome], [undefined, 'rejected']);
   });
 });
+
+describe('runAction: falhas transitórias', () => {
+  it('timeout/throttling/conexão caída saem como TransientError (o Retry do workflow repete)', async () => {
+    const { TransientError } = await import('../../../src/common/actions.mjs');
+    for (const cause of [
+      Object.assign(new Error('timed out'), { name: 'TimeoutError' }),
+      Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+      Object.assign(new Error('slow down'), { name: 'ThrottlingException' })
+    ]) {
+      await assert.rejects(
+        runAction({ step: async () => { throw cause; } }, { action: 'step', input: {} }),
+        error => error instanceof TransientError && error.name === 'TransientError' && error.cause === cause
+      );
+    }
+  });
+
+  it('erro de negócio e bug seguem com o próprio nome', async () => {
+    await assert.rejects(runAction({ step: async () => { throw new NotFoundError('x'); } }, { action: 'step', input: {} }), NotFoundError);
+    await assert.rejects(runAction({ step: async () => { throw new TypeError('bug'); } }, { action: 'step', input: {} }), TypeError);
+  });
+
+  it('o workflow repete TransientError em todos os passos', async () => {
+    const fs = await import('node:fs');
+    const asl = JSON.parse(fs.readFileSync(new URL('../../../src/ecommerce/saga-orchestrator/workflow/saga-workflow.asl.json', import.meta.url), 'utf8'));
+    const lambdaTasks = Object.values(asl.States).filter(state => state.Resource === 'arn:aws:states:::lambda:invoke');
+    assert.ok(lambdaTasks.length > 0);
+    for (const task of lambdaTasks) {
+      assert.ok(task.Retry.some(r => r.ErrorEquals.includes('TransientError')));
+    }
+  });
+});

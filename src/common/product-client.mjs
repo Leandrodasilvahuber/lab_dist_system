@@ -1,7 +1,7 @@
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
-import { DependencyUnavailableError, NotFoundError, ValidationError } from '../../../../common/errors.mjs';
-import { IS_LOCAL, awsClientConfig, isTransientAwsError, scaled } from '../../../../common/aws-client.mjs';
-import { CircuitBreaker } from '../../../../common/circuit-breaker.mjs';
+import { DependencyUnavailableError, NotFoundError, ValidationError } from './errors.mjs';
+import { IS_LOCAL, awsClientConfig, isTransientAwsError, scaled } from './aws-client.mjs';
+import { CircuitBreaker } from './circuit-breaker.mjs';
 
 // Erros de negócio da Lambda de produtos que viram o erro equivalente aqui
 const DOMAIN_ERRORS = { NotFound: NotFoundError, ValidationError };

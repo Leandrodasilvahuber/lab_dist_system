@@ -42,7 +42,7 @@ describe('orçamento de tempo dos clientes da AWS (template.yaml)', () => {
     assert.match(template, /SERVICE_TYPE: saga-orchestrator\n\s+SDK_MAX_ATTEMPTS: '1'/);
     // Importado depois de fixar o default: o env do teste não pode mudar a conta
     delete process.env.PRODUCT_TIMEOUT_MS;
-    const { PRODUCT_TIMEOUT_MS } = await import('../../../src/ecommerce/saga-orchestrator/src/services/ProductClient.js');
+    const { PRODUCT_TIMEOUT_MS } = await import('../../../src/common/product-client.mjs');
     const sdk = callMs(DEFAULT_TIMEOUTS.requestTimeout, 1);
     const products = callMs(PRODUCT_TIMEOUT_MS, 1);
     // getItem + Products + putItem + StartExecution + gravação do resultado

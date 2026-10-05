@@ -139,4 +139,35 @@ describe('StockSDK.adjustStock', () => {
     assert.strictEqual(options.retry, false);
     assert.deepStrictEqual(result, { productId: 'apple', previousStock: 10, stock: 12 });
   });
+
+  it('não cria inventário de produto que não existe no catálogo', async () => {
+    const StockSDK = await loadStockSDK();
+    const { NotFoundError } = await import('../../../src/common/errors.mjs');
+    let updated = false;
+    const db = { async getItem() { return undefined; }, async updateItem() { updated = true; return { stock: 2 }; } };
+    const productClient = { async getProduct() { throw new NotFoundError('Product not found'); } };
+    await assert.rejects(new StockSDK(null, db, { productClient }).adjustStock('typo', 2), NotFoundError);
+    assert.strictEqual(updated, false);
+  });
+
+  it('cria o inventário de produto existente com o nome do catálogo', async () => {
+    const StockSDK = await loadStockSDK();
+    let values;
+    const db = { async getItem() { return undefined; }, async updateItem(table, key, expression, v) { values = v; return { stock: 2 }; } };
+    const productClient = { async getProduct(id) { return { id, name: 'Apple' }; } };
+    const result = await new StockSDK(null, db, { productClient }).adjustStock('apple', 2);
+    assert.strictEqual(result.stock, 2);
+    assert.strictEqual(values[':name'], 'Apple');
+  });
+
+  it('inventário existente ou delta negativo não consulta o catálogo', async () => {
+    const StockSDK = await loadStockSDK();
+    let calls = 0;
+    const productClient = { async getProduct() { calls++; return {}; } };
+    const db = { async getItem() { return { id: 'apple', stock: 5 }; }, async updateItem() { return { stock: 4 }; } };
+    const sdk = new StockSDK(null, db, { productClient });
+    await sdk.adjustStock('apple', 2);
+    await sdk.adjustStock('apple', -1);
+    assert.strictEqual(calls, 0);
+  });
 });

@@ -47,3 +47,14 @@ describe('PaymentSDK', () => {
     assert.strictEqual(typeof sdk.refundPaymentById, 'function');
   });
 });
+describe('PaymentSDK: limite do gateway simulado', () => {
+  it('PAYMENT_MAX_AMOUNT ausente usa o padrão; inválido falha em vez de recusar tudo', async () => {
+    const { maxApprovedAmount } = await import('../../../src/common/sdks/PaymentSDK.js');
+    assert.strictEqual(maxApprovedAmount(undefined), 10000);
+    assert.strictEqual(maxApprovedAmount(''), 10000);
+    assert.strictEqual(maxApprovedAmount('250.5'), 250.5);
+    for (const raw of ['abc', '0', '-1']) {
+      assert.throws(() => maxApprovedAmount(raw), /PAYMENT_MAX_AMOUNT/, raw);
+    }
+  });
+});

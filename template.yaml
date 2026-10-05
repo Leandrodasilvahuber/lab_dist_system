@@ -263,12 +263,16 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /logs
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         SagaMetrics:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /metrics/sagas
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         ErrorMetrics:
           Type: HttpApi
           Properties:
@@ -302,6 +306,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /trace/{correlationId}
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         ListDlq:
           Type: HttpApi
           Properties:
@@ -314,6 +320,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /dlq/{messageId}/{action}
             Method: POST
+            Auth:
+              Authorizer: AdminApiKey
         Proxy:
           Type: HttpApi
           Properties:
@@ -389,6 +397,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /orders
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         GetOrder:
           Type: HttpApi
           Properties:
@@ -443,6 +453,8 @@ Resources:
       Environment:
         Variables:
           SERVICE_TYPE: stock
+          # O ajuste que cria o inventário confere se o produto existe
+          PRODUCT_FUNCTION_NAME: !Ref ProductFunction
       # O EventBridge invoca esta função de forma assíncrona: erro da função não
       # volta para a regra (o RetryPolicy/DeadLetterConfig dela só cobrem falhas
       # de entrega). Quem repete é a Lambda; esgotadas as tentativas, o evento
@@ -485,6 +497,8 @@ Resources:
             QueueName: !GetAtt ProductEventsDlq.QueueName
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref EventBus
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ProductFunction
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -538,6 +552,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /sagas
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         # Corrige o status de saga parada em andamento: execução que terminou
         # sem conseguir gravar o status final ou que estourou o teto da execução
         # (SagaService.reconcileStuckSagas)
