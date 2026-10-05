@@ -40,7 +40,7 @@ export class StepFunctionsClient {
   }
 
   async describeExecution(executionArn) {
-    const { status, error, cause } = await this.client.send(new DescribeExecutionCommand({ executionArn }));
-    return { status, error, cause };
+    const { status, error, cause, stopDate } = await this.client.send(new DescribeExecutionCommand({ executionArn }));
+    return { status, error, cause, stopDate };
   }
 }

@@ -26,7 +26,10 @@ class FakeDb {
     if (condition.includes(':expectedAt') && (item.status !== values[':expectedStatus'] || item.updatedAt !== values[':expectedAt'])) throw fail();
     if (values[':execution']) item.reconciledFrom = values[':execution'];
     if (expression.includes('compensationError')) item.compensationError = values[':error'];
-    if (values[':now']) item.updatedAt = values[':now'];
+    if (values[':endedAt']) {
+      item.updatedAt = values[':endedAt'];
+      item.reconciledAt = values[':now'];
+    } else if (values[':now']) item.updatedAt = values[':now'];
 
     if (expression.includes('executionArn')) item.executionArn = values[':arn'];
     if (expression.includes('executionName')) item.executionName = values[':name'];
@@ -434,6 +437,15 @@ describe('SagaService: reconciliação de saga parada', () => {
     const saga = await service.getSaga('saga_a');
     assert.strictEqual(saga.status, 'COMPLETED');
     assert.strictEqual(saga.reconciledFrom, 'SUCCEEDED');
+  });
+
+  it('a saga corrigida guarda o fim real da execução em updatedAt (duração na aba SLOs)', async () => {
+    const stopDate = new Date(NOW - 5.5 * 60 * 1000);
+    const { db, service } = setup({ id: 'saga_t', status: 'RUNNING', updatedAt: ago(6 * 60 * 1000) }, { status: 'SUCCEEDED', stopDate });
+    await service.getSaga('saga_t');
+    const saved = db.tables.sagas.get('saga_t');
+    assert.strictEqual(saved.updatedAt, stopDate.toISOString());
+    assert.strictEqual(saved.reconciledAt, new Date(NOW).toISOString());
   });
 
   it('execução que estourou o teto vira COMPENSATION_FAILED (intervenção manual)', async () => {

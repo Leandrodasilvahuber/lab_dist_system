@@ -300,15 +300,20 @@ export class SagaService {
     if (!final) return saga;
     const { status: from, updatedAt: seenAt } = saga;
 
+    // updatedAt = fim da execução, não a hora desta correção: a aba SLOs mede a
+    // duração da compra por updatedAt - createdAt
+    const now = new Date(this.now()).toISOString();
+    const stoppedAt = Date.parse(execution.stopDate);
     let updated;
     try {
       updated = await this.db.updateItem(
         'sagas',
         { id: saga.id },
-        `SET #status = :status, updatedAt = :now, reconciledFrom = :execution${final.error ? ', compensationError = :error' : ''}`,
+        `SET #status = :status, updatedAt = :endedAt, reconciledAt = :now, reconciledFrom = :execution${final.error ? ', compensationError = :error' : ''}`,
         {
           ':status': final.status,
-          ':now': new Date(this.now()).toISOString(),
+          ':endedAt': Number.isFinite(stoppedAt) ? new Date(stoppedAt).toISOString() : now,
+          ':now': now,
           ':execution': execution.status,
           ':expectedStatus': from,
           ':expectedAt': seenAt,
