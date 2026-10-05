@@ -1,7 +1,7 @@
 import { Database } from '../database.mjs';
 import { NotFoundError, InvalidStateError, ValidationError } from '../errors.mjs';
 import { generateId } from '../ids.mjs';
-import { roundMoney } from '../validation.mjs';
+import { requireId, roundMoney } from '../validation.mjs';
 import { encodeToken } from '../pagination.mjs';
 
 // Leitura logo depois de uma escrita (retry de um passo, passo seguinte da
@@ -74,6 +74,7 @@ export class OrderSDK {
    * `options.consistentRead`: usado pela saga, que lê logo depois de gravar.
    */
   async getOrder(orderId, options) {
+    requireId(orderId, 'orderId');
     const order = await this.db.getItem('orders', { id: orderId }, options);
     if (!order || order.status === 'voided') {
       throw new NotFoundError('Order not found');

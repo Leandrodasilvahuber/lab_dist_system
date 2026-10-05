@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { toNumber } from '../../../src/common/validation.mjs';
+import { MAX_ID_LENGTH, requireId, toNumber } from '../../../src/common/validation.mjs';
+import { ValidationError } from '../../../src/common/errors.mjs';
 import { errorResponse, sdkErrorResponse, successResponse } from '../../../src/common/response.mjs';
 import { createServiceHandler } from '../../../src/common/http-handler.mjs';
 
@@ -51,5 +52,19 @@ describe('createServiceHandler', () => {
     const response = await failing(http('GET', '/x'));
     assert.strictEqual(response.statusCode, 500);
     assert.deepStrictEqual(JSON.parse(response.body), { error: 'Internal server error' });
+  });
+});
+
+describe('requireId', () => {
+  it('aceita string não vazia até MAX_ID_LENGTH', () => {
+    assert.strictEqual(requireId('apple', 'productId'), 'apple');
+    assert.strictEqual(requireId('x'.repeat(MAX_ID_LENGTH)), 'x'.repeat(MAX_ID_LENGTH));
+  });
+
+  // Acima de 2048 bytes a chave do DynamoDB daria ValidationException (500)
+  it('recusa id vazio, de outro tipo ou longo demais com ValidationError', () => {
+    for (const value of ['', undefined, null, 42, {}, 'x'.repeat(MAX_ID_LENGTH + 1)]) {
+      assert.throws(() => requireId(value, 'productId'), ValidationError, JSON.stringify(value)?.slice(0, 20));
+    }
   });
 });

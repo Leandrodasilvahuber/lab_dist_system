@@ -2,6 +2,7 @@ import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { DependencyUnavailableError, NotFoundError, ValidationError } from './errors.mjs';
 import { IS_LOCAL, awsClientConfig, isTransientAwsError, scaled } from './aws-client.mjs';
 import { CircuitBreaker } from './circuit-breaker.mjs';
+import { requireId } from './validation.mjs';
 
 // Erros de negócio da Lambda de produtos que viram o erro equivalente aqui
 const DOMAIN_ERRORS = { NotFound: NotFoundError, ValidationError };
@@ -66,6 +67,8 @@ export class ProductClient {
     if (!this.functionName) {
       throw new Error('PRODUCT_FUNCTION_NAME is not configured');
     }
+    // Id inválido é 400 aqui, sem invocar: não chega ao Products nem ao breaker
+    requireId(productId, 'productId');
     let pending = this.inFlight.get(productId);
     if (!pending) {
       pending = this.breaker.call(() => this.invoke(productId))

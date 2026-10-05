@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { ProductClient } from '../../../src/common/product-client.mjs';
-import { DependencyUnavailableError, NotFoundError } from '../../../src/common/errors.mjs';
+import { DependencyUnavailableError, NotFoundError, ValidationError } from '../../../src/common/errors.mjs';
 import { CircuitBreaker } from '../../../src/common/circuit-breaker.mjs';
 
 // Imita o LambdaClient: devolve o Payload como bytes, igual ao SDK
@@ -140,6 +140,22 @@ describe('ProductClient', () => {
     const products = new ProductClient({ functionName: 'f', client, breaker });
     await assert.rejects(products.getProduct('x'), NotFoundError);
     await assert.rejects(products.getProduct('x'), NotFoundError);
+    assert.strictEqual(breaker.state, 'closed');
+  });
+});
+
+describe('ProductClient: id inválido', () => {
+  // Sem a checagem, o DynamoDB do Products responderia ValidationException,
+  // tratada como queda: requisições públicas abririam o circuito
+  it('recusa com ValidationError sem invocar e sem abrir o circuito', async () => {
+    const client = fakeLambda({ Payload: { id: 'apple' } });
+    const breaker = new CircuitBreaker({ name: 'products', failureThreshold: 1 });
+    const products = new ProductClient({ functionName: 'f', client, breaker });
+
+    for (let i = 0; i < 3; i++) {
+      await assert.rejects(products.getProduct('x'.repeat(5000)), ValidationError);
+    }
+    assert.strictEqual(client.sent.length, 0);
     assert.strictEqual(breaker.state, 'closed');
   });
 });

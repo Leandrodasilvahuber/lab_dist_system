@@ -5,6 +5,24 @@ import { ValidationError } from './errors.mjs';
 export const MAX_NAME_LENGTH = 200;
 export const MAX_DESCRIPTION_LENGTH = 2000;
 
+// Ids que viram chave do DynamoDB (produto, pedido, saga). A chave aceita até
+// 2048 bytes: acima disso o banco responde ValidationException, que seria 500
+// e, na consulta ao Products pela saga, contaria como queda no circuit breaker
+// (bastariam algumas requisições públicas para abri-lo). Bem acima de qualquer
+// id gerado (prod_<uuid>, saga_<48 hex>)
+export const MAX_ID_LENGTH = 128;
+
+/**
+ * Confere um id vindo do cliente (path, body, query): string não vazia de até
+ * MAX_ID_LENGTH caracteres. Lança ValidationError (400).
+ */
+export function requireId(value, field = 'id') {
+  if (typeof value !== 'string' || !value || value.length > MAX_ID_LENGTH) {
+    throw new ValidationError(`${field} must be a non-empty string with at most ${MAX_ID_LENGTH} characters`);
+  }
+  return value;
+}
+
 /**
  * Converte um campo numérico vindo do JSON. Aceita número ou string numérica
  * não vazia; qualquer outra coisa (boolean, null, '', objeto) vira NaN, para

@@ -2,7 +2,7 @@ import { Database } from '../database.mjs';
 import { NotFoundError, InsufficientStockError, InvalidStateError, ValidationError } from '../errors.mjs';
 import { generateId } from '../ids.mjs';
 import { encodeToken } from '../pagination.mjs';
-import { optionalNumber, toNumber } from '../validation.mjs';
+import { optionalNumber, requireId, toNumber } from '../validation.mjs';
 import { log } from '../logger.mjs';
 import { isTransientAwsError } from '../aws-client.mjs';
 
@@ -317,6 +317,7 @@ export class StockSDK {
    * catálogo).
    */
   async adjustStock(productId, delta, { name } = {}) {
+    requireId(productId, 'productId');
     if (!Number.isInteger(delta) || delta === 0) {
       throw new ValidationError('delta must be a non-zero integer');
     }
@@ -387,6 +388,7 @@ export class StockSDK {
    * Buscar estoque por ID de produto
    */
   async getStock(productId) {
+    requireId(productId, 'productId');
     const inventory = await this.db.getItem('inventory', { id: productId });
     if (!isLive(inventory)) {
       throw new NotFoundError('Inventory not found for product');
@@ -416,6 +418,7 @@ export class StockSDK {
   async listStock(filters = {}, { limit, startKey } = {}) {
     const stockMin = optionalNumber(filters.stockMin, 'stockMin');
     const stockMax = optionalNumber(filters.stockMax, 'stockMax');
+    if (filters.productId) requireId(filters.productId, 'productId');
 
     // Com productId, lê direto pela chave: um scan paginado poderia devolver
     // várias páginas vazias antes de chegar ao produto

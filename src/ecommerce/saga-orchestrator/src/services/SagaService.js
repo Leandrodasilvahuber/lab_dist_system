@@ -6,6 +6,7 @@ import { encodeToken } from '../../../../common/pagination.mjs';
 import { SAGAS_BY_DAY_INDEX, dayShardsInWindow, sagaDayShard } from '../../../../common/saga-day-index.mjs';
 import { STUCK_AFTER_MS } from '../../../../common/saga-timing.mjs';
 import { StepFunctionsClient } from './StepFunctionsClient.js';
+import { requireId } from '../../../../common/validation.mjs';
 import { ProductClient } from '../../../../common/product-client.mjs';
 
 export const SagaStatus = {
@@ -73,6 +74,7 @@ export class SagaService {
     if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
       throw new ValidationError('productId and a positive integer quantity are required');
     }
+    requireId(productId, 'productId');
     // O controller já responde 400 sem o header; aqui garante o contrato
     if (!idempotencyKey) {
       throw new ValidationError('idempotencyKey is required');
@@ -259,6 +261,7 @@ export class SagaService {
   }
 
   async getSaga(sagaId) {
+    requireId(sagaId, 'sagaId');
     const saga = await this.db.getItem('sagas', { id: sagaId }, CONSISTENT);
     if (!saga) {
       throw new NotFoundError('Saga not found');

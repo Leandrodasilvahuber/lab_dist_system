@@ -53,3 +53,18 @@ describe('normalizeHttpEvent', () => {
     assert.strictEqual(event.headers.correlationId, undefined);
   });
 });
+
+describe('normalizeHttpEvent: correlationId do cliente', () => {
+  const withHeader = value => normalizeHttpEvent({ rawPath: '/saga/execute', requestContext: { http: { method: 'POST' } }, headers: { 'X-Correlation-ID': value } });
+
+  it('aceita ids com os caracteres do rastreio', () => {
+    assert.strictEqual(withHeader('web-1.2:abc_9').headers.correlationId, 'web-1.2:abc_9');
+  });
+
+  // Gravado na saga, um valor desses faria GET /trace/{id} recusar o próprio id
+  it('ignora valores que o rastreio recusaria', () => {
+    for (const value of ['com espaço', 'a/b', 'x'.repeat(129), '']) {
+      assert.strictEqual(withHeader(value).headers.correlationId, undefined, value.slice(0, 20));
+    }
+  });
+});

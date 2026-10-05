@@ -1,4 +1,5 @@
 import { ValidationError } from './errors.mjs';
+import { isTraceId } from './log-query.mjs';
 
 /**
  * Normaliza eventos de entrada das Lambdas.
@@ -28,13 +29,18 @@ export function normalizeHttpEvent(event = {}) {
     Object.entries(event.headers || {}).map(([name, value]) => [name.toLowerCase(), value])
   );
 
+  // correlationId do cliente só vale se for um id (isTraceId): com outros
+  // caracteres ou longo demais, gravado na saga, o rastreio da compra
+  // (GET /trace/{id}) recusaria o próprio id. Sem ele, a saga usa o sagaId
+  const receivedCorrelationId = headers['x-correlation-id'] ?? headers.correlationid;
+
   return {
     ...event,
     method: http?.method,
     path,
     headers: {
       ...headers,
-      correlationId: headers['x-correlation-id'] ?? headers.correlationid
+      correlationId: isTraceId(receivedCorrelationId) ? receivedCorrelationId : undefined
     },
     queryStringParameters: event.queryStringParameters || {},
     body

@@ -2,7 +2,7 @@ import { Database } from '../database.mjs';
 import { NotFoundError, ValidationError } from '../errors.mjs';
 import { generateId } from '../ids.mjs';
 import { encodeToken } from '../pagination.mjs';
-import { optionalNumber, MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH } from '../validation.mjs';
+import { optionalNumber, requireId, MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH } from '../validation.mjs';
 import { log } from '../logger.mjs';
 
 // Campos que updateProduct aceita (id, datas e estoque não são do cliente)
@@ -68,6 +68,7 @@ export class ProductSDK {
    * Buscar produto por ID
    */
   async getProduct(productId) {
+    requireId(productId, 'productId');
     const product = await this.db.getItem('products', { id: productId });
     if (!product) {
       throw new NotFoundError('Product not found');

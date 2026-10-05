@@ -92,6 +92,18 @@ describe('SagaService', () => {
     service = new SagaService({ db, stepFunctions: sfn, productClient });
   });
 
+  it('productId longo demais: 400 antes de consultar o Products', async () => {
+    let looked = false;
+    service.productClient = { getProduct: async () => { looked = true; } };
+    await assert.rejects(service.startSaga({ productId: 'x'.repeat(5000), quantity: 1, idempotencyKey: 'k-long-product' }), ValidationError);
+    assert.strictEqual(looked, false);
+    assert.strictEqual(sfn.started.length, 0);
+  });
+
+  it('getSaga com id longo demais: ValidationError, não erro do banco', async () => {
+    await assert.rejects(service.getSaga('x'.repeat(5000)), ValidationError);
+  });
+
   it('cria o registro RUNNING e inicia a execução com ids determinísticos', async () => {
     const { saga, created } = await service.startSaga({ productId: 'apple', quantity: 2, idempotencyKey: 'k-start' });
 
