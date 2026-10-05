@@ -188,12 +188,15 @@ async function scanPage(tableType, { limit, startKey } = {}) {
   return { items: result.Items || [], lastKey: result.LastEvaluatedKey };
 }
 
+// `returnValues: 'ALL_OLD'`: devolve o item como estava no momento da exclusão
 async function deleteItem(tableType, key, options = {}) {
-  await docClient.send(new DeleteCommand({
+  const { Attributes } = await docClient.send(new DeleteCommand({
     TableName: getTable(tableType),
     Key: key,
-    ...(options.conditionExpression && { ConditionExpression: options.conditionExpression })
+    ...(options.conditionExpression && { ConditionExpression: options.conditionExpression }),
+    ...(options.returnValues && { ReturnValues: options.returnValues })
   }));
+  return Attributes;
 }
 
 // Database class wrapper for testing

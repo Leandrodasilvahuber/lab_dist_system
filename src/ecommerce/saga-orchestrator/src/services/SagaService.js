@@ -78,9 +78,6 @@ export class SagaService {
     if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
       throw new ValidationError('productId and a positive integer quantity are required');
     }
-    if (quantity > MAX_PURCHASE_QUANTITY) {
-      throw new ValidationError(`quantity must be at most ${MAX_PURCHASE_QUANTITY}`);
-    }
     requireId(productId, 'productId');
     // O controller já responde 400 sem o header; aqui garante o contrato
     if (!idempotencyKey) {
@@ -92,6 +89,11 @@ export class SagaService {
     const existing = await this.db.getItem('sagas', { id: sagaId }, CONSISTENT);
     if (existing) {
       return this.resume(existing, { productId, quantity });
+    }
+    // Só para compra nova: a repetição de uma saga criada antes do teto
+    // (mesma Idempotency-Key) devolve a saga existente, não 400
+    if (quantity > MAX_PURCHASE_QUANTITY) {
+      throw new ValidationError(`quantity must be at most ${MAX_PURCHASE_QUANTITY}`);
     }
 
     // Consulta síncrona ao serviço de Products: produto inexistente falha aqui

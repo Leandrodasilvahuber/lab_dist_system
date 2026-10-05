@@ -165,10 +165,11 @@ export class ProductSDK {
    */
   async deleteProduct(productId) {
     requireId(productId, 'productId');
-    const product = await this.db.getItem('products', { id: productId }, { consistentRead: true });
-    if (!product) throw new NotFoundError('Product not found');
+    // O item vem da própria exclusão (ALL_OLD), não de uma leitura anterior:
+    // um updateProduct entre ler e excluir faria o rollback devolver a versão velha
+    let product;
     try {
-      await this.db.deleteItem('products', { id: productId }, { conditionExpression: 'attribute_exists(id)' });
+      product = await this.db.deleteItem('products', { id: productId }, { conditionExpression: 'attribute_exists(id)', returnValues: 'ALL_OLD' });
     } catch (error) {
       if (error.name === 'ConditionalCheckFailedException') throw new NotFoundError('Product not found');
       throw error;

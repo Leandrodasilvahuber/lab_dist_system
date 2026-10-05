@@ -121,8 +121,12 @@ describe('ProductSDK.deleteProduct', () => {
   function setup({ publishFails = false, exists = true } = {}) {
     const calls = { deleted: [], restored: [], published: [] };
     const db = {
-      getItem: async () => exists ? { ...PRODUCT } : undefined,
-      deleteItem: async (table, key) => { calls.deleted.push(key); },
+      // DynamoDB: condição falha se não existe; ALL_OLD devolve o item excluído
+      deleteItem: async (table, key, options) => {
+        calls.deleted.push({ key, options });
+        if (!exists) throw Object.assign(new Error('The conditional request failed'), { name: 'ConditionalCheckFailedException' });
+        return { ...PRODUCT };
+      },
       putItemIfNotExists: async (table, item) => { calls.restored.push(item); return true; }
     };
     const bus = {
@@ -139,11 +143,12 @@ describe('ProductSDK.deleteProduct', () => {
     ProductSDK = await loadProductSDK();
     const { calls, sdk } = setup();
     assert.deepStrictEqual(await sdk.deleteProduct('p1'), { success: true });
-    assert.deepStrictEqual(calls.deleted, [{ id: 'p1' }]);
+    assert.deepStrictEqual(calls.deleted, [{ key: { id: 'p1' }, options: { conditionExpression: 'attribute_exists(id)', returnValues: 'ALL_OLD' } }]);
     assert.deepStrictEqual(calls.published, [{ type: 'ProductDeleted', options: { required: true } }]);
   });
 
   // Sem o evento o Stock manteria o inventário de um produto que não existe
+  // O item restaurado é o que a exclusão devolveu (ALL_OLD), não uma leitura anterior
   it('falha ao publicar: devolve o produto ao catálogo e relança', async () => {
     ProductSDK = await loadProductSDK();
     const { calls, sdk } = setup({ publishFails: true });

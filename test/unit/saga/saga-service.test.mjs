@@ -111,6 +111,14 @@ describe('SagaService', () => {
     assert.strictEqual(created, true);
   });
 
+  it('saga criada antes do teto: a mesma chave devolve a saga existente, não 400', async () => {
+    const key = 'k-before-cap-000001';
+    const id = sagaIdFromKey(key);
+    db.tables.sagas.set(id, { id, status: 'COMPLETED', productId: 'apple', quantity: MAX_PURCHASE_QUANTITY + 500, steps: {}, updatedAt: new Date().toISOString() });
+    const { saga, created } = await service.startSaga({ productId: 'apple', quantity: MAX_PURCHASE_QUANTITY + 500, idempotencyKey: key });
+    assert.deepStrictEqual([saga.id, saga.status, created], [id, 'COMPLETED', false]);
+  });
+
   it('getSaga com id longo demais: ValidationError, não erro do banco', async () => {
     await assert.rejects(service.getSaga('x'.repeat(5000)), ValidationError);
   });
