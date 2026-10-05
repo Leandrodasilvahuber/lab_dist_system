@@ -74,19 +74,56 @@ describe('GET /alarms', () => {
 describe('GET /logs', () => {
   const getLogs = query => ({ requestContext: { http: { method: 'GET' } }, rawPath: '/logs', headers: {}, queryStringParameters: query });
 
+  // CloudWatch Logs falso: devolve as linhas da janela pedida, da mais antiga
+  // para a mais nova, em páginas de 100
+  function fakeLogs(lines) {
+    return {
+      sent: [],
+      async send({ input }) {
+        this.sent.push(input);
+        const events = lines
+          .filter(line => {
+            const at = Date.parse(JSON.parse(line.slice(line.indexOf('{'))).timestamp);
+            return at >= input.startTime && at <= input.endTime;
+          })
+          .sort((a, b) => a.localeCompare(b))
+          .map(message => ({ message }));
+        const offset = Number(input.nextToken || 0);
+        const next = offset + 100;
+        return { events: events.slice(offset, next), ...(next < events.length && { nextToken: String(next) }) };
+      }
+    };
+  }
+  const line = (timestamp, event, status = 'error') => JSON.stringify({ timestamp, event, status });
+
   it('LogsClient filtra warn/error no log group e devolve as linhas parseadas, mais recentes primeiro', async () => {
     const now = Date.parse('2026-10-04T12:00:00Z');
-    const client = fakeCloudWatch({ events: [
-      { message: JSON.stringify({ timestamp: '2026-10-04T11:00:00Z', event: 'A', status: 'warn' }) },
-      { message: 'START RequestId: abc' },
-      { message: `${JSON.stringify({ timestamp: '2026-10-04T11:30:00Z', event: 'B', status: 'error' })}\n` }
-    ] });
+    const client = fakeLogs([line('2026-10-04T10:30:00Z', 'A', 'warn'), line('2026-10-04T11:30:00Z', 'B'), `${line('2026-10-04T11:40:00Z', 'C')}\n`]);
     const logs = await new LogsClient({ logGroupName: '/aws/lambda/dev-ecommerce', client }).listLogs({ levels: ['warn', 'error'], hours: 2 }, now);
 
     assert.strictEqual(client.sent[0].logGroupName, '/aws/lambda/dev-ecommerce');
     assert.strictEqual(client.sent[0].filterPattern, '{ ($.status = "warn") || ($.status = "error") }');
-    assert.strictEqual(client.sent[0].startTime, now - 2 * 3600 * 1000);
-    assert.deepStrictEqual(logs.map(l => l.event), ['B', 'A']);
+    // Da janela mais recente para a mais antiga, sem sobrepor a borda
+    assert.deepStrictEqual(client.sent.map(({ startTime, endTime }) => [startTime, endTime]), [
+      [now - 3600 * 1000, now],
+      [now - 2 * 3600 * 1000, now - 3600 * 1000 - 1]
+    ]);
+    assert.deepStrictEqual(logs.map(l => l.event), ['C', 'B', 'A']);
+  });
+
+  it('LogsClient mostra as linhas mais recentes quando o período tem mais que o limite', async () => {
+    const now = Date.parse('2026-10-04T12:00:00Z');
+    const recent = Array.from({ length: 250 }, (_, i) => line(new Date(now - (i + 1) * 1000).toISOString(), `R${i}`));
+    const old = Array.from({ length: 300 }, (_, i) => line(new Date(now - 5 * 3600 * 1000 - i * 1000).toISOString(), `O${i}`));
+    const client = fakeLogs([...old, ...recent]);
+    const logs = await new LogsClient({ logGroupName: 'g', client }).listLogs({ levels: ['error'], hours: 24 }, now);
+
+    // A última hora (3 páginas) já basta: as janelas mais antigas nem são lidas
+    assert.strictEqual(client.sent.length, 3);
+    assert.ok(client.sent.every(({ startTime }) => startTime === now - 3600 * 1000));
+    assert.strictEqual(logs.length, 200);
+    assert.strictEqual(logs[0].event, 'R0');
+    assert.ok(logs.every(l => l.event.startsWith('R')));
   });
 
   it('LogsClient só pede a próxima página se ela couber no timeout da Lambda', async () => {
@@ -104,12 +141,12 @@ describe('GET /logs', () => {
     assert.strictEqual(logs.length, 2);
   });
 
-  it('LogsClient lê as 5 páginas quando elas respondem rápido', async () => {
+  it('LogsClient lê até 10 páginas quando elas respondem rápido', async () => {
     let clock = 0;
     let calls = 0;
     const client = { async send() { calls += 1; clock += 300; return { events: [], nextToken: 'more' }; } };
     await new LogsClient({ logGroupName: 'g', client, clock: () => clock }).listLogs({ levels: ['error'], hours: 1 });
-    assert.strictEqual(calls, 5);
+    assert.strictEqual(calls, 10);
   });
 
   it('repassa level e hours da query', async () => {
