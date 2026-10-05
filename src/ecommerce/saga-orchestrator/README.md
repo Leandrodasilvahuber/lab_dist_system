@@ -18,7 +18,8 @@ Coordena a compra como uma **saga orquestrada pelo AWS Step Functions**.
 | `src/services/SagaService.js` | Valida a compra, consulta o produto, cria o registro da saga (status `RUNNING`) e inicia a execução |
 | `src/common/product-client.mjs` | Consulta o produto invocando a Lambda de Products (`getProduct`); a saga não lê a tabela de produtos. Também usado pelo Stock no ajuste que cria o inventário |
 | `src/services/StepFunctionsClient.js` | `StartExecution` no Step Functions |
-| `src/controllers/SagaOrchestratorController.js` | Rotas HTTP `/saga/execute`, `/saga/{id}`, `/sagas` |
+| `src/controllers/SagaOrchestratorController.js` | Rotas HTTP `/saga/execute`, `/saga/{id}`, `/sagas` (`?recent=N`: as mais recentes das últimas 24 h, pelo índice por dia) |
+| `src/common/saga-status.mjs` | Status da saga e a conversão do resultado da execução (`finalStatus`), a mesma da aba Desempenho |
 | `workflow/saga-workflow.asl.json` | Máquina de estados (gerada, não edite à mão) |
 | `scripts/generate-saga-workflow.py` | Gera o ASL a partir da lista de passos e compensações |
 
@@ -72,10 +73,14 @@ precisa de intervenção manual.
   escrita condicional. Repetir um passo devolve o resultado já existente.
   Compensar duas vezes também não tem efeito colateral.
 - **Retry só para falhas transitórias:** erros e timeouts da Lambda
-  (`Sandbox.Timedout`, `Lambda.Unknown`), throttling e
-  `TransactionConflictException` são repetidos com backoff exponencial, jitter
-  completo (`JitterStrategy: FULL`) e teto de 10s: sagas simultâneas no mesmo
-  produto não repetem em sincronia. Erros de
+  (`Sandbox.Timedout`, `Lambda.Unknown`) e `TransactionConflictException` são
+  repetidos com backoff exponencial, jitter completo (`JitterStrategy: FULL`) e
+  teto de 10s: sagas simultâneas no mesmo produto não repetem em sincronia.
+  Throttling da Lambda (`Lambda.TooManyRequestsException`: concorrência
+  esgotada num pico, ou mais de 2 compras simultâneas no LocalStack) tem retry
+  próprio e mais paciente (6 tentativas, esperas de 2 a 20 s): a recusa é
+  imediata e só passa quando outra invocação termina. Se mesmo assim não
+  passar, o cliente vê "Service busy..." em vez do texto técnico. Erros de
   negócio (`InsufficientStock`, `PaymentDeclined`, `NotFound`, `InvalidState`)
   vão direto para a compensação: o `name` do erro lançado pelo SDK vira o
   `errorType` da Lambda, que é o que o Step Functions compara.
@@ -101,7 +106,9 @@ precisa de intervenção manual.
   `Idempotency-Key` (obrigatória).
   A abertura do circuito grava a métrica `CircuitOpened` e dispara o alarme
   `<env>-ecommerce-circuit-open`. Função de produtos inexistente ou sem
-  permissão é erro de configuração: `500`, sem abrir o circuito.
+  permissão é erro de configuração: `500`, sem abrir o circuito. Throttling
+  da Lambda de produtos é repetido antes, com até 5 esperas curtas (até 4,6 s
+  na AWS): só depois disso vira `503`.
   Throttling, timeout ou erro 5xx de qualquer serviço da AWS também respondem
   `503` com `Retry-After` (`isTransientAwsError` em `src/common/aws-client.mjs`).
 
@@ -133,13 +140,15 @@ DynamoDB, sem Lambda extra):
 }
 ```
 
-(`error` e `progress` são montados pela API a partir do que está gravado.)
+(`error` e `progress` são montados pela API a partir do que está gravado;
+`executionArn`, `executionName`, `startAttempts` e `dayShard` ficam só na tabela,
+fora da resposta de `GET /saga/{id}`.)
 
 ## Custo
 
 No Step Functions Standard paga-se por transição de estado (cerca de
 US$ 0,025 por 1.000, com 4.000 grátis por mês). Uma compra bem-sucedida usa
-cerca de 10 transições (cada passo e o seu registro), e cada passo também é uma
+cerca de 12 transições (cada passo e o seu registro), e cada passo também é uma
 invocação de Lambda. Para um laboratório o custo é praticamente zero. Confira os
 preços atuais em https://aws.amazon.com/step-functions/pricing/.
 

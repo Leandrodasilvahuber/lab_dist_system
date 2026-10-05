@@ -29,11 +29,11 @@ mantida. Para trocar a chave sem redeploy:
 A chave antiga ainda é aceita por até ~6 minutos depois da troca: 1 minuto de
 cache no authorizer mais os 5 minutos em que o HttpApi guarda a decisão
 (`ReauthorizeEvery: 300` no template).
-Exigem o header `X-Api-Key` com essa chave as escritas (`POST /products`,
-`POST /stock/{id}/adjust`, `POST /dlq/{id}/redrive|discard`) e as leituras que
-expõem compras de outras pessoas ou a conta (`/orders`, `/sagas`, `/logs`,
-`/trace/{id}`, `/metrics/sagas`, `/metrics/cost`). O catálogo, a compra, a
-consulta de uma compra pelo id, as métricas agregadas e a leitura da DLQ são abertos. Para restringir o CORS a uma origem, passe
+Exigem o header `X-Api-Key` com essa chave só as escritas da aba Admin:
+cadastrar e remover produto (`POST /products`, `DELETE /products/{id}`) e
+ajustar estoque (`POST /stock/{id}/adjust`). O resto é aberto, inclusive
+pedidos e compras (`/orders`, `/sagas`), logs, rastreio, métricas, custo e as
+ações da DLQ: serve ao laboratório, mas expõe as compras de todos. Para restringir o CORS a uma origem, passe
 também `AllowedOrigin=https://...` em `--parameter-overrides`.
 
 O `sam deploy` mostra o changeset e pede confirmação antes de criar os recursos
@@ -66,7 +66,7 @@ estoque aos valores do seed, use `npm run seed -- --stage dev --reset`.
 | `ProductFunction`, `OrderFunction`, `StockFunction` | Serviços (HTTP + ações/eventos internos) |
 | `PaymentFunction` | Só ações da saga (sem rota HTTP) |
 | `SagaOrchestratorFunction` | `/saga/execute`, `/saga/{id}`, `/sagas` |
-| `AdminAuthorizerFunction` | Authorizer das rotas de admin (`X-Api-Key`): só `POST /products` e `POST /stock/{productId}/adjust` |
+| `AdminAuthorizerFunction` | Authorizer das rotas de admin (`X-Api-Key`): só `POST /products`, `DELETE /products/{id}` e `POST /stock/{productId}/adjust` |
 | `SagaStateMachine` (`dev-purchase-saga`) | Saga de compra (Step Functions Standard) |
 | `GatewayFunction` | `/health`, `/alarms` (alarmes `dev-ecommerce-*`), `/logs` (linhas warn/error do `ServicesLogGroup`), `/trace/{correlationId}` (linhas de uma compra), `/metrics/errors` (métricas EMF), `/metrics/sagas`, `/metrics/slo` (SLOs da tabela de sagas e da DLQ), `/dlq` (lista, reprocessa e descarta eventos da `ProductEventsDlq`) e 404 com a lista de endpoints |
 | Tabelas `dev-Products`, `dev-Orders`, `dev-Payments`, `dev-Inventory`, `dev-StockReservations`, `dev-Sagas` | DynamoDB on-demand, uma ou mais por serviço |
@@ -174,8 +174,9 @@ A aba 🧠 **Recursos** do dashboard mostra o custo de duas formas:
 - **Real**: Cost Explorer (custo da **conta inteira**), com previsão do mês. Cada
   chamada à API custa US$ 0,01, então a GatewayFunction guarda o resultado por
   6 h. O cache é de cada container da Lambda: um container novo paga a primeira
-  leitura (US$ 0,02, com a previsão). Por mostrar o gasto da conta, a rota
-  `GET /metrics/cost` exige a chave de admin. Numa conta nova, o Cost Explorer precisa ser ativado uma vez no console
+  leitura (US$ 0,02, com a previsão). A rota `GET /metrics/cost` é aberta e
+  mostra o gasto da conta inteira; `?days=` aceita só 7, 14, 30 ou 90, para
+  que trocar o período não fure o cache da estimativa. Numa conta nova, o Cost Explorer precisa ser ativado uma vez no console
   (Billing → Cost Explorer) e leva até 24 h para ter dados.
 
 A métrica de memória (`MemoryUsedMB`, uma série por Lambda) é métrica custom:
