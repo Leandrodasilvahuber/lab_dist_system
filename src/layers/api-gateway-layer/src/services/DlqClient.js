@@ -31,6 +31,15 @@ export const DLQ_LIST_CACHE_TTL_MS = 20 * 1000;
  *    `requestPayload` e o erro em `responsePayload`.
  */
 export class DlqClient {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.queueUrl]
+   * @param {string} [options.queueName]
+   * @param {import('@aws-sdk/client-sqs').SQSClient} [options.client]
+   * @param {import('../../../../common/event-bus.mjs').EventBus} [options.eventBus]
+   * @param {number} [options.cacheTtlMs]
+   * @param {() => number} [options.now]
+   */
   constructor({ queueUrl = process.env.DLQ_URL, queueName = process.env.DLQ_NAME, client, eventBus = defaultEventBus, cacheTtlMs = DLQ_LIST_CACHE_TTL_MS, now = Date.now } = {}) {
     this.queueUrl = queueUrl;
     this.queueName = queueName;

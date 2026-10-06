@@ -41,6 +41,13 @@ const OUTCOMES = ['ok', 'rejected', 'failed'];
  * tudo numa consulta só.
  */
 export class CloudWatchMetricsClient {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.namespace]
+   * @param {import('@aws-sdk/client-cloudwatch').CloudWatchClient} [options.client]
+   * @param {number} [options.cacheTtlMs]
+   * @param {() => number} [options.now]
+   */
   constructor({ namespace = metricNamespace(), client, cacheTtlMs = ERROR_METRICS_CACHE_TTL_MS, now = Date.now } = {}) {
     this.namespace = namespace;
     this.cacheTtlMs = cacheTtlMs;

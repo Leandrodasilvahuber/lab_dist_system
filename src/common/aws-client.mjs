@@ -68,6 +68,11 @@ function defaultMaxAttempts() {
 /**
  * `handlerOptions`: opções extras do NodeHttpHandler (ex.: `httpAgent` e
  * `httpsAgent` compartilhados entre clientes do mesmo serviço).
+ * @param {string} endpointEnv
+ * @param {object} [options]
+ * @param {number} [options.requestTimeout]
+ * @param {number} [options.maxAttempts]
+ * @param {Record<string, any>} [options.handlerOptions]
  */
 export function awsClientConfig(endpointEnv, { requestTimeout = DEFAULT_TIMEOUTS.requestTimeout, maxAttempts = defaultMaxAttempts(), handlerOptions } = {}) {
   const endpoint = (endpointEnv && process.env[endpointEnv]) || process.env.AWS_ENDPOINT;

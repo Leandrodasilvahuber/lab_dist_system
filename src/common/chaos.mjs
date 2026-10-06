@@ -105,6 +105,16 @@ function matches(fault, service, action) {
   return fault.service === service && (!fault.action || fault.action === action);
 }
 
+/**
+ * @param {object} [options]
+ * @param {boolean} [options.enabled]
+ * @param {string} [options.parameterName]
+ * @param {import('@aws-sdk/client-ssm').SSMClient} [options.client]
+ * @param {() => number} [options.now]
+ * @param {() => number} [options.random]
+ * @param {(ms: number) => Promise<unknown>} [options.sleep]
+ * @param {number} [options.cacheTtlMs]
+ */
 export function createChaos({
   enabled = process.env.CHAOS_ENABLED === 'true',
   parameterName = process.env.CHAOS_PARAM,

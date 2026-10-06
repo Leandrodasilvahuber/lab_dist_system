@@ -18,6 +18,11 @@ import { awsClientConfig } from './aws-client.mjs';
  * É assim que o local-server e o e2e fazem o Stock receber ProductCreated.
  */
 export class EventBus {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.eventBusName]
+   * @param {import('@aws-sdk/client-eventbridge').EventBridgeClient} [options.client]
+   */
   constructor({ eventBusName = process.env.EVENT_BUS_NAME, client } = {}) {
     this.eventBusName = eventBusName;
     this.subscribers = [];

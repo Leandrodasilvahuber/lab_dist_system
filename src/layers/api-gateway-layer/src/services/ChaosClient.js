@@ -21,6 +21,15 @@ const CHAOS_COUNTER_PREFIX = `${QUOTA_ID_PREFIX}chaos_`;
  * Aberto a todos: ligar conta no limite diário (DEFAULT_DAILY_CHAOS_LIMIT).
  */
 export class ChaosClient {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.parameterName]
+   * @param {boolean} [options.enabled]
+   * @param {number} [options.limit] ativações por dia (0 = sem limite)
+   * @param {import('@aws-sdk/client-ssm').SSMClient} [options.client]
+   * @param {typeof database} [options.db]
+   * @param {() => number} [options.now]
+   */
   constructor({
     parameterName = process.env.CHAOS_PARAM,
     enabled = process.env.CHAOS_ENABLED === 'true',

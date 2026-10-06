@@ -62,6 +62,12 @@ function errorCode(response) {
  * Toda invocação grava a memória usada (runtime-metrics.mjs).
  * `service`: nome usado como alvo da injeção de falhas (chaos.mjs); a rota
  * HTTP é o alvo `METHOD /caminho`.
+ * @param {object} options
+ * @param {string} options.service
+ * @param {(event: Record<string, any>) => Promise<any>} [options.setupRoutes] roteia a requisição HTTP
+ * @param {Record<string, Function>} [options.actions]
+ * @param {Record<string, Function>} [options.eventHandlers]
+ * @param {ReturnType<typeof import('./chaos.mjs').createChaos>} [options.chaos]
  */
 export function createServiceHandler({ service, setupRoutes, actions = {}, eventHandlers = {}, chaos = getChaos() }) {
   return withRuntimeMetrics(async function handler(rawEvent) {

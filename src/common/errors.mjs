@@ -90,6 +90,13 @@ export class ChaosLimitError extends DailyLimitError {
  * vezes em UnhandledErrors.
  */
 export class DependencyUnavailableError extends DomainError {
+  /**
+   * @param {string} [message]
+   * @param {object} [options]
+   * @param {number} [options.retryAfterSeconds]
+   * @param {unknown} [options.cause]
+   * @param {boolean} [options.logged]
+   */
   constructor(message = 'Service temporarily unavailable', { retryAfterSeconds = 5, cause, logged = false } = {}) {
     super(message, 'ServiceUnavailable', 503);
     this.retryAfterSeconds = retryAfterSeconds;

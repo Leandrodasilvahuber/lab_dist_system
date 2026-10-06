@@ -52,6 +52,14 @@ export function aggregate(data) {
   return [...series.values()];
 }
 
+/**
+ * @param {object} options
+ * @param {import('@aws-sdk/client-cloudwatch').CloudWatchClient} options.cloudwatch
+ * @param {import('@aws-sdk/client-cloudwatch-logs').CloudWatchLogsClient} options.logs
+ * @param {string} [options.logGroupPrefix]
+ * @param {(entry: Record<string, any>) => void} [options.onEntry]
+ * @param {() => number} [options.now]
+ */
 export function createEmfAgent({ cloudwatch, logs, logGroupPrefix = '/aws/lambda/local-', onEntry = () => {}, now = Date.now }) {
   const pending = [];
   const cursors = new Map();

@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
  * (template.yaml, Auth.Authorizer em cada rota); no local-server, o header
  * X-Api-Key com a chave de admin. Mantenha esta lista igual às do template.
  */
+/** @type {Array<[string, RegExp]>} */
 export const ADMIN_ROUTES = [
   // Escritas da aba Admin: cadastrar e remover produto, e o ajuste de
   // estoque (cria inventário). As leituras (pedidos, compras, a lista da

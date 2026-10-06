@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Ligado por `npm run prepare` (core.hooksPath). Roda o ESLint só nos arquivos
+# em stage e, se algum for do código Node (src/, scripts/, local-server.mjs),
+# a checagem de tipos. Os testes ficam para o CI e o `npm run check`.
+# Pular numa emergência: git commit --no-verify
+set -euo pipefail
+
+mapfile -d '' files < <(git diff --cached --name-only --diff-filter=ACM -z -- '*.js' '*.mjs')
+[ ${#files[@]} -eq 0 ] && exit 0
+
+npx --no-install eslint --ext .js,.mjs -- "${files[@]}"
+
+for file in "${files[@]}"; do
+  case "$file" in
+    src/*|scripts/*|local-server.mjs)
+      npm run -s typecheck
+      break
+      ;;
+  esac
+done

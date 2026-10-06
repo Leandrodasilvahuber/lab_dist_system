@@ -55,6 +55,14 @@ const CONSISTENT = { consistentRead: true };
  * (workflow/saga-workflow.asl.json), que também atualiza o registro da saga.
  */
 export class SagaService {
+  /**
+   * @param {object} [options]
+   * @param {Database} [options.db]
+   * @param {StepFunctionsClient} [options.stepFunctions]
+   * @param {ProductClient} [options.productClient]
+   * @param {() => number} [options.now]
+   * @param {PurchaseQuota} [options.quota]
+   */
   constructor({ db = new Database(), stepFunctions = new StepFunctionsClient(), productClient = new ProductClient(), now = Date.now, quota } = {}) {
     this.db = db;
     this.quota = quota || new PurchaseQuota({ now });
@@ -520,6 +528,10 @@ export class SagaService {
    * Lista as sagas, uma página por vez (`limit`, `startKey`). O Scan não tem
    * ordem: a página vem ordenada (mais recentes primeiro), mas a ordem global
    * fica a cargo de quem junta as páginas.
+   * @param {Record<string, any>} [filters]
+   * @param {object} [page]
+   * @param {number} [page.limit]
+   * @param {Record<string, any>} [page.startKey] LastEvaluatedKey da página anterior
    */
   async listSagas(filters = {}, { limit, startKey } = {}) {
     const { items, lastKey } = await this.db.scanPage('sagas', { limit, startKey });

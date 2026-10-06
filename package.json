@@ -14,6 +14,8 @@
     "chaos": "node scripts/chaos-experiments.mjs",
     "lint": "eslint --ext .js,.mjs src/ test/ scripts/ dashboard/ local-server.mjs",
     "lint:fix": "eslint --ext .js,.mjs src/ test/ scripts/ dashboard/ local-server.mjs --fix",
+    "typecheck": "tsc -p tsconfig.json",
+    "check": "npm run lint && npm run typecheck && npm test",
     "build": "sam build",
     "validate": "sam validate --lint",
     "deploy": "bash scripts/deploy.sh",
@@ -36,7 +38,8 @@
     "dast:api": "LOG_LEVEL=silent node --test test/integration/security.test.mjs",
     "dast:zap": "mkdir -p reports && chmod 777 reports && docker run --rm --network host -v \"$PWD/reports:/zap/wrk:rw\" -v \"$PWD/.zap:/zap/config:ro\" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t ${DAST_TARGET:-http://localhost:3001/} -c /zap/config/rules.tsv -r zap.html -J zap.json",
     "dast:zap:api": "mkdir -p reports && chmod 777 reports && docker run --rm --network host -v \"$PWD/reports:/zap/wrk:rw\" -v \"$PWD/.zap:/zap/config:ro\" ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py -t /zap/config/openapi.yaml -f openapi -O ${DAST_TARGET:-http://localhost:3001} -c /zap/config/rules-api.tsv -r zap-api.html -J zap-api.json -T 25 -I",
-    "security": "npm run lint && npm run sast && npm run dast:api"
+    "security": "npm run lint && npm run sast && npm run dast:api",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "@aws-sdk/client-apigatewayv2": "^3.1146.0",
@@ -52,11 +55,13 @@
     "@aws-sdk/lib-dynamodb": "^3.1141.0"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
     "c8": "^8.0.1",
     "esbuild": "^0.28.2",
     "eslint": "^8.57.0",
     "eslint-plugin-n": "^16.6.2",
     "eslint-plugin-no-unsanitized": "^4.0.2",
-    "eslint-plugin-security": "^3.0.1"
+    "eslint-plugin-security": "^3.0.1",
+    "typescript": "^7.0.2"
   }
 }

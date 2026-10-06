@@ -323,10 +323,12 @@ template.yaml  # infraestrutura (SAM)
 ## Comandos
 
 ```bash
-npm install
+npm install               # também liga o hook de pre-commit (.githooks)
 
 npm test                  # testes unitários
 npm run lint
+npm run typecheck         # tsc com checkJs (JSDoc) em src/, scripts/ e local-server.mjs
+npm run check             # lint + typecheck + testes unitários
 npm run validate          # valida o template (sam validate --lint)
 npm run build             # empacota as Lambdas (sam build + esbuild)
 
@@ -344,6 +346,15 @@ npm run chaos             # experimentos de caos contra o local-server (ou --api
 npm run deploy
 npm run seed -- --stage dev --api <ApiGatewayUrl>   # ou --stage prod: só produtos
 ```
+
+O hook de pre-commit roda o ESLint nos arquivos em stage e, se algum for de
+`src/`, `scripts/` ou `local-server.mjs`, o `typecheck` (pular:
+`git commit --no-verify`; num clone antigo, ligue com `npm run prepare`). O CI
+(`.github/workflows/ci.yml`) roda lint, typecheck, testes unitários e
+`cfn-lint` em todo push e PR, e o `npm run sast` num job à parte; os testes de
+integração e e2e precisam do LocalStack e ficam locais. Os tipos vêm de JSDoc
+(`@param`, `@type`): função nova com parâmetro de opções desestruturado
+(`{ client } = {}`) precisa do `@param` de cada opção, senão o `tsc` reclama.
 
 O workflow é gerado a partir de `scripts/generate-saga-workflow.py`; depois de
 alterar o fluxo, rode `npm run generate:workflow`.

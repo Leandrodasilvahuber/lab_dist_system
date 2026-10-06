@@ -17,6 +17,14 @@ import { log } from './logger.mjs';
  * depender de um armazenamento compartilhado, que também poderia falhar.
  */
 export class CircuitBreaker {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.name]
+   * @param {number} [options.failureThreshold]
+   * @param {number} [options.resetTimeoutMs]
+   * @param {(error: any) => boolean} [options.isFailure]
+   * @param {() => number} [options.now]
+   */
   constructor({ name, failureThreshold = 5, resetTimeoutMs = 30000, isFailure = isRetryable, now = Date.now } = {}) {
     this.name = name;
     this.isFailure = isFailure;

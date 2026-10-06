@@ -23,6 +23,13 @@ const TRACKED = new Set([...STEPS, ...COMPENSATIONS]);
  * as transições de estado da compra.
  */
 export class SagaMetricsClient {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.stateMachineArn]
+   * @param {SFNClient} [options.client]
+   * @param {number} [options.cacheTtlMs]
+   * @param {() => number} [options.now]
+   */
   constructor({ stateMachineArn = process.env.SAGA_STATE_MACHINE_ARN, client, cacheTtlMs = METRICS_CACHE_TTL_MS, now = Date.now } = {}) {
     this.stateMachineArn = stateMachineArn;
     this.cacheTtlMs = cacheTtlMs;
@@ -60,7 +67,7 @@ export class SagaMetricsClient {
         sagaId: sagaIdFromExecution(execution.name),
         status: sagaStatus(execution.status, events, steps),
         startedAt: iso(execution.startDate),
-        durationMs: execution.stopDate ? execution.stopDate - execution.startDate : null,
+        durationMs: execution.stopDate ? execution.stopDate.getTime() - execution.startDate.getTime() : null,
         steps
       };
     }));

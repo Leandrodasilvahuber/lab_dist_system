@@ -43,6 +43,14 @@ const isThrottle = error => error?.name === 'TooManyRequestsException';
  * o circuit breaker responde na hora sem invocar.
  */
 export class ProductClient {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.functionName]
+   * @param {import('@aws-sdk/client-lambda').LambdaClient} [options.client]
+   * @param {import('./circuit-breaker.mjs').CircuitBreaker} [options.breaker]
+   * @param {(ms: number) => Promise<unknown>} [options.sleep]
+   * @param {() => number} [options.random]
+   */
   constructor({
     functionName = process.env.PRODUCT_FUNCTION_NAME,
     client,
@@ -78,6 +86,9 @@ export class ProductClient {
    * resultado vale só para quem pediu enquanto a consulta estava em andamento.
    * `correlationId` vai no input: as linhas da Lambda de produtos entram no
    * rastreio da compra (numa consulta compartilhada, vale o de quem chegou antes).
+   * @param {string} productId
+   * @param {object} [options]
+   * @param {string} [options.correlationId]
    */
   async getProduct(productId, { correlationId } = {}) {
     if (!this.functionName) {

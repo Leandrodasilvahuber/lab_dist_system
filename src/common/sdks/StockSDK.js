@@ -40,6 +40,10 @@ export class StockSDK {
    * `productClient` (ProductClient): confere no serviço de Products que o
    * produto existe antes de um ajuste criar o inventário. Sem ele (testes,
    * scripts), o ajuste não confere.
+   * @param {import('../event-bus.mjs').EventBus} eventBridgeClient
+   * @param {import('../database.mjs').Database} [db]
+   * @param {object} [options]
+   * @param {import('../product-client.mjs').ProductClient} [options.productClient]
    */
   constructor(eventBridgeClient, db = new Database(), { productClient } = {}) {
     this.eventBridgeClient = eventBridgeClient;
@@ -263,6 +267,7 @@ export class StockSDK {
       throw new InvalidStateError(`Cannot release reservation in status ${current.status}`);
     }
 
+    /** @type {Record<string, any>} */
     const released = { ...reservation, status: 'released', releasedAt: now };
     delete released.activeProductId;
 
@@ -315,6 +320,10 @@ export class StockSDK {
    * conferência, um id digitado errado criaria estoque de um produto que não
    * existe. `name` só é gravado se ainda não houver um (sem ele, vale o do
    * catálogo).
+   * @param {string} productId
+   * @param {number} delta
+   * @param {object} [options]
+   * @param {string} [options.name] nome do produto, gravado no inventário
    */
   async adjustStock(productId, delta, { name } = {}) {
     requireId(productId, 'productId');
@@ -414,6 +423,10 @@ export class StockSDK {
    * As reservas ativas são consultadas só para os produtos da página (uma
    * Query por produto no índice esparso): o custo acompanha o tamanho da
    * página, não o total de compras em andamento.
+   * @param {Record<string, any>} [filters]
+   * @param {object} [page]
+   * @param {number} [page.limit]
+   * @param {Record<string, any>} [page.startKey] LastEvaluatedKey da página anterior
    */
   async listStock(filters = {}, { limit, startKey } = {}) {
     const stockMin = optionalNumber(filters.stockMin, 'stockMin');

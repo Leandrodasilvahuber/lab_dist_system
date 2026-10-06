@@ -32,6 +32,7 @@ export class ProductSDK {
    */
   async createProduct({ initialStock = 0, ...productData }) {
     const now = new Date().toISOString();
+    /** @type {Record<string, any>} */
     const product = {
       ...productData,
       id: generateId('prod'),
@@ -80,6 +81,10 @@ export class ProductSDK {
    * Listar produtos, uma página por vez (`limit`, `startKey`).
    * Os filtros são aplicados à página lida, que pode vir com menos de `limit`
    * itens; a listagem termina quando `nextToken` não vem.
+   * @param {Record<string, any>} [filters]
+   * @param {object} [page]
+   * @param {number} [page.limit]
+   * @param {Record<string, any>} [page.startKey] LastEvaluatedKey da página anterior
    */
   async listProducts(filters = {}, { limit, startKey } = {}) {
     const priceMin = optionalNumber(filters.priceMin, 'priceMin');

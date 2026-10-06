@@ -37,6 +37,11 @@ const args = process.argv.slice(2);
 const apiArg = args.includes('--api') ? args[args.indexOf('--api') + 1] : null;
 const api = (apiArg || 'http://localhost:3001').replace(/\/$/, '');
 
+/**
+ * @param {string} path
+ * @param {RequestInit} [init]
+ * @returns {Promise<{ status: number, data: any }>}
+ */
 const request = async (path, init) => {
   const response = await fetch(api + path, init);
   return { status: response.status, data: await response.json().catch(() => ({})) };

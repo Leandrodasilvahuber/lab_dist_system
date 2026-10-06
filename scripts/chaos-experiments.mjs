@@ -82,6 +82,7 @@ async function adminHeaders() {
         AuthParameters: { USERNAME: process.env.ADMIN_USERNAME || 'admin', PASSWORD: process.env.ADMIN_PASSWORD }
       })
     });
+    /** @type {any} */
     const data = await response.json().catch(() => ({}));
     if (!data.AuthenticationResult) throw new Error(`Login de admin no Cognito falhou: ${data.message || response.status}`);
     session = { token: data.AuthenticationResult.AccessToken, expiresAt: Date.now() + data.AuthenticationResult.ExpiresIn * 1000 };
@@ -89,6 +90,14 @@ async function adminHeaders() {
   return { Authorization: `Bearer ${session.token}` };
 }
 
+/**
+ * @param {string} path
+ * @param {object} [options]
+ * @param {string} [options.method]
+ * @param {unknown} [options.body] enviado como JSON
+ * @param {Record<string, string>} [options.headers]
+ * @returns {Promise<{ status: number, retryAfter: string | null, data: any }>}
+ */
 async function request(path, { method = 'GET', body, headers = {} } = {}) {
   const response = await fetch(API + path, {
     method,
@@ -103,6 +112,11 @@ async function request(path, { method = 'GET', body, headers = {} } = {}) {
   return { status: response.status, retryAfter: response.headers.get('retry-after'), data };
 }
 
+/**
+ * @param {string} path
+ * @param {Parameters<typeof request>[1]} [options]
+ * @returns {Promise<any>}
+ */
 async function must(path, options) {
   const result = await request(path, options);
   if (result.status >= 400) throw new Error(`${options?.method || 'GET'} ${path} -> ${result.status}: ${result.data.error || ''}`);

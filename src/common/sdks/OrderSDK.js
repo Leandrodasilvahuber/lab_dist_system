@@ -158,6 +158,10 @@ export class OrderSDK {
    * Listar pedidos, uma página por vez (`limit`, `startKey`), sem os registros
    * `voided`, que não são pedidos de fato. Como em listProducts, os filtros
    * valem para a página lida, que pode vir com menos de `limit` itens.
+   * @param {Record<string, any>} [filters]
+   * @param {object} [page]
+   * @param {number} [page.limit]
+   * @param {Record<string, any>} [page.startKey] LastEvaluatedKey da página anterior
    */
   async listOrders(filters = {}, { limit, startKey } = {}) {
     const { items, lastKey } = await this.db.scanPage('orders', { limit, startKey });

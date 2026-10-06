@@ -34,6 +34,12 @@ export const TRACE_CACHE_SIZE = 50;
  * Logs e todas as linhas de um correlationId para a aba Rastreio.
  */
 export class LogsClient {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.logGroupName]
+   * @param {CloudWatchLogsClient} [options.client]
+   * @param {() => number} [options.clock]
+   */
   constructor({ logGroupName = process.env.LOG_GROUP_NAME, client, clock = Date.now } = {}) {
     this.logGroupName = logGroupName;
     this.clock = clock;

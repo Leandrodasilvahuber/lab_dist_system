@@ -1,0 +1,18 @@
+{
+  // Só checagem de tipos (npm run typecheck): o build das Lambdas é o sam build + esbuild
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["es2023"],
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "scripts/**/*", "local-server.mjs"],
+  // dashboard/ roda no navegador (precisaria do lib DOM); test/ fica para depois
+  "exclude": ["dashboard", "test", ".aws-sam", "node_modules"]
+}

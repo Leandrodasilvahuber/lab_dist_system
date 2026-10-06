@@ -26,6 +26,12 @@ export function isActionInvocation(event) {
  * (runEventHandler grava DOMAIN_EVENT_REJECTED; evita linha duplicada).
  * `chaos` + `service`: injeção de falhas (chaos.mjs) antes da ação, dentro do
  * try: a falha injetada segue o mesmo caminho de uma real (métricas, TransientError).
+ * @param {Record<string, Function>} actions
+ * @param {{ action: string, input?: Record<string, any> }} request
+ * @param {object} [options]
+ * @param {boolean} [options.logRejection]
+ * @param {ReturnType<typeof import('./chaos.mjs').createChaos>} [options.chaos]
+ * @param {string} [options.service]
  */
 export async function runAction(actions, { action, input = {} }, { logRejection = true, chaos, service } = {}) {
   const fn = actions[action];
@@ -101,6 +107,11 @@ export function isDomainEvent(event) {
  * o EventBridge invoca a Lambda de forma assíncrona, então quem repete é a
  * própria Lambda (EventInvokeConfig no template.yaml) e, esgotadas as
  * tentativas, o destino OnFailure manda o evento para a DLQ.
+ * @param {Record<string, Function>} handlers
+ * @param {Record<string, any>} event
+ * @param {object} [options]
+ * @param {ReturnType<typeof import('./chaos.mjs').createChaos>} [options.chaos]
+ * @param {string} [options.service]
  */
 export async function runEventHandler(handlers, event, { chaos, service } = {}) {
   const key = `${event.source}/${event['detail-type']}`;

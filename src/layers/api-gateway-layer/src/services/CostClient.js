@@ -84,6 +84,17 @@ const sum = values => values.reduce((a, b) => a + b, 0);
  *    gravada por refreshActual, nunca do Cost Explorer na hora.
  */
 export class CostClient {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.namespace]
+   * @param {CloudWatchClient} [options.cloudwatch]
+   * @param {CostExplorerClient} [options.costExplorer]
+   * @param {boolean} [options.local]
+   * @param {NodeJS.ProcessEnv} [options.env]
+   * @param {() => number} [options.now]
+   * @param {number} [options.cacheTtlMs]
+   * @param {ReturnType<typeof snapshotStore>} [options.store]
+   */
   constructor({
     namespace = metricNamespace(),
     cloudwatch,
@@ -137,16 +148,17 @@ export class CostClient {
         ? { actual: null, forecast: null, actualReason: 'Cost Explorer não existe no LocalStack' }
         : this.readActual(buckets)
     ]);
-    if (estimated.status === 'rejected' && !actual.value?.actual) throw estimated.reason;
+    const actualValue = actual.status === 'fulfilled' ? actual.value : undefined;
+    if (estimated.status === 'rejected' && !actualValue?.actual) throw estimated.reason;
     const budget = Number(this.env.MONTHLY_BUDGET_USD);
 
     return {
       days,
       currency: 'USD',
       buckets: buckets.map(isoDay),
-      estimated: estimated.value ?? null,
+      estimated: estimated.status === 'fulfilled' ? estimated.value : null,
       ...(estimated.status === 'rejected' && { estimatedError: `Estimativa indisponível: ${estimated.reason.message}` }),
-      ...actual.value,
+      ...actualValue,
       budgetUsd: Number.isFinite(budget) && budget > 0 ? budget : null
     };
   }

@@ -270,6 +270,9 @@ const observed = {
   Api5xx: responses5xx,
   CircuitOpened: circuitOpened
 };
+/**
+ * @returns {import('@aws-sdk/client-cloudwatch').PutMetricAlarmCommandInput}
+ */
 const alarm = (AlarmName, AlarmDescription, MetricName, Threshold = 0, Dimensions) => ({
   AlarmName, AlarmDescription, Namespace: 'Ecommerce/local', MetricName, Statistic: 'Sum', ...(Dimensions && { Dimensions }),
   Period: 60, EvaluationPeriods: 15, DatapointsToAlarm: 1,

@@ -25,6 +25,9 @@ export function logicalName(envKey) {
   return envKey.replace(/_TABLE$/, '').replace(/_/g, '').toLowerCase();
 }
 
+/**
+ * @returns {import('@aws-sdk/client-dynamodb').AttributeDefinition[]}
+ */
 function attributeDefinitions(indexes) {
   const names = new Set(['id', ...indexes.flatMap(i => i.KeySchema.map(k => k.AttributeName))]);
   return [...names].map(AttributeName => ({ AttributeName, AttributeType: 'S' }));

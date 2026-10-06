@@ -42,9 +42,12 @@ const STEP_FUNCTIONS = ['OrderFunction', 'PaymentFunction', 'StockFunction', 'Pr
 const ACCOUNT = '000000000000';
 
 // Mesmo runtime do deploy na AWS (Globals.Function.Runtime do template.yaml)
+/**
+ * @returns {import('@aws-sdk/client-lambda').Runtime}
+ */
 export function templateRuntime() {
   const match = fs.readFileSync(path.join(ROOT, 'template.yaml'), 'utf8').match(/^\s+Runtime:\s*(nodejs\S+)/m);
-  return process.env.E2E_LAMBDA_RUNTIME || match?.[1] || 'nodejs22.x';
+  return /** @type {import('@aws-sdk/client-lambda').Runtime} */ (process.env.E2E_LAMBDA_RUNTIME || match?.[1] || 'nodejs22.x');
 }
 
 // MemorySize das Lambdas (parâmetro FunctionMemoryMB do template.yaml): as

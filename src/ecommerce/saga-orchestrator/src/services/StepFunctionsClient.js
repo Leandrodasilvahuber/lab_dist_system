@@ -6,6 +6,11 @@ import { awsClientConfig } from '../../../../common/aws-client.mjs';
  * terminou (reconciliação do status, SagaService.reconcile).
  */
 export class StepFunctionsClient {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.stateMachineArn]
+   * @param {SFNClient} [options.client]
+   */
   constructor({
     stateMachineArn = process.env.SAGA_STATE_MACHINE_ARN,
     client

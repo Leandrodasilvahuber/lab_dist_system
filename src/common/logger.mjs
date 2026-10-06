@@ -42,6 +42,19 @@ function metricGroups(severity, error, data, metrics) {
   return groups;
 }
 
+/**
+ * @typedef {object} LogEntry
+ * @property {string} event
+ * @property {string} [orderId]
+ * @property {string} [correlationId]
+ * @property {string} [status]
+ * @property {string} [message]
+ * @property {any} [data]
+ * @property {any} [error]
+ * @property {any} [metrics] grupo EMF ({ metrics, dimensions, dimensionSets }, ver emf.mjs)
+ */
+
+/** @param {LogEntry} entry */
 export function log({ event, orderId, correlationId, status, message, data = null, error = null, metrics = null }) {
   const severity = severityOf(status, error);
   const level = currentLevel();
@@ -64,6 +77,7 @@ export function log({ event, orderId, correlationId, status, message, data = nul
     return;
   }
 
+  /** @type {Record<string, any>} */
   const logEntry = {
     ...base,
     orderId,

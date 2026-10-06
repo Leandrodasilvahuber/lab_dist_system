@@ -157,7 +157,11 @@ async function transactWrite(operations) {
   await docClient.send(new TransactWriteCommand({ TransactItems }));
 }
 
-// `indexName`: varre um GSI (ex.: um índice esparso, bem menor que a tabela)
+/**
+ * @param {string} tableType
+ * @param {object} [options]
+ * @param {string} [options.indexName] varre um GSI (ex.: um índice esparso, bem menor que a tabela)
+ */
 async function scanItems(tableType, { indexName } = {}) {
   const items = [];
   let ExclusiveStartKey;
@@ -179,6 +183,10 @@ async function scanItems(tableType, { indexName } = {}) {
 /**
  * Uma página do scan: até `limit` itens a partir do cursor `startKey`.
  * `lastKey` é o cursor da próxima página (undefined na última).
+ * @param {string} tableType
+ * @param {object} [page]
+ * @param {number} [page.limit]
+ * @param {Record<string, any>} [page.startKey] LastEvaluatedKey da página anterior
  */
 async function scanPage(tableType, { limit, startKey } = {}) {
   const result = await scanDocClient.send(new ScanCommand({

@@ -24,6 +24,14 @@ export function memoryLimitFor(functionName, env = process.env) {
  * dimensões e o GetMetricData do CloudWatchMetricsClient.
  */
 export class MemoryMetricsClient {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.namespace]
+   * @param {import('@aws-sdk/client-cloudwatch').CloudWatchClient} [options.client]
+   * @param {NodeJS.ProcessEnv} [options.env]
+   * @param {number} [options.cacheTtlMs]
+   * @param {() => number} [options.now]
+   */
   constructor({ namespace = metricNamespace(), client, cacheTtlMs = ERROR_METRICS_CACHE_TTL_MS, now = Date.now, env = process.env } = {}) {
     this.metrics = new CloudWatchMetricsClient({
       namespace,

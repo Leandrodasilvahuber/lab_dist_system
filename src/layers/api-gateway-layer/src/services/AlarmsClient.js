@@ -13,6 +13,13 @@ export const ALARMS_CACHE_TTL_MS = 20 * 1000;
  * com ALARM_PREFIX) para a aba de monitoramento do dashboard.
  */
 export class AlarmsClient {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.prefix]
+   * @param {CloudWatchClient} [options.client]
+   * @param {number} [options.cacheTtlMs]
+   * @param {() => number} [options.now]
+   */
   constructor({ prefix = process.env.ALARM_PREFIX, client, cacheTtlMs = ALARMS_CACHE_TTL_MS, now = Date.now } = {}) {
     this.prefix = prefix;
     this.client = client || new CloudWatchClient(awsClientConfig('CLOUDWATCH_ENDPOINT'));
