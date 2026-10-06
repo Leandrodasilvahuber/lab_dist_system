@@ -1,5 +1,5 @@
 import { escapeHtml, time } from '../core/format.js';
-import { productNames } from '../services/catalog.js';
+import { productLabel, productNames } from '../services/catalog.js';
 import { getSaga } from '../services/sagas.js';
 import { SAGA_STATUS, statusBadge } from './badge.js';
 import { errorState, loading } from './empty.js';
@@ -44,7 +44,7 @@ function ensureDialog() {
 function render(saga) {
     const names = productNames();
     dialog.querySelector('#flowModalTitle').innerHTML =
-        `<span>${escapeHtml(names[saga.productId] || saga.productId)} × ${escapeHtml(saga.quantity)}</span>${statusBadge(SAGA_STATUS, saga.status, { pulse: !TERMINAL.includes(saga.status) })}`;
+        `<span>${escapeHtml(productLabel(names, saga))} × ${escapeHtml(saga.quantity)}</span>${statusBadge(SAGA_STATUS, saga.status, { pulse: !TERMINAL.includes(saga.status) })}`;
     dialog.querySelector('#flowModalSub').textContent = `${time(saga.createdAt)} · ${saga.id}`;
     dialog.querySelector('#flowModalBody').innerHTML = sagaDiagram(saga);
 }

@@ -1,7 +1,7 @@
 import { apiAll } from '../core/api.js';
 import { $ } from '../core/dom.js';
 import { dateTime, escapeHtml, money } from '../core/format.js';
-import { loadProducts, productNames, products } from '../services/catalog.js';
+import { loadProducts, productLabel, productNames, products } from '../services/catalog.js';
 import { sagaIdFrom } from '../services/sagas.js';
 import { ORDER_STATUS, statusBadge } from '../components/badge.js';
 import { dataTable } from '../components/data-table.js';
@@ -27,7 +27,7 @@ async function fetchOrders() {
             ['Produto', 'Status', { label: 'Total', className: 'num' }, 'Criado em', 'Pedido', ''],
             orders.map(order => `
                 <tr>
-                    <td><strong>${escapeHtml(names[order.productId] || order.productId)}</strong> × ${escapeHtml(order.quantity)}</td>
+                    <td><strong>${escapeHtml(productLabel(names, order))}</strong> × ${escapeHtml(order.quantity)}</td>
                     <td>${statusBadge(ORDER_STATUS, order.status)}</td>
                     <td class="num">${money(order.total)}</td>
                     <td class="nowrap">${dateTime(order.createdAt)}</td>

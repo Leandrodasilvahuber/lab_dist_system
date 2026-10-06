@@ -25,3 +25,8 @@ export async function loadProducts() {
 }
 
 export const productNames = () => Object.fromEntries(products.map(p => [p.id, p.name]));
+
+// Nome de uma compra ou pedido: catálogo atual, depois o nome gravado na saga.
+// Com o catálogo carregado, um id sem nome é de produto excluído
+export const productLabel = (names, { productId, productName }) =>
+    names[productId] || productName || (products.length ? 'Produto removido' : productId);

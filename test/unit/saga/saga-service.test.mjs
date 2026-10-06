@@ -115,7 +115,7 @@ describe('SagaService', () => {
   beforeEach(() => {
     db = new FakeDb();
     sfn = new FakeStepFunctions();
-    productClient = new FakeProductClient({ apple: { id: 'apple', price: 5 } });
+    productClient = new FakeProductClient({ apple: { id: 'apple', name: 'Apple', price: 5 } });
     // Sem limite diário: o contador ocuparia lugar nas páginas do listSagas
     // (o limite tem teste próprio)
     service = new SagaService({ db, stepFunctions: sfn, productClient, quota: new PurchaseQuota({ limit: 0, perClientLimit: 0 }) });
@@ -293,6 +293,11 @@ describe('SagaService', () => {
     assert.strictEqual(productClient.calls, 1);
     assert.strictEqual(sfn.started[0].input.unitPrice, 5);
     assert.strictEqual(saga.unitPrice, 5);
+  });
+
+  it('grava o nome do produto na saga', async () => {
+    const { saga } = await service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: 'k-name' });
+    assert.strictEqual(saga.productName, 'Apple');
   });
 
   it('mesma idempotencyKey devolve a saga existente sem nova execução', async () => {

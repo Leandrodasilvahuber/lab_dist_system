@@ -109,6 +109,8 @@ export class SagaService {
       id: sagaId,
       status: SagaStatus.RUNNING,
       productId,
+      // Nome no momento da compra: o painel ainda o mostra se o produto sair do catálogo
+      productName: product.name,
       quantity,
       unitPrice,
       correlationId: correlationId || sagaId,
