@@ -44,6 +44,34 @@ O `sam deploy` mostra o changeset e pede confirmação antes de criar os recurso
 (`confirm_changeset = true` no `samconfig.toml`). O bucket S3 dos artefatos é
 criado e gerenciado pelo SAM (`resolve_s3 = true`).
 
+## Deploy automático (GitHub Actions)
+
+O trabalho do dia a dia vai na branch `develop`; o PR `develop` → `master`
+roda o CI e, no merge, o job `deploy` do `.github/workflows/ci.yml` faz o
+deploy depois do lint, dos testes e do SAST. Ele roda o mesmo `npm run deploy`,
+sem confirmar o changeset (`CI=true`) e sem trocar a senha do admin. O deploy
+manual acima continua funcionando.
+
+A credencial vem por OIDC: o job assume uma role IAM, sem chave guardada no
+GitHub. Configuração, uma vez:
+
+1. Crie a role (stack separado do da aplicação):
+   ```bash
+   aws cloudformation deploy --template-file infra/github-oidc.yaml \
+     --stack-name github-deploy-role --capabilities CAPABILITY_NAMED_IAM
+   aws cloudformation describe-stacks --stack-name github-deploy-role \
+     --query "Stacks[0].Outputs[?OutputKey=='RoleArn'].OutputValue" --output text
+   ```
+   Se a conta já tiver o provider OIDC do GitHub, acrescente
+   `--parameter-overrides CreateOidcProvider=false ExistingOidcProviderArn=arn:aws:iam::<conta>:oidc-provider/token.actions.githubusercontent.com`.
+   A role tem `PowerUserAccess` e IAM só nas roles `distributed-ecommerce-system-*`,
+   e só o environment `production` deste repositório a assume.
+2. No GitHub (Settings): crie o environment `production` com *Deployment
+   branches* restrito a `master`, e as variáveis de repositório
+   `AWS_DEPLOY_ROLE_ARN` (o ARN acima) e `ALERT_EMAIL` (opcional).
+3. Opcional: proteja `master` (exigir PR e CI verde) e torne `develop` a
+   branch padrão.
+
 **Stack criado antes do `ActiveReservationsIndex`:** a tabela de reservas trocou
 o GSI `StatusIndex` pelo `ActiveReservationsIndex`, e o CloudFormation não
 aceita remover e criar um GSI no mesmo update. Faça em dois deploys: primeiro
