@@ -39,7 +39,7 @@
     "dast:zap": "mkdir -p reports && chmod 777 reports && docker run --rm --network host -v \"$PWD/reports:/zap/wrk:rw\" -v \"$PWD/.zap:/zap/config:ro\" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t ${DAST_TARGET:-http://localhost:3001/} -c /zap/config/rules.tsv -r zap.html -J zap.json",
     "dast:zap:api": "mkdir -p reports && chmod 777 reports && docker run --rm --network host -v \"$PWD/reports:/zap/wrk:rw\" -v \"$PWD/.zap:/zap/config:ro\" ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py -t /zap/config/openapi.yaml -f openapi -O ${DAST_TARGET:-http://localhost:3001} -c /zap/config/rules-api.tsv -r zap-api.html -J zap-api.json -T 25 -I",
     "security": "npm run lint && npm run sast && npm run dast:api",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "@aws-sdk/client-apigatewayv2": "^3.1146.0",
