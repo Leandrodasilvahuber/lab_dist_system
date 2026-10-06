@@ -3,7 +3,7 @@ import { $ } from '../core/dom.js';
 import { escapeHtml, ms, time } from '../core/format.js';
 import { dataTable } from '../components/data-table.js';
 import { errorState } from '../components/empty.js';
-import { bindRefresh, hint, panel, PERIODS, refreshButton, select, spacer, status, toolbar } from '../components/layout.js';
+import { bindRefresh, panel, PERIODS, refreshButton, select, spacer, status, toolbar } from '../components/layout.js';
 import { statCards } from '../components/stat-card.js';
 
 const SLO_ICONS = { 'purchase-latency': 'clock', 'saga-outcome': 'workflow', 'dlq-age': 'inbox' };
@@ -14,10 +14,6 @@ export default {
     icon: 'target',
     template: () => `
         ${toolbar(select('sloHours', 'Janela', PERIODS.short, '24'), spacer, status('sloUpdated'), refreshButton('sloRefresh'))}
-        ${hint(`Critério de sucesso dos testes de carga e caos. Latência e desfecho vêm da tabela de sagas: compra completa vai da
-            criação da saga até ela ser marcada COMPLETED, e compensação conta como desfecho aceito (só FAILED e COMPENSATION_FAILED
-            violam). A DLQ conta mensagens ainda na fila há mais de 24 h (reprocessar ou descartar = tratar). Na AWS os mesmos SLOs
-            existem no CloudWatch Application Signals, com histórico e error budget.`)}
         <div class="stat-grid" id="sloCards"></div>
         ${panel({ title: 'Detalhes', icon: 'list', bodyId: 'sloDetails', flush: true })}`,
 

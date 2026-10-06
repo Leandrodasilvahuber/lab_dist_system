@@ -9,7 +9,7 @@ import { LOG_LEVELS, statusBadge } from '../components/badge.js';
 import { dataTable, expandableRows } from '../components/data-table.js';
 import { emptyState, errorState, loading } from '../components/empty.js';
 import { icon } from '../components/icons.js';
-import { hint, panel } from '../components/layout.js';
+import { panel } from '../components/layout.js';
 import { sagaCard } from '../components/saga-card.js';
 import { showToast } from '../components/toast.js';
 
@@ -26,8 +26,6 @@ export default {
             <input type="text" id="traceId" class="input input-mono" placeholder="sagaId, orderId ou correlationId" autocomplete="off" spellcheck="false" required aria-label="Id para rastrear">
             <button type="submit" class="btn btn-primary">${icon('search', { size: 16 })}<span>Rastrear</span></button>
         </form>
-        ${hint(`Junta o estado da saga e todas as linhas de log com o mesmo <code>correlationId</code>, de todos os serviços, em ordem.
-            Na AWS lê o log group das Lambdas (14 dias); no local-server, as últimas linhas em memória e os logs das Lambdas do LocalStack.`)}
         <div id="traceSaga"></div>
         ${panel({
             title: 'Linha do tempo',

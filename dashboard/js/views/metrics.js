@@ -4,7 +4,7 @@ import { escapeHtml, ms, nowTime, percent } from '../core/format.js';
 import { periodLabel, stackedChart } from '../components/chart.js';
 import { dataTable } from '../components/data-table.js';
 import { emptyState, errorState } from '../components/empty.js';
-import { bindRefresh, hint, panel, PERIODS, refreshButton, select, spacer, status, toolbar } from '../components/layout.js';
+import { bindRefresh, panel, PERIODS, refreshButton, select, spacer, status, toolbar } from '../components/layout.js';
 import { statCards } from '../components/stat-card.js';
 
 export default {
@@ -13,9 +13,6 @@ export default {
     icon: 'chart',
     template: () => `
         ${toolbar(select('metricsHours', 'Período', PERIODS.metrics, '24'), spacer, status('metricsUpdated'), refreshButton('metricsRefresh'))}
-        ${hint(`Métricas que as Lambdas gravam na própria linha de log (Embedded Metric Format, namespace <code>Ecommerce/&lt;ambiente&gt;</code>):
-            todo <em>warn</em> conta em erros de negócio e todo <em>error</em> em não tratados, por tipo; cada ação da saga registra
-            chamada, resultado e duração. No local-server, o LocalStack não extrai EMF: o servidor publica as métricas a cada 10 s.`)}
         <div class="stat-grid" id="metricsSummary"></div>
         ${panel({ title: 'Erros de negócio por tipo', icon: 'alert', bodyId: 'businessChart' })}
         ${panel({ title: 'Erros não tratados por tipo', icon: 'alert', bodyId: 'unhandledChart' })}

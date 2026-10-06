@@ -7,9 +7,10 @@ import { loadProducts, productNames } from '../services/catalog.js';
 import { getSaga, recentSagas } from '../services/sagas.js';
 import { emptyState, errorState, loading } from '../components/empty.js';
 import { icon } from '../components/icons.js';
-import { hint, panel } from '../components/layout.js';
+import { panel } from '../components/layout.js';
 import { stockLabel } from '../components/product-grid.js';
 import { sagaCard, TERMINAL } from '../components/saga-card.js';
+import { sagaDiagram } from '../components/saga-flow.js';
 import { showToast } from '../components/toast.js';
 
 // { request, key }: compra ainda sem resposta definitiva
@@ -18,14 +19,18 @@ let pollTimer = null;
 let lastStatuses = {};
 // Sagas exibidas, por id. O polling atualiza só as que estão em andamento
 let sagaCache = new Map();
+// Saga mostrada no diagrama: a compra recém-iniciada ou a clicada na lista.
+// Sem escolha (ou se ela sumir da lista), vale a mais recente
+let selectedId = null;
 
 export default {
     id: 'buy',
     label: 'Comprar',
     icon: 'cart',
     template: () => `
+        <div class="stack">
+        ${panel({ title: 'Fluxo da compra', icon: 'workflow', body: `<div id="sagaFlow">${sagaDiagram(null)}</div>` })}
         <div class="split">
-            <div class="stack">
             ${panel({
                 title: 'Nova compra',
                 icon: 'bag',
@@ -42,18 +47,28 @@ export default {
                         <button type="submit" class="btn btn-success btn-block" id="buyButton">${icon('cart', { size: 16 })}<span>Comprar</span></button>
                     </form>`
             })}
-            ${hint(`A compra é uma <strong>saga</strong> executada pelo Step Functions:
-                pedido → reserva de estoque → pagamento → baixa da reserva → confirmação.
-                Se um passo falhar, ele e os anteriores são desfeitos (compensação).
-                Para ver a compensação, compre o produto <em>Server</em> (pagamento recusado
-                acima de R$ 10.000) ou uma quantidade maior que o estoque.`)}
-            </div>
-            ${panel({ title: 'Compras (sagas)', icon: 'workflow', body: `<div id="sagaList" class="saga-list">${loading()}</div>` })}
+            ${panel({ title: 'Compras', icon: 'list', body: `<div id="sagaList" class="saga-list">${loading()}</div>` })}
+        </div>
         </div>`,
 
     mount() {
         $('buyForm').addEventListener('submit', startPurchase);
         on('products', renderProductSelect);
+        // Clique (ou Enter/espaço) num cartão mostra a compra no diagrama; a
+        // lupa de rastreio (data-trace) segue com o comportamento dela
+        const list = $('sagaList');
+        list.addEventListener('click', event => {
+            if (event.target.closest('[data-trace]')) return;
+            const card = event.target.closest('[data-saga]');
+            if (card) selectSaga(card.dataset.saga);
+        });
+        list.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            const card = event.target.closest('[data-saga]');
+            if (!card || event.target !== card) return;
+            event.preventDefault();
+            selectSaga(card.dataset.saga);
+        });
     },
 
     // Produtos antes das sagas: os cartões mostram o nome do produto
@@ -100,7 +115,8 @@ async function startPurchase(event) {
             body: request
         });
         pendingPurchase = null;
-        showToast('Compra iniciada! Acompanhe o andamento ao lado.', 'info');
+        selectedId = result.sagaId;
+        showToast('Compra iniciada! Acompanhe o fluxo acima.', 'info');
         $('buyQuantity').value = 1;
         await fetchSagas();
         $(`saga-${result.sagaId}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -161,17 +177,33 @@ async function fetchSagas({ onlyRunning = false } = {}) {
         return;
     }
 
-    const sagas = [...sagaCache.values()].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const sagas = sortedSagas();
     notifyFinished(sagas);
-    const names = productNames();
-    $('sagaList').innerHTML = sagas.length
-        ? sagas.slice(0, 20).map(s => sagaCard(s, names)).join('')
-        : emptyState('Nenhuma compra nas últimas 24 h.', { icon: 'cart' });
+    render(sagas);
 
     const running = sagas.filter(isRunning);
     const allSlow = running.every(s => Date.now() - Date.parse(s.createdAt) > SLOW_AFTER_MS);
     pollDelay = failed ? Math.min(pollDelay * 2, POLL_MAX_MS) : allSlow ? POLL_SLOW_MS : POLL_MS;
     schedulePoll(running.length > 0);
+}
+
+const sortedSagas = () => [...sagaCache.values()].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+// Lista e diagrama a partir do cache (sem requisição)
+function render(sagas = sortedSagas()) {
+    const shown = sagas.slice(0, 20);
+    const selected = shown.find(s => s.id === selectedId) || shown[0] || null;
+    const names = productNames();
+    $('sagaList').innerHTML = shown.length
+        ? shown.map(s => sagaCard(s, names, { selected: s === selected })).join('')
+        : emptyState('Nenhuma compra nas últimas 24 h.', { icon: 'cart' });
+    $('sagaFlow').innerHTML = sagaDiagram(selected);
+}
+
+function selectSaga(id) {
+    selectedId = id;
+    render();
+    $(`saga-${id}`)?.focus({ preventScroll: true });
 }
 
 // Continua atualizando (só as em andamento) enquanto houver saga rodando e a

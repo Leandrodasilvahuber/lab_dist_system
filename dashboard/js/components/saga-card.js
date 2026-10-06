@@ -28,7 +28,8 @@ export function traceButton(id) {
 const stepChip = (name, state, error) =>
     `<span class="step ${escapeHtml(state)}" title="${escapeHtml(error || '')}">${STEP_LABELS[name]}</span>`;
 
-export function sagaCard(saga, productNames) {
+// selected: cartão escolhido para o diagrama da tela Comprar
+export function sagaCard(saga, productNames, { selected = false } = {}) {
     const tone = (SAGA_STATUS[saga.status] || [])[1] || 'neutral';
     const steps = saga.steps || {};
     const running = !TERMINAL.includes(saga.status);
@@ -43,7 +44,7 @@ export function sagaCard(saga, productNames) {
 
     const compensations = COMPENSATIONS.filter(name => steps[name]);
     const compensationHtml = compensations.length || saga.status === 'COMPENSATING'
-        ? '<div class="steps-label">Compensação</div>' + compensations
+        ? `<span class="steps-sep" title="Compensação">${icon('undo', { size: 13 })}</span>` + compensations
             .map(name => stepChip(name, steps[name].status, steps[name].error?.message)).join(ARROW)
         : '';
 
@@ -55,7 +56,7 @@ export function sagaCard(saga, productNames) {
             : '';
 
     return `
-        <article class="saga-card tone-${tone}" id="saga-${escapeHtml(saga.id)}">
+        <article class="saga-card tone-${tone}${selected ? ' selected' : ''}" id="saga-${escapeHtml(saga.id)}" data-saga="${escapeHtml(saga.id)}" tabindex="0" aria-pressed="${selected}">
             <div class="saga-header">
                 <h3>${escapeHtml(productNames[saga.productId] || saga.productId)} × ${escapeHtml(saga.quantity)}</h3>
                 ${statusBadge(SAGA_STATUS, saga.status, { pulse: running })}

@@ -4,7 +4,7 @@ import { dateTime, escapeHtml, nowTime } from '../core/format.js';
 import { LOG_LEVELS, statusBadge } from '../components/badge.js';
 import { dataTable, expandableRows } from '../components/data-table.js';
 import { allClear, errorState } from '../components/empty.js';
-import { bindRefresh, hint, panel, PERIODS, refreshButton, select, spacer, status, toolbar } from '../components/layout.js';
+import { bindRefresh, panel, PERIODS, refreshButton, select, spacer, status, toolbar } from '../components/layout.js';
 import { traceButton } from '../components/saga-card.js';
 
 let logEntries = [];
@@ -21,8 +21,6 @@ export default {
             select('logHours', 'Período', PERIODS.short, '24'),
             spacer, status('logsUpdated'), refreshButton('logsRefresh')
         )}
-        ${hint(`<strong>warn</strong> = erro tratado (validação/regra de negócio) · <strong>error</strong> = não tratado (conta no alarme).
-            Clique numa linha para ver o JSON completo e na lupa para seguir a compra inteira.`)}
         ${panel({ title: 'Logs de erro', icon: 'file', bodyId: 'logsTable', flush: true })}`,
 
     mount() {

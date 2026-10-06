@@ -4,7 +4,7 @@ import { dateTime, escapeHtml, nowTime } from '../core/format.js';
 import { dataTable, expandableRows } from '../components/data-table.js';
 import { allClear, errorState } from '../components/empty.js';
 import { icon } from '../components/icons.js';
-import { bindRefresh, hint, panel, refreshButton, spacer, status, toolbar } from '../components/layout.js';
+import { bindRefresh, panel, refreshButton, spacer, status, toolbar } from '../components/layout.js';
 import { showToast } from '../components/toast.js';
 
 let dlqMessages = [];
@@ -20,9 +20,6 @@ export default {
     icon: 'inbox',
     template: () => `
         ${toolbar(status('dlqSummary'), spacer, refreshButton('dlqRefresh'))}
-        ${hint(`Eventos <code>ProductCreated</code>/<code>ProductDeleted</code> que o Stock não processou por falha transitória,
-            depois de todas as tentativas. <strong>Reprocessar</strong> republica o evento (o Stock tenta de novo);
-            <strong>Descartar</strong> apaga. As duas ações exigem entrar como admin. Clique numa linha para ver o evento.`)}
         ${panel({ title: 'DLQ dos eventos de produto', icon: 'inbox', bodyId: 'dlqTable', flush: true })}`,
 
     mount() {

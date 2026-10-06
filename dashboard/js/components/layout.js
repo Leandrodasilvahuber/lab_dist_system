@@ -14,11 +14,6 @@ export function panel({ title, icon: name, actions = '', body = '', bodyId, flus
         </section>`;
 }
 
-// html: texto fixo do próprio dashboard (pode ter <code>, <strong>...)
-export function hint(html) {
-    return `<p class="hint">${icon('info', { size: 16 })}<span>${html}</span></p>`;
-}
-
 export function toolbar(...items) {
     return `<div class="toolbar">${items.join('')}</div>`;
 }

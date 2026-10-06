@@ -7,7 +7,7 @@ import { badge } from '../components/badge.js';
 import { dataTable } from '../components/data-table.js';
 import { emptyState, errorState } from '../components/empty.js';
 import { icon } from '../components/icons.js';
-import { bindRefresh, hint, panel, refreshButton, spacer, status, toolbar } from '../components/layout.js';
+import { bindRefresh, panel, refreshButton, spacer, status, toolbar } from '../components/layout.js';
 import { showToast } from '../components/toast.js';
 
 // Alvos conhecidos por serviço (ações da saga, eventos e rotas). O campo aceita
@@ -31,9 +31,6 @@ export default {
         ${toolbar(status('chaosSummary'), spacer,
             `<button type="button" class="btn btn-danger btn-sm" id="chaosClear">${icon('trash', { size: 15 })}<span>Desligar tudo</span></button>`,
             refreshButton('chaosRefresh'))}
-        ${hint(`Injeta falhas controladas nos serviços para ver retry, compensação, circuit breaker e DLQ agindo.
-            A falha vale até o horário de expiração (no máximo 60 min) e leva até 10 s para chegar a cada Lambda.
-            Cada injeção fica no Rastreio da compra como <code>CHAOS_INJECTED</code> (métrica <code>ChaosInjected</code>). Verificação automática: <code>npm run chaos</code>.`)}
         <div class="split">
             ${panel({
                 title: 'Nova falha',

@@ -5,7 +5,7 @@ import { lineChart, periodLabel, stackedChart } from '../components/chart.js';
 import { dataTable } from '../components/data-table.js';
 import { emptyState, errorState } from '../components/empty.js';
 import { icon } from '../components/icons.js';
-import { bindRefresh, hint, panel, PERIODS, refreshButton, select, spacer, status, toolbar } from '../components/layout.js';
+import { bindRefresh, panel, PERIODS, refreshButton, select, spacer, status, toolbar } from '../components/layout.js';
 import { statCards } from '../components/stat-card.js';
 import { showToast } from '../components/toast.js';
 
@@ -22,11 +22,6 @@ export default {
             select('memoryHours', 'Memória', PERIODS.metrics, '3'),
             select('costDays', 'Custo', COST_DAYS, '14'),
             spacer, status('resourcesUpdated'), refreshButton('resourcesRefresh'))}
-        ${hint(`Memória: cada invocação grava <code>MemoryUsedMB</code> (RSS do processo ao fim da invocação, via EMF), uma
-            aproximação do <em>Max Memory Used</em> da Lambda; no local-server os handlers dividem um processo só.
-            Custo: a estimativa multiplica as métricas de uso pela tabela de preços (sem free tier); o valor real vem do
-            Cost Explorer (só na AWS, conta inteira), lido a cada 6 h; <em>Atualizar agora</em> lê na hora, no máximo
-            uma vez a cada 15 min e 5 vezes por dia, zerando às 12:00 (cada leitura custa US$ 0,02). O custo exige entrar como admin.`)}
         <div class="stat-grid" id="memoryCards"></div>
         ${panel({ title: 'Memória usada por função (máximo por balde)', icon: 'cpu', bodyId: 'memoryChart' })}
         <div class="stat-grid" id="costCards"></div>

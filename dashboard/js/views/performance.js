@@ -4,7 +4,7 @@ import { escapeHtml, ms, nowTime, time } from '../core/format.js';
 import { SAGA_STATUS, statusBadge } from '../components/badge.js';
 import { dataTable } from '../components/data-table.js';
 import { emptyState, errorState } from '../components/empty.js';
-import { bindRefresh, hint, panel, refreshButton, spacer, status, toolbar } from '../components/layout.js';
+import { bindRefresh, panel, refreshButton, spacer, status, toolbar } from '../components/layout.js';
 import { statCards } from '../components/stat-card.js';
 
 const LEGEND = `
@@ -21,9 +21,6 @@ export default {
     icon: 'gauge',
     template: () => `
         ${toolbar(status('perfUpdated'), spacer, refreshButton('perfRefresh'))}
-        ${hint(`Últimas 10 compras em detalhe, calculado na hora a partir do histórico do Step Functions (nada é gravado).
-            Com só 10 amostras, mostramos média e máximo em vez de p95; a evolução no tempo de cada ação está na aba Métricas.
-            Clique numa saga para rastreá-la.`)}
         <div class="stat-grid" id="perfSummary"></div>
         ${panel({ title: 'Por passo', icon: 'list', bodyId: 'perfSteps', flush: true })}
         ${panel({ title: 'Linha do tempo das compras', icon: 'clock', actions: LEGEND, bodyId: 'perfSagas', flush: true })}`,
