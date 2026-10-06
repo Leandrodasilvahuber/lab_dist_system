@@ -1,14 +1,14 @@
-# Análise estática e testes unitários em develop, master e nos PRs; push em
-# master (merge do PR develop → master) faz o deploy na AWS depois dos dois.
+# Análise estática e testes unitários em develop, master, prod e nos PRs; push em
+# prod (branch de produção) faz o deploy na AWS depois dos dois.
 # Os testes de integração e e2e precisam do LocalStack e continuam locais
 # (README-LOCALSTACK.md).
 name: CI
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master, develop, prod]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main, master, develop, prod]
 
 permissions:
   contents: read
@@ -50,7 +50,7 @@ jobs:
   # Role e environment: seção "Deploy automático" do AWS-SETUP.md
   deploy:
     needs: [static, sast]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/prod'
     runs-on: ubuntu-latest
     # A trust policy da role só aceita tokens deste environment
     environment: production
