@@ -28,8 +28,8 @@ try {
   const { stateMachineArn, runtime } = await deploySaga(c, { prefix: LOCAL_PREFIX, tables: LOCAL_TABLES, environment: LOCAL_CHAOS_ENV });
   console.log(`✅ Saga publicada (${runtime}): ${stateMachineArn}`);
   console.log('\nPróximos passos:');
-  console.log('   npm run seed:local      # produtos de exemplo (se ainda não rodou)');
   console.log('   npm run local-server    # e abra http://localhost:3001');
+  console.log('   npm run seed:local      # dev: produtos + compras de exemplo (prod: seed:local:prod)');
 } catch (error) {
   console.error(`❌ ${error.message}`);
   console.error('   Verifique se o LocalStack está rodando (npm run localstack:start, com ssm em SERVICES) e se rodou npm run build.');

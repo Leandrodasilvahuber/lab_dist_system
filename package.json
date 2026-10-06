@@ -19,6 +19,7 @@
     "generate:workflow": "python3 scripts/generate-saga-workflow.py",
     "seed": "node scripts/seed.mjs",
     "seed:local": "DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT:-http://localhost:4566} AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test} node scripts/seed.mjs",
+    "seed:local:prod": "DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT:-http://localhost:4566} AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test} node scripts/seed.mjs --profile prod",
     "backfill:sagas": "node scripts/backfill-saga-day-shard.mjs",
     "backfill:sagas:local": "DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT:-http://localhost:4566} AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test} node scripts/backfill-saga-day-shard.mjs",
     "localstack:start": "bash scripts/localstack-start.sh",

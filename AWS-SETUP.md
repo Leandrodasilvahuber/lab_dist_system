@@ -53,8 +53,15 @@ e não contam como "reservado" até terminarem; rode o deploy sem compras em and
 Depois do deploy, popule o catálogo e o estoque (as tabelas já foram criadas pelo stack):
 
 ```bash
-npm run seed -- --stage dev
+# dev: todos os produtos + 7 compras de exemplo pela API (URL do output ApiGatewayUrl)
+npm run seed -- --stage dev --api https://xxx.execute-api.us-east-1.amazonaws.com
+
+# prod: só produtos e estoque, sem o produto de teste server e sem execuções
+npm run seed -- --stage prod
 ```
+
+O perfil vem do stage (`prod` → prod, os demais → dev) e pode ser forçado com
+`--profile dev|prod`. Sem `--api`, o perfil dev grava só o catálogo e avisa.
 
 O seed só grava o que ainda não existe: rodar de novo não mexe no estoque de
 quem já está comprando nem recria produto excluído. Para voltar catálogo e

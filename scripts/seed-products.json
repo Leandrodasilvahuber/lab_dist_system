@@ -28,7 +28,8 @@
       "id": "server",
       "name": "Server (testa pagamento recusado)",
       "price": 25000,
-      "stock": 5
+      "stock": 5,
+      "devOnly": true
     }
   ]
 }

@@ -8,15 +8,13 @@
  * `npm run localstack:deploy`.
  *
  * Uso:
- *   npm run localstack:start && npm run seed:local
+ *   npm run localstack:start
  *   npm run build && npm run localstack:deploy
  *   npm run local-server        # abra http://localhost:3001
+ *   npm run seed:local          # dev: catálogo + compras de exemplo (ou seed:local:prod)
  *
- * Ao subir com a saga publicada, envia algumas compras de exemplo (SAMPLE_ORDERS)
- * para o dashboard não começar vazio. Isso acontece em toda subida, mas as chaves
- * de idempotência são fixas: só viram pedidos novos enquanto essas sagas não
- * existem na tabela Sagas (1ª subida após o deploy ou LocalStack recriado).
- * SAMPLE_ORDERS=false desliga.
+ * O servidor não cria dados de exemplo: catálogo, estoque e as compras de
+ * exemplo vêm do seed (scripts/seed.mjs).
  *
  * Com ADMIN_API_KEY_HASH (ou ADMIN_API_KEY) definida, as rotas administrativas
  * (src/common/auth.mjs) exigem o header X-Api-Key, como o authorizer do HttpApi faz
@@ -43,8 +41,7 @@ import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
 import { createLogBuffer, parseLogLine, isTraceId } from './src/common/log-query.mjs';
 import { createEmfAgent } from './scripts/lib/emf-agent.mjs';
 import { createLocalstackHealth } from './scripts/lib/localstack-health.mjs';
-import { LOCAL_MAX_CONCURRENCY, LOCAL_CHAOS_PARAM, templateMemoryMb } from './scripts/lib/localstack.mjs';
-import { mapLimit } from './scripts/lib/pool.mjs';
+import { LOCAL_CHAOS_PARAM, templateMemoryMb } from './scripts/lib/localstack.mjs';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from './src/common/database.mjs';
 import { SAGAS_BY_DAY_INDEX, dayShardsInWindow } from './src/common/saga-day-index.mjs';
@@ -212,62 +209,6 @@ function buildEvent({ method, url, headers = {}, body = null }) {
   };
 }
 
-// Compras de exemplo, com os dois tipos de falha para a aba Desempenho:
-// concluídas, uma do Server (pagamento recusado → estorno do estoque e do
-// pedido) e uma acima do estoque (falha na reserva → cancela o pedido)
-const SAMPLE_ORDERS = [
-  { productId: 'apple', quantity: 2 },
-  { productId: 'banana', quantity: 3 },
-  { productId: 'grape', quantity: 1 },
-  { productId: 'server', quantity: 1 },
-  { productId: 'orange', quantity: 2 },
-  { productId: 'orange', quantity: 999 },
-  { productId: 'banana', quantity: 1 }
-];
-
-// Espera a saga terminar (a próxima compra de exemplo só sai depois)
-async function waitSagaDone(sagaId, timeoutMs = 5 * 60 * 1000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const event = buildEvent({ method: 'GET', url: new URL(`/saga/${sagaId}`, `http://localhost:${PORT}`), headers: {}, body: '' });
-    const { status } = JSON.parse((await handlers.saga(event)).body);
-    if (!['RUNNING', 'COMPENSATING'].includes(status)) return;
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-}
-
-// No máximo LOCAL_MAX_CONCURRENCY compras ao mesmo tempo: as 7 de uma vez
-// subiam dezenas de contêineres no LocalStack (scripts/lib/localstack.mjs)
-async function seedSampleOrders() {
-  let created = 0;
-  let existing = 0;
-  await mapLimit(SAMPLE_ORDERS, LOCAL_MAX_CONCURRENCY, async (order, index) => {
-    const event = buildEvent({
-      method: 'POST',
-      url: new URL('/saga/execute', `http://localhost:${PORT}`),
-      headers: { 'content-type': 'application/json', 'idempotency-key': `seed-sample-order-${index + 1}` },
-      body: JSON.stringify(order)
-    });
-    try {
-      const result = await handlers.saga(event);
-      // 202: saga nova; 200: a chave já tinha saga (idempotência), nada foi comprado
-      if (result.statusCode === 202) {
-        created++;
-        await waitSagaDone(JSON.parse(result.body).sagaId);
-      } else if (result.statusCode === 200) existing++;
-      else {
-        const hint = result.statusCode === 404 ? ' (rodou npm run seed:local?)' : '';
-        console.warn(`   ⚠️  Compra de exemplo ${order.productId}: HTTP ${result.statusCode}${hint}`);
-      }
-    } catch (error) {
-      console.warn(`   ⚠️  Compra de exemplo ${order.productId}: ${error.message}`);
-    }
-  });
-  if (process.env.LOG_LEVEL === 'silent') return;
-  if (created) console.log(`   🧾 ${created} compras de exemplo concluídas (${LOCAL_MAX_CONCURRENCY} por vez)`);
-  if (existing) console.log(`   🧾 ${existing} compras de exemplo já existiam (ignoradas pela idempotência)`);
-}
-
 function send(res, statusCode, headers, body) {
   const merged = { ...CORS_HEADERS, ...headers };
   // Os handlers devolvem os headers de CORS da AWS; aqui a origem é decidida pelo servidor
@@ -394,5 +335,4 @@ server.listen(PORT, HOST, () => {
   console.log(ADMIN_AUTH_ENABLED
     ? `   Rotas de admin exigem X-Api-Key (${ADMIN_API_KEY_HASH ? 'ADMIN_API_KEY_HASH' : 'ADMIN_API_KEY'})`
     : '   ⚠️  Chave de admin não definida: rotas de admin abertas (só para desenvolvimento local)');
-  if (process.env.SAGA_STATE_MACHINE_ARN && process.env.SAMPLE_ORDERS !== 'false') seedSampleOrders();
 });

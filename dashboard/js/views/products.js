@@ -19,7 +19,7 @@ export default {
                 products,
                 error,
                 buy: true,
-                empty: 'Nenhum produto. Rode npm run seed:local ou adicione na aba Admin.'
+                empty: 'Nenhum produto. Rode npm run seed:local (ou seed:local:prod) ou adicione na aba Admin.'
             });
         });
         // Botão Comprar: o id vem de data-buy-id (nada de JS montado em atributo)

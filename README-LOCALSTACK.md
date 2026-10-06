@@ -27,14 +27,15 @@ npm install
 # 1. Sobe o LocalStack
 npm run localstack:start
 
-# 2. Cria as tabelas (products, orders, payments, stock-reservations, inventory, sagas) e popula catálogo e estoque
-#    (de novo, só grava o que falta; npm run seed:local -- --reset volta aos valores do seed)
-npm run seed:local
-
-# 3. Publica as Lambdas e a saga no LocalStack e abre o dashboard
+# 2. Cria as tabelas, publica as Lambdas e a saga no LocalStack e abre o dashboard
 npm run build              # empacota as Lambdas
 npm run localstack:deploy  # repita depois de mudar o código (após npm run build)
 npm run local-server       # http://localhost:3001
+
+# 3. Popula os dados (em outro terminal, com o local-server rodando)
+#    (de novo, só grava o que falta; -- --reset volta catálogo e estoque aos valores do seed)
+npm run seed:local         # dev: catálogo + estoque + 7 compras de exemplo
+npm run seed:local:prod    # ou prod: só catálogo e estoque, sem execuções nem métricas
 
 # 4. Testes contra o LocalStack
 npm run test:integration   # SDKs contra o DynamoDB
@@ -45,12 +46,20 @@ npm run test:e2e:errors    # provoca erros tratados/não tratados e cria alarmes
 npm run localstack:stop
 ```
 
-Com a saga publicada, cada subida do `local-server` envia 7 compras de exemplo
-(a do server tem o pagamento recusado e a de 999 oranges passa do estoque; as
-duas terminam em compensação e aparecem na aba ⏱️ Desempenho). As chaves de idempotência são fixas, então elas só viram pedidos
-novos enquanto essas sagas não existem na tabela Sagas do LocalStack: na 1ª
-subida após o deploy ou depois de recriar o LocalStack. Para não enviá-las, use
-`SAMPLE_ORDERS=false npm run local-server`.
+O seed tem dois perfis (`scripts/seed.mjs`):
+
+| Perfil | Comando | Grava |
+|---|---|---|
+| dev | `npm run seed:local` | os 5 produtos e o estoque, e envia 7 compras de exemplo pela API do `local-server` |
+| prod | `npm run seed:local:prod` | só o necessário para comprar: produtos e estoque, sem o `server` (`devOnly` em `seed-products.json`) |
+
+Das compras de exemplo do dev, a do server tem o pagamento recusado e a de 999
+oranges passa do estoque; as duas terminam em compensação e aparecem na aba
+⏱️ Desempenho. As chaves de idempotência são fixas: rodar o seed de novo não
+compra outra vez. Com o `local-server` parado, o seed grava os produtos e avisa
+que as compras ficaram de fora; `--no-orders` pula as compras de propósito.
+O `local-server` não cria dados sozinho: numa base nova, sem seed, o dashboard
+começa vazio.
 
 O `test:e2e` cria funções, tabelas e a state machine com um prefixo próprio
 (`e2e-<timestamp>`), roda os cenários de compra e remove tudo ao final, sem
@@ -117,7 +126,7 @@ servidor subiu, mais a última hora das Lambdas); na AWS, do CloudWatch Logs.
 
 O CloudWatch (e o SNS, para conferir os avisos dos alarmes) precisa estar em `SERVICES` no `docker-compose.yml`. Se o
 container subiu antes dessa mudança, recrie-o (apaga os dados locais):
-`npm run localstack:stop && npm run localstack:start && npm run seed:local`.
+`npm run localstack:stop && npm run localstack:start`, depois o deploy e o seed de novo.
 
 ## Dashboard
 
@@ -143,7 +152,6 @@ seguintes são rápidas.
 | `TIMEOUT_SCALE` | Multiplica os timeouts do SDK (conexão, request, Scan, Lambda de produtos). Ligado sozinho com `AWS_ENDPOINT` ou `LOCALSTACK_HOSTNAME` (o LocalStack sobrecarregado não responde nos tempos da AWS); o breaker de produtos passa a abrir com 10 falhas e testar a volta em 10s. `1` desliga. Na AWS nenhuma dessas variáveis existe | `3` no LocalStack, `1` na AWS |
 | `PAYMENT_MAX_AMOUNT` | Valor máximo aprovado pelo pagamento simulado | `10000` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` ou `silent` | `info` (`warn` no `local-server`) |
-| `SAMPLE_ORDERS` | `false` desliga as compras de exemplo enviadas ao subir o `local-server` | ligado |
 | `CORS_ALLOW_ORIGIN` | Origem do header `Access-Control-Allow-Origin`. No `local-server` só é enviado se definida (o dashboard é servido pelo próprio servidor, na mesma origem); em invocações diretas o padrão é `*` (na AWS vale o parâmetro `AllowedOrigin`) | — no `local-server` |
 | `ADMIN_API_KEY_HASH` | Hash scrypt da chave de admin do `local-server`, gerado por `npm run admin:hash` (tem prioridade sobre `ADMIN_API_KEY`) | — |
 | `HOST`, `PORT` | Endereço do `local-server` (`HOST=0.0.0.0` exige a chave de admin) | `127.0.0.1`, `3001` |

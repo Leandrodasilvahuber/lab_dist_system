@@ -300,16 +300,16 @@ npm run build             # empacota as Lambdas (sam build + esbuild)
 
 # Local (LocalStack): veja README-LOCALSTACK.md
 npm run localstack:start
-npm run seed:local
 npm run localstack:deploy # publica Lambdas e saga no LocalStack (para o dashboard)
 npm run local-server      # dashboard em http://localhost:3001
+npm run seed:local        # dev: produtos + compras de exemplo (seed:local:prod: só produtos)
 npm run test:integration  # SDKs contra o DynamoDB do LocalStack
 npm run test:e2e          # saga completa: Lambda + Step Functions + DynamoDB
 npm run chaos             # experimentos de caos contra o local-server (ou --api <url>)
 
 # AWS: veja AWS-SETUP.md
 npm run deploy
-npm run seed -- --stage dev
+npm run seed -- --stage dev --api <ApiGatewayUrl>   # ou --stage prod: só produtos
 ```
 
 O workflow é gerado a partir de `scripts/generate-saga-workflow.py`; depois de
@@ -343,9 +343,9 @@ state machine no LocalStack. É o mesmo código que vai para a AWS.
 
 ```bash
 npm run localstack:start
-npm run seed:local
 npm run build && npm run localstack:deploy   # publica as Lambdas e a saga no LocalStack
 npm run local-server                         # abra http://localhost:3001
+npm run seed:local                           # dev; npm run seed:local:prod só com o catálogo
 ```
 
 Localmente as rotas de admin ficam abertas, a menos que `ADMIN_API_KEY_HASH`
