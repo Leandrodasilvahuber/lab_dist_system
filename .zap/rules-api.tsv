@@ -1,0 +1,4 @@
+100001	IGNORE	(O spider também visita o dashboard: HTML/CSS/JS não são JSON e não são da API)
+10027	IGNORE	(Comentários do código do dashboard, que é público)
+10049	IGNORE	(no-store é proposital no dashboard local)
+10109	IGNORE	(Informativo: SPA moderna)

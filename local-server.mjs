@@ -31,6 +31,7 @@
  */
 import './scripts/lib/local-env.mjs';
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -219,11 +220,41 @@ function send(res, statusCode, headers, body) {
   // Os handlers devolvem os headers de CORS da AWS; aqui a origem é decidida pelo servidor
   delete merged['Access-Control-Allow-Origin'];
   if (ALLOWED_ORIGIN) merged['Access-Control-Allow-Origin'] = ALLOWED_ORIGIN;
-  res.writeHead(statusCode, merged);
+  res.writeHead(statusCode, { ...SECURITY_HEADERS, ...merged });
   res.end(body);
 }
 
 const DASHBOARD_DIR = path.join(ROOT, 'dashboard');
+
+// CSP com o hash de cada <script> inline do index.html (o do tema), calculado
+// na subida: editar o script não exige atualizar o hash à mão
+const inlineScriptHashes = [...fs.readFileSync(path.join(DASHBOARD_DIR, 'index.html'), 'utf8')
+  .matchAll(/<script>([\s\S]*?)<\/script>/g)]
+  .map(([, code]) => `'sha256-${createHash('sha256').update(code).digest('base64')}'`);
+
+// Headers de segurança de toda resposta (dashboard e API). connect-src aceita
+// o HttpApi da AWS porque o dashboard pode apontar para ele (?api=https://...);
+// style-src-attr libera só os style="" das barras e gráficos, não <style> nem CSS de fora
+const SECURITY_HEADERS = {
+  'Content-Security-Policy': [
+    "default-src 'none'",
+    `script-src 'self' ${inlineScriptHashes.join(' ')}`,
+    "style-src 'self'",
+    "style-src-attr 'unsafe-inline'",
+    "img-src 'self' data:",
+    "connect-src 'self' https://*.execute-api.amazonaws.com",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'"
+  ].join('; '),
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+  'Cross-Origin-Resource-Policy': 'same-origin'
+};
 const STATIC_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -269,6 +300,7 @@ const server = http.createServer(async (req, res) => {
   if (staticFile) {
     let body;
     try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- dashboardFile só devolve caminhos dentro de DASHBOARD_DIR
       body = fs.readFileSync(staticFile);
     } catch {
       return send(res, 404, { 'Content-Type': 'application/json' }, JSON.stringify({ error: 'Not found' }));

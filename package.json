@@ -26,7 +26,16 @@
     "localstack:stop": "bash scripts/localstack-stop.sh",
     "localstack:deploy": "node scripts/localstack-deploy.mjs",
     "admin:hash": "node scripts/hash-admin-key.mjs",
-    "local-server": "LOG_LEVEL=${LOG_LEVEL:-warn} node --env-file-if-exists=.env local-server.mjs"
+    "local-server": "LOG_LEVEL=${LOG_LEVEL:-warn} node --env-file-if-exists=.env local-server.mjs",
+    "sast:semgrep": "docker run --rm -v \"$PWD:/src\" -w /src semgrep/semgrep semgrep scan --config p/javascript --config p/nodejsscan --config p/owasp-top-ten --config p/secrets --metrics=off --timeout 60 --error --quiet .",
+    "sast:secrets": "docker run --rm -v \"$PWD:/repo\" zricethezav/gitleaks:latest git /repo --no-banner --redact --config /repo/.gitleaks.toml && docker run --rm -v \"$PWD:/repo\" zricethezav/gitleaks:latest dir /repo --no-banner --redact --config /repo/.gitleaks.toml",
+    "sast:iac": "docker run --rm -v \"$PWD:/src\" -w /src bridgecrew/checkov:latest --config-file .checkov.yaml",
+    "sast:deps": "npm audit --omit=dev --audit-level=high",
+    "sast": "npm run sast:deps && npm run sast:semgrep && npm run sast:secrets && npm run sast:iac",
+    "dast:api": "LOG_LEVEL=silent node --test test/integration/security.test.mjs",
+    "dast:zap": "mkdir -p reports && chmod 777 reports && docker run --rm --network host -v \"$PWD/reports:/zap/wrk:rw\" -v \"$PWD/.zap:/zap/config:ro\" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t ${DAST_TARGET:-http://localhost:3001/} -c /zap/config/rules.tsv -r zap.html -J zap.json",
+    "dast:zap:api": "mkdir -p reports && chmod 777 reports && docker run --rm --network host -v \"$PWD/reports:/zap/wrk:rw\" -v \"$PWD/.zap:/zap/config:ro\" ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py -t /zap/config/openapi.yaml -f openapi -O ${DAST_TARGET:-http://localhost:3001} -c /zap/config/rules-api.tsv -r zap-api.html -J zap-api.json -T 25 -I",
+    "security": "npm run lint && npm run sast && npm run dast:api"
   },
   "dependencies": {
     "@aws-sdk/client-apigatewayv2": "^3.1146.0",
@@ -44,6 +53,9 @@
   "devDependencies": {
     "c8": "^8.0.1",
     "esbuild": "^0.28.2",
-    "eslint": "^8.57.0"
+    "eslint": "^8.57.0",
+    "eslint-plugin-n": "^16.6.2",
+    "eslint-plugin-no-unsanitized": "^4.0.2",
+    "eslint-plugin-security": "^3.0.1"
   }
 }

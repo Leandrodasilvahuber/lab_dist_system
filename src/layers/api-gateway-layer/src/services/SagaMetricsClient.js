@@ -91,6 +91,7 @@ export class SagaMetricsClient {
  * consultado em GET /saga/{id}. O sagaId é `saga_<uuid>` ou `saga_<48 hex>`;
  * outros nomes voltam como estão.
  */
+// eslint-disable-next-line security/detect-unsafe-regex -- alternativas de tamanho fixo, sem ReDoS
 const EXECUTION_NAME = /^(saga_(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{48}))(?:-\d+)?$/;
 
 export function sagaIdFromExecution(name) {

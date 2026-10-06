@@ -1,0 +1,20 @@
+# Gitleaks (npm run sast:secrets): procura segredos no histórico do git e nos arquivos
+# do working tree, inclusive os fora do git (.env, que nunca deve ser commitado).
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Gerados localmente e fora do git: certificado de teste do LocalStack, build do SAM, dependências"
+paths = [
+  '''^(/repo/)?localstack-data/''',
+  '''^(/repo/)?\.aws-sam/''',
+  '''^(/repo/)?node_modules/''',
+  '''^(/repo/)?reports/''',
+]
+
+[[allowlists]]
+description = "Valores de teste que parecem chaves: Idempotency-Key fixa e credenciais fictícias do LocalStack"
+regexTarget = "match"
+regexes = [
+  '''-teste['"]?''',
+]

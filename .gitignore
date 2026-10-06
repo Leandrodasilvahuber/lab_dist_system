@@ -38,3 +38,6 @@ build/
 # SAM / LocalStack
 .aws-sam/
 localstack-data/
+
+# Relatórios do ZAP (npm run dast:zap)
+reports/

@@ -20,7 +20,8 @@ export const CORS_HEADERS = {
 function jsonResponse(statusCode, body, headers = {}) {
   return {
     statusCode,
-    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS, ...headers },
+    // nosniff: o navegador nunca interpreta o JSON da API como HTML ou script
+    headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff', ...CORS_HEADERS, ...headers },
     body: JSON.stringify(body)
   };
 }

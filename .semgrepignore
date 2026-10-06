@@ -1,0 +1,7 @@
+node_modules/
+.aws-sam/
+localstack-data/
+reports/
+.openclaude/
+# Testes usam dados falsos (Math.random, chaves de exemplo) de propósito
+test/

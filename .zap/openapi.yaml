@@ -1,0 +1,93 @@
+# Rotas públicas da API para o scan ativo do ZAP (npm run dast:zap:api).
+# As rotas de admin (🔑 no README) ficam de fora: sem a chave respondem 401,
+# e com ela o scan ligaria o caos ou apagaria produtos do ambiente local.
+openapi: 3.0.3
+info:
+  title: E-commerce (rotas públicas)
+  version: '1.0'
+servers:
+  - url: http://localhost:3001
+paths:
+  /health:
+    get: { responses: { '200': { description: ok } } }
+  /alarms:
+    get: { responses: { '200': { description: ok } } }
+  /chaos:
+    get: { responses: { '200': { description: ok } } }
+  /dlq:
+    get: { responses: { '200': { description: ok } } }
+  /metrics/errors:
+    get:
+      parameters: [{ name: hours, in: query, schema: { type: integer, example: 24 } }]
+      responses: { '200': { description: ok } }
+  /metrics/sagas:
+    get: { responses: { '200': { description: ok } } }
+  /metrics/slo:
+    get:
+      parameters: [{ name: hours, in: query, schema: { type: integer, example: 24 } }]
+      responses: { '200': { description: ok } }
+  /metrics/memory:
+    get:
+      parameters: [{ name: hours, in: query, schema: { type: integer, example: 3 } }]
+      responses: { '200': { description: ok } }
+  /products:
+    get:
+      parameters:
+        - { name: name, in: query, schema: { type: string, example: apple } }
+        - { name: priceMin, in: query, schema: { type: number, example: 1 } }
+        - { name: priceMax, in: query, schema: { type: number, example: 100 } }
+        - { name: limit, in: query, schema: { type: integer, example: 10 } }
+        - { name: nextToken, in: query, schema: { type: string, example: abc } }
+      responses: { '200': { description: ok } }
+  /products/{id}:
+    get:
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, example: apple } }]
+      responses: { '200': { description: ok } }
+  /orders:
+    get:
+      parameters:
+        - { name: status, in: query, schema: { type: string, example: confirmed } }
+        - { name: productId, in: query, schema: { type: string, example: apple } }
+        - { name: limit, in: query, schema: { type: integer, example: 10 } }
+        - { name: nextToken, in: query, schema: { type: string, example: abc } }
+      responses: { '200': { description: ok } }
+  /orders/{id}:
+    get:
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, example: order_1 } }]
+      responses: { '200': { description: ok } }
+  /stock:
+    get:
+      parameters:
+        - { name: productId, in: query, schema: { type: string, example: apple } }
+        - { name: stockMin, in: query, schema: { type: integer, example: 0 } }
+        - { name: stockMax, in: query, schema: { type: integer, example: 100 } }
+        - { name: limit, in: query, schema: { type: integer, example: 10 } }
+      responses: { '200': { description: ok } }
+  /stock/{productId}:
+    get:
+      parameters: [{ name: productId, in: path, required: true, schema: { type: string, example: apple } }]
+      responses: { '200': { description: ok } }
+  /saga/execute:
+    post:
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, example: 0b9a6f3e-zap-scan } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                productId: { type: string, example: apple }
+                quantity: { type: integer, example: 1 }
+      responses: { '202': { description: compra iniciada } }
+  /saga/{sagaId}:
+    get:
+      parameters: [{ name: sagaId, in: path, required: true, schema: { type: string, example: saga_1 } }]
+      responses: { '200': { description: ok } }
+  /sagas:
+    get:
+      parameters:
+        - { name: status, in: query, schema: { type: string, example: COMPLETED } }
+        - { name: recent, in: query, schema: { type: integer, example: 5 } }
+        - { name: limit, in: query, schema: { type: integer, example: 10 } }
+      responses: { '200': { description: ok } }

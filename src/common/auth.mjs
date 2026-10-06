@@ -57,6 +57,7 @@ function receivedApiKey(headers) {
 // sem pagar o custo do scrypt a cada chave recebida.
 const SCRYPT_KEY_LENGTH = 32;
 const scryptAsync = promisify(scrypt);
+// eslint-disable-next-line security/detect-unsafe-regex -- pares fixos de 2 caracteres, sem backtracking ambíguo
 const HEX = /^(?:[0-9a-f]{2})+$/i;
 
 /** Devolve `scrypt$<salt hex>$<hash hex>`, com salt aleatório. */

@@ -372,7 +372,30 @@ expor na rede, use `HOST=0.0.0.0` junto com a chave de admin (sem ela, o
 servidor se recusa a subir).
 
 Para usar o dashboard com a API publicada na AWS, abra
-`http://localhost:3001/?api=<ApiGatewayUrl>`.
+`http://localhost:3001/?api=<ApiGatewayUrl>`. A CSP do
+`local-server` só deixa o dashboard chamar a própria origem e
+`https://*.execute-api.amazonaws.com`.
+
+## Segurança
+
+| Comando | O que roda |
+|---|---|
+| `npm run lint` | ESLint com `eslint-plugin-security` (Node), `eslint-plugin-no-unsanitized` (dashboard) e `eslint-plugin-n` |
+| `npm run sast:deps` | `npm audit` das dependências de produção (falha em high/critical) |
+| `npm run sast:semgrep` | Semgrep (`p/javascript`, `p/nodejsscan`, `p/owasp-top-ten`, `p/secrets`) |
+| `npm run sast:secrets` | Gitleaks no histórico do git e nos arquivos locais (`.gitleaks.toml`) |
+| `npm run sast:iac` | Checkov no `template.yaml` (`.checkov.yaml`; exceções com motivo no próprio template) |
+| `npm run sast` | Os quatro acima |
+| `npm run dast:api` | `test/integration/security.test.mjs`: sobe o `local-server` e testa auth de admin, CORS, Host (DNS rebinding), path traversal e payloads malformados |
+| `npm run dast:zap` | OWASP ZAP baseline contra `DAST_TARGET` (padrão `http://localhost:3001/`); relatório em `reports/zap.html` |
+| `npm run dast:zap:api` | Scan **ativo** do ZAP nas rotas públicas (`.zap/openapi.yaml`); relatório em `reports/zap-api.html`. Rode contra uma instância com chave de admin (as rotas de admin ficam de fora) |
+| `npm run security` | `lint` + `sast` + `dast:api` |
+
+Semgrep, Gitleaks, Checkov e ZAP rodam em Docker. Os `dast:zap*` precisam do
+`local-server` no ar. No scan ativo o LocalStack fica sobrecarregado e algumas
+leituras do CloudWatch/Step Functions estouram o timeout: a API responde 503
+(alerta 100000 no relatório), que é a degradação esperada, não falha de segurança. A proteção contra XSS do dashboard é o `escapeHtml` nos
+componentes, coberto por `test/unit/dashboard/xss.test.mjs`.
 
 ## Engenharia de caos
 

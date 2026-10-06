@@ -1,0 +1,24 @@
+# Checkov (npm run sast:iac): IaC do template.yaml.
+# Checks desligados de propósito: custo fixo alto demais para um laboratório
+# ou sem efeito na arquitetura (Lambdas síncronas atrás do API Gateway).
+# Exceções de um recurso só ficam no template.yaml (checkov:skip com o motivo).
+framework:
+  - cloudformation
+file:
+  - template.yaml
+compact: true
+quiet: true
+skip-check:
+  # Criptografia com CMK (US$ 1/mês por chave): DynamoDB, logs e variáveis de ambiente
+  # já ficam criptografados em repouso com chaves da AWS, sem custo
+  - CKV_AWS_119
+  - CKV_AWS_158
+  - CKV_AWS_173
+  # Lambdas em VPC exigiriam NAT Gateway (~US$ 32/mês) para falar com DynamoDB/EventBridge/SFN
+  - CKV_AWS_117
+  # Reserved concurrency tira capacidade da conta (limite baixo em contas novas);
+  # o freio de abuso é o throttling do API Gateway e os limites diários
+  - CKV_AWS_115
+  # DLQ de Lambda só vale para invocação assíncrona; aqui todas são síncronas
+  # (API Gateway, Step Functions) e a DLQ do EventBridge já existe (ProductEventsDlq)
+  - CKV_AWS_116

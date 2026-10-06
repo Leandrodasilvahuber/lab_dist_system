@@ -43,6 +43,7 @@ export function dailyPurchaseLimitPerClient(env = process.env) {
  */
 export function clientKey(ip) {
   const value = String(ip || 'unknown').trim().toLowerCase();
+  // eslint-disable-next-line security/detect-unsafe-regex -- repetições limitadas ({1,3}, {3}), sem ReDoS
   const mapped = value.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
   if (mapped) return mapped[1];
   if (!value.includes(':')) return value;

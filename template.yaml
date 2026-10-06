@@ -117,6 +117,7 @@ Resources:
   # Escritas de admin (produto, estoque, caos, ações da DLQ), o custo, os logs e o rastreio usam o authorizer AdminApiKey (mesma lista de src/common/auth.mjs).
   ApiGateway:
     Type: AWS::Serverless::HttpApi
+    # checkov:skip=CKV_AWS_95:cada requisição já fica no log estruturado do Gateway (ServicesLogGroup); access log dobraria a ingestão do CloudWatch
     Properties:
       StageName: !Ref Environment
       Description: "API Gateway centralizado para todos os endpoints"
@@ -843,9 +844,12 @@ Resources:
 
   ProductEventsDlq:
     Type: AWS::SQS::Queue
+    # checkov:skip=CKV_AWS_27:criptografada com SSE-SQS (SqsManagedSseEnabled), que o check não reconhece; só aceita KMS
     Properties:
       QueueName: !Sub '${Environment}-ProductEventsDlq'
       MessageRetentionPeriod: 1209600
+      # SSE-SQS: criptografia em repouso sem custo de KMS (aceita pelo EventBridge como DLQ)
+      SqsManagedSseEnabled: true
 
   ProductEventsDlqPolicy:
     Type: AWS::SQS::QueuePolicy
@@ -1290,6 +1294,7 @@ Resources:
   # Todos os alarmes publicam aqui ao entrar em ALARM e ao voltar a OK
   AlarmTopic:
     Type: AWS::SNS::Topic
+    # checkov:skip=CKV_AWS_26:o CloudWatch e o Budgets não publicam em tópico com a chave gerenciada aws/sns, e uma CMK custa US$ 1/mês; o tópico só leva avisos de alarme
     Properties:
       TopicName: !Sub '${Environment}-ecommerce-alarms'
       DisplayName: !Sub 'E-commerce ${Environment}: alarmes'
@@ -1411,6 +1416,7 @@ Resources:
   # src/layers/api-gateway-layer/src/ops/costKillSwitch.js
   CostKillSwitchTopic:
     Type: AWS::SNS::Topic
+    # checkov:skip=CKV_AWS_26:mesmo caso do AlarmTopic (publicado por alarme do CloudWatch, só leva avisos)
     Properties:
       TopicName: !Sub '${Environment}-ecommerce-cost-kill-switch'
       DisplayName: !Sub 'E-commerce ${Environment}: API bloqueada por custo'
@@ -1914,6 +1920,7 @@ Resources:
   # cada leitura. Sem PITR: é cache, a próxima leitura recria
   CostSnapshotsTable:
     Type: AWS::DynamoDB::Table
+    # checkov:skip=CKV_AWS_28:cache da última leitura do Cost Explorer; se perder, a próxima leitura recria
     Properties:
       TableName: !Sub '${Environment}-CostSnapshots'
       BillingMode: PAY_PER_REQUEST
