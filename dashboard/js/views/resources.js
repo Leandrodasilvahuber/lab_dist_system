@@ -1,6 +1,6 @@
 import { api } from '../core/api.js';
 import { $ } from '../core/dom.js';
-import { escapeHtml, nowTime, usd } from '../core/format.js';
+import { escapeHtml, hourMinute, nowTime, usd } from '../core/format.js';
 import { lineChart, periodLabel, stackedChart } from '../components/chart.js';
 import { dataTable } from '../components/data-table.js';
 import { emptyState, errorState } from '../components/empty.js';
@@ -125,11 +125,11 @@ async function refreshCostNow() {
         showToast('Custo real lido do Cost Explorer', 'success');
     } catch (error) {
         if (error.body?.code === 'CostRefreshLimitExceeded') {
-            alert(`Total de atualizações do dia excedido (${error.body.limit}). O limite zera às 12:00.`);
+            alert(`Total de atualizações do dia excedido (${error.body.limit}). O limite zera às ${hourMinute(error.body.resetsAt)}.`);
             return;
         }
         const message = error.status === 429 && error.retryAfter
-            ? `Cost Explorer lido há pouco; de novo às ${new Date(Date.now() + error.retryAfter * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+            ? `Cost Explorer lido há pouco; de novo às ${hourMinute(new Date(Date.now() + error.retryAfter * 1000).toISOString())}`
             : `Falhou: ${error.message}`;
         showToast(message, 'error');
         return;

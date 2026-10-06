@@ -1,6 +1,7 @@
-import { describe, it } from 'node:test';
+import { describe, it, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
 import { SagaOrchestratorController } from '../../../src/ecommerce/saga-orchestrator/src/controllers/SagaOrchestratorController.js';
+import { SagaService } from '../../../src/ecommerce/saga-orchestrator/src/services/SagaService.js';
 
 const execute = headers => SagaOrchestratorController.executeSaga({
   headers,
@@ -41,5 +42,23 @@ describe('GET /sagas?recent=', () => {
     for (const recent of ['0', '51', 'abc', '2.5', '']) {
       assert.strictEqual((await list(recent)).statusCode, 400, recent);
     }
+  });
+});
+
+describe('POST /saga/execute: cliente', () => {
+  afterEach(() => mock.restoreAll());
+
+  // Limite diário por cliente (PurchaseQuota): o IP de origem do HttpApi
+  it('passa o sourceIp do requestContext como clientId', async () => {
+    const startSaga = mock.method(SagaService.prototype, 'startSaga', async () => ({
+      saga: { id: 'saga_x', orderId: 'order_saga_x', status: 'RUNNING', correlationId: 'c' }, created: true
+    }));
+    const response = await SagaOrchestratorController.executeSaga({
+      headers: { 'idempotency-key': '0b9a6f3e-cliente-teste-01' },
+      requestContext: { http: { method: 'POST', sourceIp: '203.0.113.9' } },
+      body: JSON.stringify({ productId: 'apple', quantity: 1 })
+    });
+    assert.strictEqual(response.statusCode, 202);
+    assert.strictEqual(startSaga.mock.calls[0].arguments[0].clientId, '203.0.113.9');
   });
 });

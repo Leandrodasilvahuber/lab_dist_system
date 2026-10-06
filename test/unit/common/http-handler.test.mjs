@@ -1,7 +1,8 @@
 import { describe, it, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
 import { createServiceHandler } from '../../../src/common/http-handler.mjs';
-import { successResponse, errorResponse } from '../../../src/common/response.mjs';
+import { successResponse, errorResponse, dailyLimitResponse } from '../../../src/common/response.mjs';
+import { PurchaseLimitError } from '../../../src/common/errors.mjs';
 import { setupRoutes as productRoutes } from '../../../src/ecommerce/products/src/routes/productRoutes.js';
 
 const request = path => ({ rawPath: path, requestContext: { http: { method: 'GET' } }, headers: {} });
@@ -59,6 +60,22 @@ describe('createServiceHandler: log por request', () => {
     assert.strictEqual(out[0].status, 'info');
     assert.deepStrictEqual([out[0].ClientErrors, out[0].ErrorType, out[0].BusinessErrors], [1, 'HTTP_404', undefined]);
     assert.deepStrictEqual(out[0]._aws.CloudWatchMetrics[0].Metrics.map(m => m.Name), ['ClientErrors']);
+  });
+
+  // Limite diário atingido é o comportamento configurado: um dia esgotado não
+  // pode disparar business-errors
+  it('429 de limite diário (com code) vira linha info, sem BusinessErrors', async () => {
+    const limited = new PurchaseLimitError(150, { scope: 'total', resetsAt: '2026-10-07T15:00:00.000Z', retryAfterSeconds: 60 });
+    const { out, warn } = await run(dailyLimitResponse(limited));
+    assert.strictEqual(warn.length, 0);
+    assert.strictEqual(out[0].event, 'API_REJECTED');
+    assert.strictEqual(out[0].status, 'info');
+    assert.strictEqual(out[0].BusinessErrors, undefined);
+  });
+
+  it('429 sem code continua warn', async () => {
+    const { warn } = await run(errorResponse('Too many', 429));
+    assert.strictEqual(warn[0].event, 'API_REJECTED');
   });
 
   it('404 fora de leitura (POST) continua erro de negócio', async () => {

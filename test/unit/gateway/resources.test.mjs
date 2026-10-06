@@ -111,10 +111,10 @@ function fakeStore(initial = null) {
         this.item = { ...this.item, manualDay: quota.day, manualCount: count + 1 };
       }
       this.item = { ...this.item, refreshStartedAt: now };
-      const { manualDay, manualCount } = this.item;
-      return { acquired: true, ...(manualDay && { manualDay, manualCount }) };
+      return { acquired: true };
     },
-    async save(snapshot) { this.item = snapshot; }
+    // Update como o snapshotStore: preserva o contador do dia
+    async save(snapshot) { this.item = { ...this.item, ...snapshot }; }
   };
 }
 
@@ -257,6 +257,16 @@ describe('CostClient', () => {
     // Travado (leitura há menos de minIntervalMs): 429 de 15 min, não o do dia
     client = { async send() { throw failWith({ refreshStartedAt: { N: String(NOW) }, manualDay: { S: quota.day }, manualCount: { N: '5' } }); } };
     assert.deepStrictEqual(await snapshotStore('t', client).tryLock(NOW + 10, 1000, quota), { acquired: false, lockedAt: NOW });
+  });
+
+  it('snapshotStore.save: Update só dos campos da leitura, sem tocar no contador do dia', async () => {
+    const sent = [];
+    const store = snapshotStore('t', { async send(command) { sent.push(command); return {}; } });
+    await store.save({ fetchedAt: 'x', monthToDate: 1.5, forecast: null, refreshStartedAt: NOW, skipped: undefined });
+    const { input } = sent[0];
+    assert.strictEqual(sent[0].constructor.name, 'UpdateCommand');
+    assert.deepStrictEqual(Object.values(input.ExpressionAttributeNames), ['fetchedAt', 'monthToDate', 'forecast', 'refreshStartedAt']);
+    assert.doesNotMatch(input.UpdateExpression, /manual/);
   });
 
   it('local: não há Cost Explorer para atualizar (503)', async () => {

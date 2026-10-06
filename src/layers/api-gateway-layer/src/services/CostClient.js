@@ -1,6 +1,6 @@
 import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import { CostExplorerClient, GetCostAndUsageCommand, GetCostForecastCommand } from '@aws-sdk/client-cost-explorer';
-import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { metricNamespace } from '../../../../common/emf.mjs';
 import { awsClientConfig, IS_LOCAL, QUERY_CLIENT_OPTIONS } from '../../../../common/aws-client.mjs';
 import { CloudWatchMetricsClient } from './CloudWatchMetricsClient.js';
@@ -327,10 +327,7 @@ export class CostClient {
     }
     if (!lock.acquired) return { refreshed: false, retryAt: new Date(lock.lockedAt + minIntervalMs).toISOString() };
     const data = await this.fetchCostExplorer();
-    // O save regrava o item inteiro: leva junto o contador do dia que a trava
-    // devolveu (ninguém o muda enquanto a trava vale)
-    const counter = lock.manualDay && { manualDay: lock.manualDay, manualCount: lock.manualCount };
-    await this.store.save({ ...data, refreshStartedAt: now, ...counter });
+    await this.store.save({ ...data, refreshStartedAt: now });
     this.snapshotCache = null;
     return { refreshed: true, fetchedAt: data.fetchedAt };
   }
@@ -425,11 +422,8 @@ export function snapshotStore(TableName, client = docClient) {
       let old;
       for (const attempt of attempts) {
         try {
-          const { Attributes = {} } = await client.send(new UpdateCommand({
-            TableName, Key, ...attempt, ReturnValues: 'ALL_NEW', ReturnValuesOnConditionCheckFailure: 'ALL_OLD'
-          }));
-          const { manualDay, manualCount } = Attributes;
-          return { acquired: true, ...(manualDay && { manualDay, manualCount }) };
+          await client.send(new UpdateCommand({ TableName, Key, ...attempt, ReturnValuesOnConditionCheckFailure: 'ALL_OLD' }));
+          return { acquired: true };
         } catch (error) {
           if (error.name !== 'ConditionalCheckFailedException') throw error;
           // O item da falha vem no formato do DynamoDB ({ N: '...' }), sem o unmarshall do DocumentClient
@@ -443,8 +437,17 @@ export function snapshotStore(TableName, client = docClient) {
       // Corrida: outra leitura mudou o item entre as duas escritas (e travou)
       return { acquired: false, lockedAt: now };
     },
+    // Update, não Put: grava só os campos da leitura e preserva o contador do
+    // dia (manualDay/manualCount), que só a trava altera
     async save(snapshot) {
-      await client.send(new PutCommand({ TableName, Item: { id: SNAPSHOT_ID, ...snapshot } }));
+      const fields = Object.entries(snapshot).filter(([, value]) => value !== undefined);
+      await client.send(new UpdateCommand({
+        TableName,
+        Key,
+        UpdateExpression: `SET ${fields.map((_, i) => `#f${i} = :v${i}`).join(', ')}`,
+        ExpressionAttributeNames: Object.fromEntries(fields.map(([name], i) => [`#f${i}`, name])),
+        ExpressionAttributeValues: Object.fromEntries(fields.map(([, value], i) => [`:v${i}`, value]))
+      }));
     }
   };
 }

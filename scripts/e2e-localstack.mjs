@@ -56,6 +56,12 @@ try {
 // O orquestrador e as rotas HTTP rodam neste processo, apontando para o LocalStack
 Object.assign(process.env, T, {
   SAGA_STATE_MACHINE_ARN: stateMachineArn,
+  // Limites diários (PurchaseQuota) explícitos: os handlers rodam neste
+  // processo, sem o local-server que os desliga, e sem IP todas as compras
+  // caem no mesmo cliente. Altos, para a transação com os contadores
+  // continuar exercitada sem que um cenário novo esbarre no limite
+  DAILY_PURCHASE_LIMIT: '10000',
+  DAILY_PURCHASE_LIMIT_PER_CLIENT: '10000',
   PRODUCT_FUNCTION_NAME: `${PREFIX}-ProductFunction`,
   // Cold start de Lambda no LocalStack (contêiner) passa do teto de 5s da AWS
   PRODUCT_TIMEOUT_MS: '30000',

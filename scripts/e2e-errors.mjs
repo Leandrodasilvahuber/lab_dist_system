@@ -81,6 +81,10 @@ try {
 }
 
 Object.assign(process.env, T, {
+  // Limites diários (PurchaseQuota): sem o local-server, que os desliga, os
+  // padrões valeriam aqui, todas as compras no mesmo cliente (sem IP)
+  DAILY_PURCHASE_LIMIT: '0',
+  DAILY_PURCHASE_LIMIT_PER_CLIENT: '0',
   INVENTORY_TABLE: `${PREFIX}-Inventory-inexistente`,
   // A saga consulta o produto invocando esta Lambda num endpoint que recusa a
   // conexão: o serviço de Products está fora do ar (cenário 6, circuit

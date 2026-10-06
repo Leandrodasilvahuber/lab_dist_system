@@ -78,6 +78,8 @@ Conditions:
   IsProd: !Equals [!Ref Environment, prod]
   LimitGatewayConcurrency: !Not [!Equals [!Ref GatewayConcurrencyLimit, 0]]
   HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
+  # Alarme purchase-limit só com o limite diário de compras ligado
+  HasPurchaseLimit: !Not [!Equals [!Ref DailyPurchaseLimit, 0]]
 
 # Todas as funções são empacotadas com esbuild a partir da raiz do projeto,
 # o que inclui automaticamente o código compartilhado de src/common.
@@ -907,6 +909,7 @@ Resources:
   # normal (nenhuma tentativa na hora) não é notícia
   PurchaseLimitAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: HasPurchaseLimit
     Properties:
       AlarmActions: [!Ref AlarmTopic]
       AlarmName: !Sub '${Environment}-ecommerce-purchase-limit'
@@ -1473,7 +1476,9 @@ Resources:
     Type: AWS::CloudWatch::Dashboard
     Properties:
       DashboardName: !Sub '${Environment}-ecommerce'
-      DashboardBody: !Sub |
+      # Lista de variáveis: o alarme purchase-limit só existe com HasPurchaseLimit
+      DashboardBody: !Sub
+      - |
         {
           "start": "-PT3H",
           "periodOverride": "inherit",
@@ -1572,8 +1577,7 @@ Resources:
                 "${CircuitBreakerOpenAlarm.Arn}",
                 "${ClientErrorsAlarm.Arn}",
                 "${SagasStuckAlarm.Arn}",
-                "${LambdaThrottlesAlarm.Arn}",
-                "${PurchaseLimitAlarm.Arn}"
+                "${LambdaThrottlesAlarm.Arn}"${PurchaseLimitAlarmEntry}
               ]
             } },
             { "type": "metric", "x": 0, "y": 32, "width": 24, "height": 6, "properties": {
@@ -1588,6 +1592,7 @@ Resources:
             } }
           ]
         }
+      - PurchaseLimitAlarmEntry: !If [HasPurchaseLimit, !Sub ',"${PurchaseLimitAlarm.Arn}"', '']
 
   # Consultas salvas (Logs Insights → Consultas salvas → ecommerce/<env>/...)
   # O like casa o id em qualquer lugar da linha: nas Lambdas ele está no campo

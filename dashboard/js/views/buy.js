@@ -2,7 +2,7 @@ import { api } from '../core/api.js';
 import { $ } from '../core/dom.js';
 import { newIdempotencyKey } from '../core/ids.js';
 import { on } from '../core/events.js';
-import { escapeHtml, money } from '../core/format.js';
+import { escapeHtml, hourMinute, money } from '../core/format.js';
 import { loadProducts, productNames } from '../services/catalog.js';
 import { getSaga, recentSagas } from '../services/sagas.js';
 import { emptyState, errorState, loading } from '../components/empty.js';
@@ -113,7 +113,7 @@ async function startPurchase(event) {
             // Limite diário (PurchaseQuota): a compra não começou; depois das 12:00 é uma compra nova
             pendingPurchase = null;
             const who = error.body.scope === 'client' ? ' para este cliente' : '';
-            alert(`Total de compras do dia excedido${who} (${error.body.limit}). O limite zera às 12:00.`);
+            alert(`Total de compras do dia excedido${who} (${error.body.limit}). O limite zera às ${hourMinute(error.body.resetsAt)}.`);
         } else {
             pendingPurchase = null;
             showToast(`Compra recusada: ${error.message}`, 'error');

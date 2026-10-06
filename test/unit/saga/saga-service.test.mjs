@@ -204,6 +204,22 @@ describe('SagaService', () => {
       assert.strictEqual(db.tables.sagas.has('quota_2026-10-05'), false);
     });
 
+    it('contador já visto cheio: recusa sem consultar o produto nem tentar a transação', async () => {
+      service = withQuota({ limit: 1, perClientLimit: 0 });
+      await buy('k-known-1');
+      await assert.rejects(buy('k-known-2'), PurchaseLimitError);
+      const calls = productClient.calls;
+      let transactions = 0;
+      const transact = db.transactWrite.bind(db);
+      db.transactWrite = ops => { transactions++; return transact(ops); };
+      const error = await buy('k-known-3').catch(e => e);
+      assert.ok(error instanceof PurchaseLimitError);
+      assert.strictEqual(error.scope, 'total');
+      assert.deepStrictEqual([productClient.calls, transactions], [calls, 0]);
+      // Retomar uma compra que já existe continua funcionando
+      assert.strictEqual((await buy('k-known-1')).created, false);
+    });
+
     it('throttling dentro da transação: 503 com Retry-After, não 500', async () => {
       service = withQuota({ limit: 5, perClientLimit: 5 });
       db.transactWrite = async () => {

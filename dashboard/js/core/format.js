@@ -29,6 +29,11 @@ export function dateTime(iso) {
 
 export const nowTime = () => time(new Date().toISOString());
 
+// 12:00 (hora local de quem vê): quando um limite diário zera
+export function hourMinute(iso) {
+    return iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+}
+
 export function ms(value) {
     if (value === null || value === undefined) return '—';
     return value >= 1000 ? `${(value / 1000).toFixed(2)} s` : `${value} ms`;

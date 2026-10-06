@@ -91,6 +91,14 @@ export class SagaService {
       throw new ValidationError(`quantity must be at most ${MAX_PURCHASE_QUANTITY}`);
     }
 
+    // Limite diário que este container já viu esgotado: recusa sem consultar o
+    // produto nem tentar a transação (as duas são cobradas)
+    const knownFull = this.quota.knownFull(clientId);
+    if (knownFull) {
+      logLimitReached(correlationId || sagaId, knownFull);
+      throw this.quota.limitError(knownFull);
+    }
+
     // Consulta síncrona ao serviço de Products: produto inexistente falha aqui
     // (404 imediato) e o preço fica congelado no momento da compra
     const product = await this.productClient.getProduct(productId, { correlationId: correlationId || sagaId });
@@ -149,7 +157,8 @@ export class SagaService {
       if (reasons[0] === 'ConditionalCheckFailed') return false;
       const full = counters.find((_, i) => reasons[i + 1] === 'ConditionalCheckFailed');
       if (full) {
-        logLimitReached(saga, full);
+        this.quota.markFull(full);
+        logLimitReached(saga.correlationId, full);
         throw this.quota.limitError(full);
       }
       // Outra compra mexendo no mesmo contador: o cliente repete com a mesma chave
@@ -522,17 +531,17 @@ export class SagaService {
 }
 
 // Motivos de cancelamento de transação que são throttling do DynamoDB
-const THROTTLING_REASONS = new Set(['ThrottlingError', 'ProvisionedThroughputExceeded', 'RequestLimitExceeded']);
+const THROTTLING_REASONS = new Set(['ThrottlingError', 'ProvisionedThroughputExceeded']);
 
 /**
  * Compra recusada pelo limite diário: info (a recusa é o comportamento
  * configurado), com a métrica PurchaseLimitHit por Scope. Com Scope=total o
  * alarme purchase-limit avisa que as vendas pararam até as 12:00
  */
-function logLimitReached(saga, { scope, limit }) {
+function logLimitReached(correlationId, { scope, limit }) {
   log({
     event: 'PURCHASE_LIMIT_REACHED',
-    correlationId: saga.correlationId,
+    correlationId,
     status: 'info',
     message: `Daily purchase limit reached (${scope}: ${limit})`,
     data: { scope, limit },
