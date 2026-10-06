@@ -1,12 +1,12 @@
 import { API_BASE } from './core/config.js';
 import { $ } from './core/dom.js';
 import { on } from './core/events.js';
-import { escapeHtml, time } from './core/format.js';
+import { dateTime, escapeHtml, time } from './core/format.js';
 import { navigate } from './core/nav.js';
 import { currentView, initRouter, refreshCurrent, show, syncAdminViews } from './core/router.js';
 import { loadAuthConfig, login, revoke } from './core/cognito.js';
 import { getCredential, isAdmin, setCredential } from './core/session.js';
-import { checkAdminKey } from './core/api.js';
+import { api, checkAdminKey } from './core/api.js';
 import { storage } from './core/storage.js';
 import { icon } from './components/icons.js';
 import { showToast } from './components/toast.js';
@@ -74,8 +74,60 @@ on('chaos', ({ active, expiresAt, faults = [] }) => {
     chaosExpiry = setTimeout(loadChaos, Math.max(0, Date.parse(expiresAt) - Date.now()) + 1000);
     const targets = faults.map(f => `${f.service}/${f.action || '*'}`).join(', ');
     banner.innerHTML = `${icon('zap', { size: 16 })}<span><strong>Caos ativo até ${escapeHtml(time(expiresAt))}</strong> · ${faults.length} falha(s) injetada(s): <span class="mono">${escapeHtml(targets)}</span></span>
-        ${isAdmin() ? navLink('chaos', 'Gerenciar', 'arrowRight') : ''}`;
+        ${navLink('chaos', 'Gerenciar', 'arrowRight')}`;
 });
+
+// ---------- Zerar a base: ao lado do indicador de conexão, aberto a todos ----------
+// Limite diário no servidor (POST /reset, ResetClient); desligado em prod (botão some)
+let resetState = { enabled: false };
+// Chamadas seguidas de um mesmo reset antes de desistir (cada uma limpa ~8s)
+const RESET_MAX_CALLS = 20;
+
+function renderResetButton() {
+    const button = $('resetBtn');
+    const { enabled, limit, remaining, resetsAt, unfinished } = resetState;
+    button.hidden = !enabled;
+    if (!enabled) return;
+    button.innerHTML = `${icon('undo', { size: 15 })}<span>${unfinished ? 'Concluir reset' : 'Zerar base'}</span>`;
+    // Reset que parou no meio continua sem gastar outra vez
+    button.disabled = remaining === 0 && !unfinished;
+    button.title = unfinished
+        ? 'O último reset parou no meio: continua a limpeza sem gastar outra vez'
+        : remaining === 0
+            ? `Limite de ${limit} por dia atingido; libera em ${dateTime(resetsAt)}`
+            : `Apaga compras, produtos e estoque e grava de novo os produtos do seed${remaining === null ? '' : ` · restam ${remaining} de ${limit} hoje`}`;
+}
+
+async function loadReset() {
+    try {
+        resetState = await api('/reset');
+    } catch {
+        resetState = { enabled: false };
+    }
+    renderResetButton();
+}
+
+$('resetBtn').addEventListener('click', async () => {
+    const left = resetState.remaining === null ? '' : `\n\nRestam ${resetState.remaining} de ${resetState.limit} hoje.`;
+    if (!resetState.unfinished && !confirm(`Zerar a base? Apaga pedidos, pagamentos, reservas, sagas, produtos e estoque e grava de novo os produtos do seed.${left}`)) return;
+    $('resetBtn').disabled = true;
+    try {
+        // Tabela grande não cabe numa chamada (complete: false): as seguintes continuam sem gastar outra vez
+        for (let call = 0; call < RESET_MAX_CALLS; call++) {
+            resetState = await api('/reset', { method: 'POST' });
+            if (resetState.complete) break;
+        }
+        if (!resetState.complete) throw new Error('a limpeza não terminou; clique em Concluir reset');
+        showToast(`Base zerada: ${resetState.products} produtos do seed gravados`, 'success');
+        renderResetButton();
+        refreshCurrent();
+    } catch (error) {
+        showToast(`Falhou: ${error.message}`, 'error');
+        await loadReset();
+    }
+});
+
+loadReset();
 
 // ---------- Tema claro/escuro (sem escolha, segue o sistema) ----------
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');

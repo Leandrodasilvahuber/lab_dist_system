@@ -34,30 +34,35 @@ npm run local-server       # http://localhost:3001
 
 # 3. Popula os dados (em outro terminal, com o local-server rodando)
 #    (de novo, só grava o que falta; -- --reset volta catálogo e estoque aos valores do seed)
-npm run seed:local         # dev: catálogo + estoque + 7 compras de exemplo
-npm run seed:local:prod    # ou prod: só catálogo e estoque, sem execuções nem métricas
+npm run seed:local         # dev: os 5 produtos e o estoque
+npm run seed:local:prod    # ou prod: sem o produto de teste server
+npm run test:e2e:orders    # 7 compras de exemplo (precisa do dev), que ficam no dashboard
 
 # 4. Testes contra o LocalStack
 npm run test:integration   # SDKs contra o DynamoDB
 npm run test:e2e           # saga completa: Lambda + Step Functions + DynamoDB
 npm run test:e2e:errors    # provoca erros tratados/não tratados e cria alarmes locais
+npm run test:e2e:orders    # compras de exemplo nas tabelas do local-server (passo 3)
 
 # 5. Para tudo
 npm run localstack:stop
 ```
 
-O seed tem dois perfis (`scripts/seed.mjs`):
+O seed só grava produtos e estoque, sem compras, e tem dois perfis (`scripts/seed.mjs`):
 
 | Perfil | Comando | Grava |
 |---|---|---|
-| dev | `npm run seed:local` | os 5 produtos e o estoque, e envia 7 compras de exemplo pela API do `local-server` |
-| prod | `npm run seed:local:prod` | só o necessário para comprar: produtos e estoque, sem o `server` (`devOnly` em `seed-products.json`) |
+| dev | `npm run seed:local` | os 5 produtos e o estoque |
+| prod | `npm run seed:local:prod` | só o necessário para comprar: produtos e estoque, sem o `server` (`devOnly` em `src/common/seed-products.mjs`) |
 
-Das compras de exemplo do dev, a do server tem o pagamento recusado e a de 999
-oranges passa do estoque; as duas terminam em compensação e aparecem na aba
-⏱️ Desempenho. As chaves de idempotência são fixas: rodar o seed de novo não
-compra outra vez. Com o `local-server` parado, o seed grava os produtos e avisa
-que as compras ficaram de fora; `--no-orders` pula as compras de propósito.
+As compras de exemplo vêm do `npm run test:e2e:orders`
+(`scripts/e2e-sample-orders.mjs`), que envia 7 compras pela API do
+`local-server` e confere o resultado de cada uma. Ao contrário do `test:e2e`,
+ele usa as tabelas do `local-server` e não apaga nada. A compra do server tem
+o pagamento recusado e a de 999 oranges passa do estoque; as duas terminam em
+compensação e aparecem na aba ⏱️ Desempenho. As chaves de idempotência são
+fixas: rodar de novo não compra outra vez, só confere as sagas que já existem.
+Precisa do perfil dev (o prod não tem o `server`).
 O `local-server` não cria dados sozinho: numa base nova, sem seed, o dashboard
 começa vazio.
 

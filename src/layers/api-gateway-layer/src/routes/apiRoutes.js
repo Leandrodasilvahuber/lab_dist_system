@@ -13,6 +13,7 @@ import { SloClient, parseSloQuery } from '../services/SloClient.js';
 import { MemoryMetricsClient } from '../services/MemoryMetricsClient.js';
 import { CostClient, parseCostQuery } from '../services/CostClient.js';
 import { ChaosClient } from '../services/ChaosClient.js';
+import { ResetClient } from '../services/ResetClient.js';
 import { parseLogQuery, isTraceId } from '../../../../common/log-query.mjs';
 
 /**
@@ -25,7 +26,7 @@ import { parseLogQuery, isTraceId } from '../../../../common/log-query.mjs';
  * eventos de produto, as métricas de desempenho da saga (histórico do Step Functions),
  * os SLOs (tabela de sagas e DLQ), a memória das Lambdas e o custo (estimado
  * pelas métricas e, na AWS, o real do Cost Explorer), a configuração de caos
- * (injeção de falhas, src/common/chaos.mjs) e
+ * (injeção de falhas, src/common/chaos.mjs), o reset da base (ResetClient) e
  * tudo o que não casar com nenhuma rota ({proxy+}), devolvendo a lista de
  * endpoints disponíveis.
  */
@@ -47,6 +48,8 @@ const AVAILABLE_ENDPOINTS = [
   'GET  /chaos',
   'PUT  /chaos',
   'DELETE /chaos',
+  'GET  /reset',
+  'POST /reset',
   'GET  /products',
   'POST /products',
   'DELETE /products/{id}',
@@ -76,7 +79,8 @@ export function createAPIHandler({
   slo = new SloClient(),
   memory = new MemoryMetricsClient(),
   cost = new CostClient(),
-  chaos = new ChaosClient()
+  chaos = new ChaosClient(),
+  reset = new ResetClient()
 } = {}) {
   return async function handleAPIRequest(rawEvent) {
     // Regra agendada (RefreshCost no template.yaml): lê o Cost Explorer e grava o resultado
@@ -219,9 +223,14 @@ export function createAPIHandler({
       });
     }
 
-    // injeção de falhas (src/common/chaos.mjs): PUT e DELETE são de admin
+    // injeção de falhas (src/common/chaos.mjs): aberta a todos, como o laboratório pede, com limite diário de ativações (ChaosClient)
     if (event.path === '/chaos' && ['GET', 'PUT', 'DELETE'].includes(event.method)) {
       return chaosCall(event, chaos);
+    }
+
+    // zerar a base: aberto a todos, com limite diário (ResetClient)
+    if (event.path === '/reset' && ['GET', 'POST'].includes(event.method)) {
+      return resetCall(event, reset);
     }
 
     return notFound(event);
@@ -252,9 +261,30 @@ async function chaosCall(event, chaos) {
     });
     return successResponse(result);
   } catch (error) {
+    if (error instanceof DailyLimitError) return dailyLimitResponse(error);
     if (error instanceof DomainError) return errorResponse(error.message, error.statusCode);
     log({ event: 'CHAOS_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: `Chaos ${event.method} failed`, error });
     return errorResponse('Chaos config unavailable', 503);
+  }
+}
+
+async function resetCall(event, reset) {
+  try {
+    if (event.method === 'GET') return successResponse(await reset.status());
+    const result = await reset.reset();
+    log({
+      event: 'DATABASE_RESET',
+      correlationId: event.headers.correlationId,
+      status: 'info',
+      message: `Database reset ${result.complete ? 'complete' : 'partial (out of time; next POST continues)'} (${result.used}/${result.limit || '∞'} today): ${result.products} seed products written`,
+      data: { complete: result.complete, deleted: result.deleted, used: result.used, limit: result.limit }
+    });
+    return successResponse(result);
+  } catch (error) {
+    if (error instanceof DailyLimitError) return dailyLimitResponse(error);
+    if (error instanceof DomainError) return errorResponse(error.message, error.statusCode);
+    log({ event: 'RESET_FAILED', correlationId: event.headers.correlationId, status: 'error', message: `Reset ${event.method} failed`, error });
+    return errorResponse('Database reset unavailable', 503);
   }
 }
 

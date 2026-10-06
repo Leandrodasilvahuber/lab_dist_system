@@ -5,12 +5,10 @@ import { ADMIN_ROUTES, hashApiKey, isAdminRoute, isValidApiKey, isValidApiKeyHas
 process.env.LOG_LEVEL = 'silent';
 
 describe('rotas de admin', () => {
-  it('protege as escritas de admin (produto, estoque, caos, ações da DLQ), o custo da conta, as métricas do CloudWatch, os logs e o rastreio', () => {
+  it('protege as escritas de admin (produto, estoque, ações da DLQ), o custo da conta, as métricas do CloudWatch, os logs e o rastreio', () => {
     assert.ok(isAdminRoute('POST', '/products'));
     assert.ok(isAdminRoute('DELETE', '/products/p1'));
     assert.ok(isAdminRoute('POST', '/stock/p1/adjust'));
-    assert.ok(isAdminRoute('PUT', '/chaos'));
-    assert.ok(isAdminRoute('DELETE', '/chaos'));
     assert.ok(isAdminRoute('POST', '/dlq/m1/redrive'));
     assert.ok(isAdminRoute('POST', '/dlq/m1/discard'));
     assert.ok(isAdminRoute('GET', '/metrics/cost'));
@@ -20,12 +18,13 @@ describe('rotas de admin', () => {
     assert.ok(isAdminRoute('GET', '/trace/s1'));
   });
 
-  it('deixa público todo o resto: vitrine, compras, pedidos, métricas e a lista da DLQ', () => {
+  it('deixa público todo o resto: vitrine, compras, pedidos, métricas, a lista da DLQ, o caos e o reset da base', () => {
     for (const [method, path] of [['GET', '/products'], ['GET', '/products/p1'], ['GET', '/stock'],
       ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/sagas'], ['GET', '/orders'], ['GET', '/orders/o1'],
       ['GET', '/health'], ['GET', '/auth/config'], ['GET', '/alarms'], ['GET', '/metrics/sagas'],
       ['GET', '/metrics/slo'],
-      ['GET', '/dlq'], ['POST', '/dlq/m1/other'], ['GET', '/chaos']]) {
+      ['GET', '/dlq'], ['POST', '/dlq/m1/other'], ['GET', '/chaos'], ['PUT', '/chaos'], ['DELETE', '/chaos'],
+      ['GET', '/reset'], ['POST', '/reset']]) {
       assert.ok(!isAdminRoute(method, path), `${method} ${path}`);
     }
   });

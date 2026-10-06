@@ -7,7 +7,8 @@ import {
   UpdateCommand,
   ScanCommand,
   DeleteCommand,
-  TransactWriteCommand
+  TransactWriteCommand,
+  BatchWriteCommand
 } from '@aws-sdk/lib-dynamodb';
 import { Agent as HttpAgent } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
@@ -199,6 +200,35 @@ async function deleteItem(tableType, key, options = {}) {
   return Attributes;
 }
 
+// BatchWriteItem aceita no máximo 25 operações por chamada
+const BATCH_WRITE_MAX = 25;
+const BATCH_WRITE_MAX_ATTEMPTS = 6;
+
+/**
+ * Exclusão em lote (BatchWriteItem): 25 chaves por chamada, `concurrency`
+ * chamadas em paralelo. As não processadas (throttling) são reenviadas com
+ * espera crescente; depois de BATCH_WRITE_MAX_ATTEMPTS, erro.
+ */
+async function batchDelete(tableType, keys, { concurrency = 4 } = {}) {
+  const TableName = getTable(tableType);
+  const chunks = [];
+  for (let i = 0; i < keys.length; i += BATCH_WRITE_MAX) chunks.push(keys.slice(i, i + BATCH_WRITE_MAX));
+  const deleteChunk = async chunk => {
+    let requests = chunk.map(Key => ({ DeleteRequest: { Key } }));
+    for (let attempt = 1; requests.length; attempt++) {
+      if (attempt > BATCH_WRITE_MAX_ATTEMPTS) {
+        throw new Error(`BatchWriteItem left ${requests.length} unprocessed deletes in ${TableName}`);
+      }
+      if (attempt > 1) await new Promise(resolve => setTimeout(resolve, 50 * 2 ** attempt));
+      const { UnprocessedItems } = await docClient.send(new BatchWriteCommand({ RequestItems: { [TableName]: requests } }));
+      requests = UnprocessedItems?.[TableName] || [];
+    }
+  };
+  for (let i = 0; i < chunks.length; i += concurrency) {
+    await Promise.all(chunks.slice(i, i + concurrency).map(deleteChunk));
+  }
+}
+
 // Database class wrapper for testing
 export class Database {
   constructor() {
@@ -237,6 +267,10 @@ export class Database {
     return scanPage(tableType, options);
   }
 
+  async batchDelete(tableType, keys, options) {
+    return batchDelete(tableType, keys, options);
+  }
+
   async deleteItem(tableType, key, options) {
     return deleteItem(tableType, key, options);
   }
@@ -244,5 +278,5 @@ export class Database {
 
 export { docClient, tables };
 export default Database;
-export { putItem, putItemIfNotExists, getItem, queryItems, updateItem, transactWrite, scanItems, scanPage, deleteItem };
+export { putItem, putItemIfNotExists, getItem, queryItems, updateItem, transactWrite, scanItems, scanPage, deleteItem, batchDelete };
 export { getTable };

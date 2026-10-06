@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { PurchaseLimitError } from '../../../../common/errors.mjs';
-import { limitFromEnv, quotaDay } from '../../../../common/daily-quota.mjs';
+import { QUOTA_ID_PREFIX, isQuotaItem, limitFromEnv, quotaDay, quotaExpiresAt } from '../../../../common/daily-quota.mjs';
 
 // Teto padrão de compras novas por dia (DailyPurchaseLimit no template.yaml).
 // 0 desliga o limite
@@ -9,17 +9,12 @@ export const DEFAULT_DAILY_PURCHASE_LIMIT = 150;
 // script esgotaria o limite do dia para todos. 0 desliga
 export const DEFAULT_DAILY_PURCHASE_LIMIT_PER_CLIENT = 20;
 
-// Contadores na tabela de sagas: quota_AAAA-MM-DD (todas as compras do dia) e
-// quota_AAAA-MM-DD_<hash do cliente> (clientKey). Sem dayShard
-// nem createdAt: ficam fora do SagasByDayIndex e do backfill, listSagas/getSaga
-// os ignoram pelo prefixo, e o TTL da tabela (expiresAt) os apaga
-export const QUOTA_ID_PREFIX = 'quota_';
-// Folga do TTL depois que o dia zera (o DynamoDB apaga em até ~48 h)
-const EXPIRES_AFTER_RESET_S = 24 * 60 * 60;
+// Contadores na tabela de sagas (prefixo comum em daily-quota.mjs):
+// quota_AAAA-MM-DD (todas as compras do dia) e quota_AAAA-MM-DD_<hash do
+// cliente> (clientKey)
+export { QUOTA_ID_PREFIX, isQuotaItem };
 // Teto de contadores cheios lembrados por container (memória limitada)
 const MAX_KNOWN_FULL = 10000;
-
-export const isQuotaItem = item => String(item?.id).startsWith(QUOTA_ID_PREFIX);
 
 // Dia da cota (vira às 12:00 de Brasília, daily-quota.mjs) e o id do contador dele
 export function quotaWindow(nowMs) {
@@ -86,7 +81,7 @@ export class PurchaseQuota {
    */
   counters(clientId) {
     const { id, resetsAtMs } = quotaWindow(this.now());
-    const expiresAt = Math.floor(resetsAtMs / 1000) + EXPIRES_AFTER_RESET_S;
+    const expiresAt = quotaExpiresAt(resetsAtMs);
     const counter = (scope, limit, counterId) => ({
       scope,
       limit,

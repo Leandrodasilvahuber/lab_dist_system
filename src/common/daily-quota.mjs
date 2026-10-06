@@ -20,3 +20,16 @@ export function limitFromEnv(value, fallback) {
   const limit = Number(value);
   return Number.isInteger(limit) && limit >= 0 ? limit : fallback;
 }
+
+// Contadores diários na tabela de sagas (compras em PurchaseQuota, resets da
+// base em ResetClient, ativações de caos em ChaosClient): quota_<...>. Sem
+// dayShard nem createdAt, ficam fora do SagasByDayIndex; listSagas, getSaga,
+// o SLO e o reset da base os ignoram pelo prefixo, e o TTL (expiresAt) os apaga
+export const QUOTA_ID_PREFIX = 'quota_';
+// Folga do TTL depois que o dia zera (o DynamoDB apaga em até ~48 h)
+export const QUOTA_EXPIRES_AFTER_RESET_S = 24 * 60 * 60;
+
+export const isQuotaItem = item => String(item?.id).startsWith(QUOTA_ID_PREFIX);
+
+// expiresAt (segundos) de um contador do dia que zera em `resetsAtMs`
+export const quotaExpiresAt = resetsAtMs => Math.floor(resetsAtMs / 1000) + QUOTA_EXPIRES_AFTER_RESET_S;

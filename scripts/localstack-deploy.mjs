@@ -29,7 +29,8 @@ try {
   console.log(`✅ Saga publicada (${runtime}): ${stateMachineArn}`);
   console.log('\nPróximos passos:');
   console.log('   npm run local-server    # e abra http://localhost:3001');
-  console.log('   npm run seed:local      # dev: produtos + compras de exemplo (prod: seed:local:prod)');
+  console.log('   npm run seed:local      # dev: produtos e estoque (prod: seed:local:prod)');
+  console.log('   npm run test:e2e:orders # compras de exemplo no dashboard');
 } catch (error) {
   console.error(`❌ ${error.message}`);
   console.error('   Verifique se o LocalStack está rodando (npm run localstack:start, com ssm em SERVICES) e se rodou npm run build.');

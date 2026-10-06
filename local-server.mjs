@@ -11,10 +11,11 @@
  *   npm run localstack:start
  *   npm run build && npm run localstack:deploy
  *   npm run local-server        # abra http://localhost:3001
- *   npm run seed:local          # dev: catálogo + compras de exemplo (ou seed:local:prod)
+ *   npm run seed:local          # dev: catálogo e estoque (ou seed:local:prod)
+ *   npm run test:e2e:orders     # compras de exemplo
  *
- * O servidor não cria dados de exemplo: catálogo, estoque e as compras de
- * exemplo vêm do seed (scripts/seed.mjs).
+ * O servidor não cria dados de exemplo: catálogo e estoque vêm do seed
+ * (scripts/seed.mjs) e as compras de exemplo do scripts/e2e-sample-orders.mjs.
  *
  * Com ADMIN_API_KEY_HASH (ou ADMIN_API_KEY) definida, as rotas administrativas
  * (src/common/auth.mjs) exigem o header X-Api-Key, como o authorizer do HttpApi faz
@@ -92,6 +93,10 @@ process.env.FUNCTION_MEMORY_MB ||= String(templateMemoryMb());
 // (criado por npm run localstack:deploy; aba Caos e npm run chaos)
 process.env.CHAOS_PARAM ||= LOCAL_CHAOS_PARAM;
 process.env.CHAOS_ENABLED ||= 'true';
+// Sem limite diário de ativações de caos: o npm run chaos liga várias por rodada
+process.env.CHAOS_DAILY_LIMIT ||= '0';
+// Zerar a base (botão ao lado de Conectado): até RESET_DAILY_LIMIT vezes por dia (padrão 10)
+process.env.RESET_ENABLED ||= 'true';
 // Limites diários de compras (PurchaseQuota): local não custa nada, e o npm
 // run chaos passaria do teto. Para testar: DAILY_PURCHASE_LIMIT=150
 // DAILY_PURCHASE_LIMIT_PER_CLIENT=20

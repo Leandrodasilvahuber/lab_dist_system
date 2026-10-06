@@ -65,6 +65,20 @@ Parameters:
     Default: 5
     MinValue: 0
 
+  # Vezes por dia que a base pode ser zerada (POST /reset, aberto a todos; o
+  # dia vira às 12:00 de Brasília). 0 = sem limite
+  DailyResetLimit:
+    Type: Number
+    Default: 10
+    MinValue: 0
+
+  # Vezes por dia que o caos pode ser ligado (PUT /chaos, aberto a todos; cada
+  # ativação dura no máximo 60 min). Desligar não conta. 0 = sem limite
+  DailyChaosLimit:
+    Type: Number
+    Default: 20
+    MinValue: 0
+
   # Teto mensal (US$) do AWS Budget: avisa no AlarmTopic com 80% gasto e
   # quando a previsão do mês passa de 100%. É o custo da conta inteira
   MonthlyBudgetUSD:
@@ -120,11 +134,13 @@ Globals:
         # gravada por PUT/DELETE /chaos. Desligada em prod (nem lê o SSM)
         CHAOS_PARAM: !Sub '/${Environment}/ecommerce/chaos'
         CHAOS_ENABLED: !If [IsProd, 'false', 'true']
+        # Zerar a base (POST /reset, aberto a todos): desligado em prod
+        RESET_ENABLED: !If [IsProd, 'false', 'true']
 
 Resources:
   # API Gateway Centralizado (HttpApi)
   # Rotas específicas vão para cada serviço; o resto cai na GatewayFunction ({proxy+}).
-  # Escritas de admin (produto, estoque, caos, ações da DLQ), o custo, as métricas do CloudWatch, os logs e o rastreio usam o authorizer AdminJwt (token do Cognito; mesma lista de src/common/auth.mjs).
+  # Escritas de admin (produto, estoque, ações da DLQ), o custo, as métricas do CloudWatch, os logs e o rastreio usam o authorizer AdminJwt (token do Cognito; mesma lista de src/common/auth.mjs).
   ApiGateway:
     Type: AWS::Serverless::HttpApi
     # checkov:skip=CKV_AWS_95:cada requisição já fica no log estruturado do Gateway (ServicesLogGroup); access log dobraria a ingestão do CloudWatch
@@ -322,6 +338,8 @@ Resources:
           # Última leitura do Cost Explorer (CostClient.refreshActual)
           COST_SNAPSHOTS_TABLE: !Ref CostSnapshotsTable
           COST_REFRESH_DAILY_LIMIT: !Ref DailyCostRefreshLimit
+          RESET_DAILY_LIMIT: !Ref DailyResetLimit
+          CHAOS_DAILY_LIMIT: !Ref DailyChaosLimit
       Policies:
         - Statement:
             # GetMetricData/ListMetrics: aba Métricas (namespace Ecommerce/<env>, gravado via EMF)
@@ -369,9 +387,41 @@ Resources:
                 - ssm:GetParameter
                 - ssm:PutParameter
               Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Environment}/ecommerce/chaos'
-        # Aba SLOs: desfecho e duração das compras (Scan na tabela de sagas)
-        - DynamoDBReadPolicy:
-            TableName: !Ref SagasTable
+        # Aba SLOs: desfecho e duração das compras (Scan na tabela de sagas).
+        # POST /reset (ResetClient): apaga tudo, grava os produtos do seed e
+        # conta os resets do dia na tabela de sagas. Desligado em prod, e lá a
+        # Gateway nem recebe a escrita: só a leitura das sagas
+        - !If
+          - IsProd
+          - DynamoDBReadPolicy:
+              TableName: !Ref SagasTable
+          - DynamoDBCrudPolicy:
+              TableName: !Ref SagasTable
+        - !If
+          - IsProd
+          - !Ref AWS::NoValue
+          - DynamoDBCrudPolicy:
+              TableName: !Ref ProductsTable
+        - !If
+          - IsProd
+          - !Ref AWS::NoValue
+          - DynamoDBCrudPolicy:
+              TableName: !Ref OrdersTable
+        - !If
+          - IsProd
+          - !Ref AWS::NoValue
+          - DynamoDBCrudPolicy:
+              TableName: !Ref PaymentsTable
+        - !If
+          - IsProd
+          - !Ref AWS::NoValue
+          - DynamoDBCrudPolicy:
+              TableName: !Ref StockReservationsTable
+        - !If
+          - IsProd
+          - !Ref AWS::NoValue
+          - DynamoDBCrudPolicy:
+              TableName: !Ref InventoryTable
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref EventBus
       Events:
@@ -485,23 +535,32 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /chaos
             Method: GET
-        # Ligar e desligar a injeção de falhas: só admin (src/common/auth.mjs)
+        # Ligar e desligar a injeção de falhas: aberto a todos, até DailyChaosLimit ativações por dia (desligado em prod)
         PutChaos:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /chaos
             Method: PUT
-            Auth:
-              Authorizer: AdminJwt
         DeleteChaos:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /chaos
             Method: DELETE
-            Auth:
-              Authorizer: AdminJwt
+        # Zerar a base: aberto a todos, até DailyResetLimit vezes por dia (desligado em prod)
+        GetReset:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /reset
+            Method: GET
+        PostReset:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /reset
+            Method: POST
         Proxy:
           Type: HttpApi
           Properties:

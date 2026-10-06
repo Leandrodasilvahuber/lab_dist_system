@@ -4,6 +4,8 @@ import { AlarmsClient } from '../../../src/layers/api-gateway-layer/src/services
 import { authConfig, createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
 import { LogsClient } from '../../../src/layers/api-gateway-layer/src/services/LogsClient.js';
 import { ChaosClient } from '../../../src/layers/api-gateway-layer/src/services/ChaosClient.js';
+import { MAX_RESET_CONTINUATIONS, ResetClient } from '../../../src/layers/api-gateway-layer/src/services/ResetClient.js';
+import { SEED_PRODUCTS } from '../../../src/common/seed-products.mjs';
 
 process.env.LOG_LEVEL = 'silent';
 
@@ -264,8 +266,26 @@ describe('GET/PUT/DELETE /chaos', () => {
     };
   }
 
-  function handlerWith(ssm, { enabled = true } = {}) {
-    const chaos = new ChaosClient({ parameterName: '/test/ecommerce/chaos', enabled, client: ssm, now: () => NOW });
+  // Contador de ativações em memória (mesma interface de src/common/database.mjs)
+  function fakeCounters() {
+    const items = new Map();
+    return {
+      items,
+      async getItem(_table, { id }) { return items.get(id); },
+      async updateItem(_table, { id }, _expression, values) {
+        const item = items.get(id) || { id };
+        if ((item.activations || 0) >= values[':limit']) {
+          throw Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException' });
+        }
+        item.activations = (item.activations || 0) + values[':one'];
+        items.set(id, item);
+        return { activations: item.activations };
+      }
+    };
+  }
+
+  function handlerWith(ssm, { enabled = true, limit = 20, db = fakeCounters() } = {}) {
+    const chaos = new ChaosClient({ parameterName: '/test/ecommerce/chaos', enabled, limit, client: ssm, db, now: () => NOW });
     return createAPIHandler({ chaos });
   }
 
@@ -309,5 +329,182 @@ describe('GET/PUT/DELETE /chaos', () => {
   it('SSM fora do ar: 503', async () => {
     const handler = handlerWith({ send: async () => { throw new Error('timeout'); } });
     assert.strictEqual((await handler(http('GET'))).statusCode, 503);
+  });
+
+  it('ligar conta no limite do dia (429 sem gravar); desligar não conta', async () => {
+    const ssm = fakeSsm(undefined);
+    const db = fakeCounters();
+    const handler = handlerWith(ssm, { limit: 2, db });
+    const on = { expiresAt: new Date(NOW + 10 * 60000).toISOString(), faults: [{ service: 'stock', type: 'crash' }] };
+
+    assert.strictEqual(JSON.parse((await handler(http('PUT', on))).body).remaining, 1);
+    await handler(http('DELETE'));
+    await handler(http('DELETE'));
+    assert.strictEqual(JSON.parse((await handler(http('PUT', on))).body).remaining, 0);
+    await handler(http('DELETE'));
+
+    const refused = await handler(http('PUT', on));
+    assert.strictEqual(refused.statusCode, 429);
+    assert.strictEqual(JSON.parse(refused.body).code, 'ChaosLimitExceeded');
+    assert.deepStrictEqual(JSON.parse(ssm.value), { faults: [] }, 'recusado não grava a config');
+    // Dia de cota de 2026-10-04 (12:00 de Brasília em diante)
+    assert.strictEqual(db.items.get('quota_chaos_2026-10-04').activations, 2);
+
+    const status = JSON.parse((await handler(http('GET'))).body);
+    assert.deepStrictEqual([status.limit, status.used, status.remaining], [2, 2, 0]);
+  });
+
+  it('sem limite (local-server): não lê nem grava contador', async () => {
+    const db = { getItem: async () => { throw new Error('não deveria ler'); }, updateItem: async () => { throw new Error('não deveria gravar'); } };
+    const handler = handlerWith(fakeSsm(undefined), { limit: 0, db });
+    const put = await handler(http('PUT', { expiresAt: new Date(NOW + 60000).toISOString(), faults: [{ service: 'stock', type: 'crash' }] }));
+    assert.strictEqual(put.statusCode, 200);
+    assert.strictEqual(JSON.parse(put.body).limit, undefined);
+  });
+});
+
+describe('GET/POST /reset', () => {
+  // 2026-10-06 13:00 em Brasília: o dia de cota começou às 12:00 (2026-10-06)
+  const NOW = Date.parse('2026-10-06T16:00:00Z');
+  const http = method => ({ requestContext: { http: { method, path: '/reset' } }, rawPath: '/reset', headers: {} });
+
+  // Tabelas em memória com a mesma interface de src/common/database.mjs.
+  // `onScan`: chamado a cada página (para avançar o relógio nos testes de tempo)
+  function fakeDb(initial = {}, { onScan = () => {} } = {}) {
+    const tables = Object.fromEntries(['products', 'orders', 'payments', 'stockreservations', 'inventory', 'sagas']
+      .map(name => [name, new Map((initial[name] || []).map(item => [item.id, { ...item }]))]));
+    return {
+      tables,
+      async getItem(table, { id }) { return tables[table].get(id); },
+      async scanPage(table, { limit, startKey }) {
+        onScan(table);
+        const ids = [...tables[table].keys()].sort();
+        const from = startKey ? ids.findIndex(id => id > startKey.id) : 0;
+        const page = from < 0 ? [] : ids.slice(from, from + limit);
+        const last = page.at(-1);
+        return { items: page.map(id => tables[table].get(id)), lastKey: from + limit < ids.length ? { id: last } : undefined };
+      },
+      async batchDelete(table, keys) { for (const { id } of keys) tables[table].delete(id); },
+      async putItem(table, item) { tables[table].set(item.id, item); },
+      async updateItem(table, { id }, expression, values, { conditionExpression } = {}) {
+        const item = tables[table].get(id) || { id };
+        if (expression.startsWith('REMOVE')) {
+          delete item.unfinished;
+          delete item.continuations;
+          tables[table].set(id, item);
+          return {};
+        }
+        if (expression.startsWith('ADD continuations')) {
+          if (item.unfinished !== true || (item.continuations || 0) >= values[':max']) {
+            throw Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException' });
+          }
+          item.continuations = (item.continuations || 0) + values[':one'];
+          return { ...item };
+        }
+        if (conditionExpression && item.resets >= values[':limit']) {
+          throw Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException' });
+        }
+        item.resets = (item.resets || 0) + values[':one'];
+        item.expiresAt = values[':expiresAt'];
+        item.unfinished = values[':true'];
+        item.continuations = values[':zero'];
+        tables[table].set(id, item);
+        return { resets: item.resets };
+      }
+    };
+  }
+
+  const handlerWith = (db, env = { RESET_ENABLED: 'true', RESET_DAILY_LIMIT: '2' }, options = {}) =>
+    createAPIHandler({ reset: new ResetClient({ env, db, now: () => NOW, ...options }) });
+
+  it('apaga tudo, mantém os contadores de cota e grava os produtos do seed', async () => {
+    const db = fakeDb({
+      products: [{ id: 'custom' }],
+      inventory: [{ id: 'custom', stock: 1 }],
+      orders: [{ id: 'o1' }],
+      payments: [{ id: 'p1' }],
+      stockreservations: [{ id: 'r1' }],
+      sagas: [{ id: 's1' }, { id: 'quota_2026-10-06', purchases: 3 }]
+    });
+    const response = await handlerWith(db)(http('POST'));
+    assert.strictEqual(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.deepStrictEqual([body.used, body.remaining, body.products], [1, 1, SEED_PRODUCTS.length]);
+    assert.strictEqual(body.deleted.sagas, 1);
+    for (const table of ['orders', 'payments', 'stockreservations']) assert.strictEqual(db.tables[table].size, 0, table);
+    assert.deepStrictEqual([...db.tables.products.keys()].sort(), SEED_PRODUCTS.map(p => p.id).sort());
+    assert.strictEqual(db.tables.inventory.get('apple').stock, 10);
+    assert.strictEqual(db.tables.products.get('server').devOnly, undefined);
+    assert.ok(db.tables.sagas.has('quota_2026-10-06'));
+    assert.strictEqual(db.tables.sagas.get('quota_reset_2026-10-06').resets, 1);
+    assert.strictEqual(body.complete, true);
+    assert.strictEqual(db.tables.sagas.get('quota_reset_2026-10-06').unfinished, undefined);
+  });
+
+  it('sem tempo para acabar: grava o seed, para no meio e o próximo POST continua sem gastar outra vez', async () => {
+    let clock = NOW;
+    // Cada página do scan leva 1s e o orçamento é 2,5s: as 600 compras (3
+    // páginas de 250) não cabem numa chamada só
+    const db = fakeDb({
+      orders: Array.from({ length: 600 }, (_, i) => ({ id: `o${String(i).padStart(3, '0')}` })),
+      payments: [{ id: 'p1' }]
+    }, { onScan: () => { clock += 1000; } });
+    const handler = createAPIHandler({
+      reset: new ResetClient({ env: { RESET_ENABLED: 'true', RESET_DAILY_LIMIT: '1' }, db, now: () => clock, budgetMs: 2500 })
+    });
+
+    const first = JSON.parse((await handler(http('POST'))).body);
+    assert.deepStrictEqual([first.complete, first.unfinished, first.used], [false, true, 1]);
+    assert.ok(db.tables.products.has('apple'), 'o seed vai antes da limpeza');
+    assert.ok(db.tables.orders.size > 0);
+    assert.strictEqual(JSON.parse((await handler(http('GET'))).body).unfinished, true);
+
+    // Limite de 1 por dia já gasto, mas a continuação não conta
+    let response;
+    for (let call = 0; call < 10 && !response?.complete; call++) {
+      response = JSON.parse((await handler(http('POST'))).body);
+    }
+    assert.deepStrictEqual([response.used, response.unfinished], [1, false]);
+    assert.strictEqual(db.tables.orders.size + db.tables.payments.size, 0);
+    assert.strictEqual(db.tables.sagas.get('quota_reset_2026-10-06').resets, 1);
+
+    // Terminado, o próximo reset é um novo e passa do limite
+    assert.strictEqual((await handler(http('POST'))).statusCode, 429);
+  });
+
+  it('continuar de graça tem teto: esgotado, o próximo POST é um reset novo e gasta a vez', async () => {
+    const db = fakeDb({
+      sagas: [{ id: 'quota_reset_2026-10-06', resets: 1, unfinished: true, continuations: MAX_RESET_CONTINUATIONS }]
+    });
+    const handler = handlerWith(db);
+    assert.strictEqual(JSON.parse((await handler(http('GET'))).body).unfinished, false);
+    const body = JSON.parse((await handler(http('POST'))).body);
+    assert.deepStrictEqual([body.complete, body.used], [true, 2]);
+
+    // Limite de 2 já gasto e nada pela metade: recusa
+    db.tables.sagas.get('quota_reset_2026-10-06').unfinished = true;
+    db.tables.sagas.get('quota_reset_2026-10-06').continuations = MAX_RESET_CONTINUATIONS;
+    assert.strictEqual((await handler(http('POST'))).statusCode, 429);
+  });
+
+  it('passou do limite do dia: 429 sem apagar nada; GET mostra quantas restam', async () => {
+    const db = fakeDb();
+    const handler = handlerWith(db);
+    await handler(http('POST'));
+    await handler(http('POST'));
+    db.tables.orders.set('o1', { id: 'o1' });
+    const refused = await handler(http('POST'));
+    assert.strictEqual(refused.statusCode, 429);
+    assert.strictEqual(JSON.parse(refused.body).code, 'ResetLimitExceeded');
+    assert.ok(db.tables.orders.has('o1'));
+    const status = JSON.parse((await handler(http('GET'))).body);
+    assert.deepStrictEqual([status.enabled, status.used, status.remaining, status.unfinished, status.resetsAt],
+      [true, 2, 0, false, '2026-10-07T15:00:00.000Z']);
+  });
+
+  it('desligado (prod): GET diz enabled false e POST responde 409', async () => {
+    const handler = handlerWith(fakeDb(), {});
+    assert.deepStrictEqual(JSON.parse((await handler(http('GET'))).body), { enabled: false });
+    assert.strictEqual((await handler(http('POST'))).statusCode, 409);
   });
 });

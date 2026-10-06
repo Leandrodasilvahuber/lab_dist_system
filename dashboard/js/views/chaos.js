@@ -26,7 +26,6 @@ export default {
     id: 'chaos',
     label: 'Caos',
     icon: 'zap',
-    requiresAdmin: true,
     template: () => `
         ${toolbar(status('chaosSummary'), spacer,
             `<button type="button" class="btn btn-danger btn-sm" id="chaosClear" disabled>${icon('trash', { size: 15 })}<span>Desligar tudo</span></button>`,
@@ -116,12 +115,14 @@ function render(state) {
         container.innerHTML = emptyState('A injeção de falhas está desligada (CHAOS_ENABLED=false, ex.: prod).');
         return;
     }
+    // Ativações que restam hoje (PUT /chaos tem limite diário; ausente = sem limite)
+    const quota = state.limit ? ` <span class="muted">· ${state.remaining} de ${state.limit} ativações restantes hoje</span>` : '';
     if (!state.active) {
-        summary.innerHTML = badge('Sem caos', 'ok');
+        summary.innerHTML = badge('Sem caos', 'ok') + quota;
         container.innerHTML = emptyState('Nenhuma falha injetada.', { icon: 'check' });
         return;
     }
-    summary.innerHTML = `${badge('Caos ativo', 'warn', { pulse: true })} até ${time(state.expiresAt)}`;
+    summary.innerHTML = `${badge('Caos ativo', 'warn', { pulse: true })} até ${time(state.expiresAt)}${quota}`;
     container.innerHTML = dataTable(['Serviço', 'Alvo', 'Tipo', { label: 'Prob.', className: 'num' }, { label: 'Latência', className: 'num' }, ''], state.faults.map((f, index) => `
         <tr class="level-warn">
             <td><strong>${escapeHtml(f.service)}</strong></td>

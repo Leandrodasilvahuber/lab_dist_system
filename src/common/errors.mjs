@@ -66,6 +66,20 @@ export class CostRefreshLimitError extends DailyLimitError {
   }
 }
 
+// Vezes que a base foi zerada no dia (POST /reset, ResetClient)
+export class ResetLimitError extends DailyLimitError {
+  constructor(limit, reset) {
+    super(`Daily limit of ${limit} database resets reached; it resets at 12:00 (Brasília)`, 'ResetLimitExceeded', limit, reset);
+  }
+}
+
+// Vezes que o caos foi ligado no dia (PUT /chaos, ChaosClient)
+export class ChaosLimitError extends DailyLimitError {
+  constructor(limit, reset) {
+    super(`Daily limit of ${limit} chaos activations reached; it resets at 12:00 (Brasília)`, 'ChaosLimitExceeded', limit, reset);
+  }
+}
+
 /**
  * Dependência indisponível (timeout, erro de infraestrutura, circuit breaker
  * aberto). Não é erro de negócio: vale tentar de novo depois de

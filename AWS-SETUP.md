@@ -55,15 +55,18 @@ e não contam como "reservado" até terminarem; rode o deploy sem compras em and
 Depois do deploy, popule o catálogo e o estoque (as tabelas já foram criadas pelo stack):
 
 ```bash
-# dev: todos os produtos + 7 compras de exemplo pela API (URL do output ApiGatewayUrl)
-npm run seed -- --stage dev --api https://xxx.execute-api.us-east-1.amazonaws.com
+# dev: todos os produtos
+npm run seed -- --stage dev
 
-# prod: só produtos e estoque, sem o produto de teste server e sem execuções
+# prod: sem o produto de teste server
 npm run seed -- --stage prod
+
+# opcional, só no dev: 7 compras de exemplo pela API (URL do output ApiGatewayUrl)
+npm run test:e2e:orders -- --api https://xxx.execute-api.us-east-1.amazonaws.com
 ```
 
 O perfil vem do stage (`prod` → prod, os demais → dev) e pode ser forçado com
-`--profile dev|prod`. Sem `--api`, o perfil dev grava só o catálogo e avisa.
+`--profile dev|prod`. O seed não cria compras.
 
 O seed só grava o que ainda não existe: rodar de novo não mexe no estoque de
 quem já está comprando nem recria produto excluído. Para voltar catálogo e
@@ -77,7 +80,7 @@ estoque aos valores do seed, use `npm run seed -- --stage dev --reset`.
 | `ProductFunction`, `OrderFunction`, `StockFunction` | Serviços (HTTP + ações/eventos internos) |
 | `PaymentFunction` | Só ações da saga (sem rota HTTP) |
 | `SagaOrchestratorFunction` | `/saga/execute`, `/saga/{id}`, `/sagas` |
-| `AdminUserPool` / `AdminUserPoolClient` | Login de admin (Cognito): o JWT authorizer do HttpApi confere o token nas escritas de produto, estoque, caos e DLQ, custo, logs e rastreio (lista em `src/common/auth.mjs`) |
+| `AdminUserPool` / `AdminUserPoolClient` | Login de admin (Cognito): o JWT authorizer do HttpApi confere o token nas escritas de produto, estoque e DLQ, custo, logs e rastreio (lista em `src/common/auth.mjs`) |
 | `SagaStateMachine` (`dev-purchase-saga`) | Saga de compra (Step Functions Standard) |
 | `GatewayFunction` | `/health`, `/alarms` (alarmes `dev-ecommerce-*`), `/logs` (linhas warn/error do `ServicesLogGroup`), `/trace/{correlationId}` (linhas de uma compra), `/metrics/errors` (métricas EMF), `/metrics/sagas`, `/metrics/slo` (SLOs da tabela de sagas e da DLQ), `/dlq` (lista, reprocessa e descarta eventos da `ProductEventsDlq`) e 404 com a lista de endpoints |
 | Tabelas `dev-Products`, `dev-Orders`, `dev-Payments`, `dev-Inventory`, `dev-StockReservations`, `dev-Sagas` | DynamoDB on-demand, uma ou mais por serviço |

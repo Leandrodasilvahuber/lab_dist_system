@@ -14,9 +14,6 @@ export const ADMIN_ROUTES = [
   ['POST', /^\/products$/],
   ['DELETE', /^\/products\/[^/]+$/],
   ['POST', /^\/stock\/[^/]+\/adjust$/],
-  // Ligar e desligar a injeção de falhas (GET /chaos fica aberto, como as leituras)
-  ['PUT', /^\/chaos$/],
-  ['DELETE', /^\/chaos$/],
   // Reprocessar e descartar eventos da DLQ: descartar perde o evento de vez
   // (o inventário do produto nunca seria criado ou removido)
   ['POST', /^\/dlq\/[^/]+\/(?:redrive|discard)$/],

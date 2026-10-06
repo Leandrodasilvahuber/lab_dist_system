@@ -1,24 +1,21 @@
 #!/usr/bin/env node
 /**
  * Popula o catálogo (tabela de produtos) e o estoque (tabela de inventário,
- * do serviço de Stock) com os dados de scripts/seed-products.json.
+ * do serviço de Stock) com os dados de src/common/seed-products.mjs.
  *
  * Dois perfis (--profile, padrão prod com --stage prod e dev nos demais):
- *  - prod: só o necessário para comprar, catálogo e estoque, sem os produtos
- *    `devOnly` (o Server, que testa pagamento recusado). Não cria execuções,
- *    logs nem métricas.
- *  - dev: todos os produtos e, depois, as compras de exemplo (SAMPLE_ORDERS)
- *    pela API, para o dashboard ter sagas concluídas e compensadas. As chaves
- *    de idempotência são fixas: rodar de novo não compra outra vez. Precisa da
- *    API no ar (--api, padrão http://localhost:3001 no local; na AWS, a URL do
- *    output ApiGatewayUrl). --no-orders grava só o catálogo.
+ *  - prod: só o necessário para comprar, sem os produtos `devOnly` (o
+ *    Server, que testa pagamento recusado).
+ *  - dev: todos os produtos.
+ * Nenhum dos dois cria compras: as sagas de exemplo do dashboard vêm do
+ * npm run test:e2e:orders (scripts/e2e-sample-orders.mjs), que precisa do dev.
  *
  * Local (LocalStack): cria as tabelas que faltarem e popula.
- *   npm run seed:local          # dev (com o local-server rodando, para as compras)
+ *   npm run seed:local          # dev
  *   npm run seed:local:prod     # prod
  *
  * AWS (tabelas criadas pelo stack SAM): apenas popula as tabelas do stage.
- *   npm run seed -- --stage dev --api https://xxx.execute-api.us-east-1.amazonaws.com
+ *   npm run seed -- --stage dev
  *   npm run seed -- --stage prod
  *
  * Os nomes das tabelas seguem as mesmas variáveis de src/common/database.mjs
@@ -29,12 +26,10 @@
  * contariam duas vezes) nem recria produto excluído. Para sobrescrever
  * catálogo e estoque com o seed, passe --reset.
  */
-import fs from 'node:fs';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { writeProductUnlessDeleted } from './lib/seed-product.mjs';
 import { ensureTable } from './lib/tables.mjs';
-import { mapLimit } from './lib/pool.mjs';
-import { LOCAL_MAX_CONCURRENCY } from './lib/localstack.mjs';
+import { SEED_PRODUCTS } from '../src/common/seed-products.mjs';
 
 const args = process.argv.slice(2);
 const option = name => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : null);
@@ -71,8 +66,7 @@ for (const [logical, name] of Object.entries(tables)) {
   console.log(`   tabela ${name}: ${await ensureTable(client, logical, name, { create: Boolean(endpoint) })}`);
 }
 
-const catalog = JSON.parse(fs.readFileSync(new URL('./seed-products.json', import.meta.url))).products;
-const products = catalog.filter(product => profile === 'dev' || !product.devOnly);
+const products = SEED_PRODUCTS.filter(product => profile === 'dev' || !product.devOnly);
 const now = new Date().toISOString();
 // Com --reset sobrescreve; sem ele, grava só o que falta (true se gravou)
 const write = (table, item) => reset ? putItem(table, item).then(() => true) : putItemIfNotExists(table, item);
@@ -106,71 +100,3 @@ console.log(`\n${written} de ${products.length} produtos gravados em ${tables.pr
   (deleted ? `, ${deleted} excluído(s) mantido(s)` : '') +
   (reset || written + deleted === products.length ? '' : ' (use --reset para sobrescrever com o seed)'));
 
-if (profile === 'dev' && !args.includes('--no-orders')) await seedSampleOrders();
-
-// Compras de exemplo, com os dois tipos de falha para a aba Desempenho:
-// concluídas, uma do Server (pagamento recusado → estorno do estoque e do
-// pedido) e uma acima do estoque (falha na reserva → cancela o pedido)
-async function seedSampleOrders() {
-  const SAMPLE_ORDERS = [
-    { productId: 'apple', quantity: 2 },
-    { productId: 'banana', quantity: 3 },
-    { productId: 'grape', quantity: 1 },
-    { productId: 'server', quantity: 1 },
-    { productId: 'orange', quantity: 2 },
-    { productId: 'orange', quantity: 999 },
-    { productId: 'banana', quantity: 1 }
-  ];
-  const api = (option('api') || (endpoint ? 'http://localhost:3001' : '')).replace(/\/$/, '');
-  if (!api) {
-    console.log('\n⚠️  Compras de exemplo não enviadas: passe --api <ApiGatewayUrl> (ou --no-orders)');
-    return;
-  }
-  const request = async (path, init) => {
-    const response = await fetch(api + path, init);
-    return { status: response.status, data: await response.json().catch(() => ({})) };
-  };
-  try {
-    await request('/health');
-  } catch {
-    console.log(`\n⚠️  Compras de exemplo não enviadas: API ${api} fora do ar. Suba o local-server e rode o seed de novo`);
-    return;
-  }
-
-  // A próxima compra de exemplo só sai depois que a anterior termina
-  const waitSagaDone = async (sagaId, timeoutMs = 5 * 60 * 1000) => {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const { data } = await request(`/saga/${encodeURIComponent(sagaId)}`);
-      if (data.status && !['RUNNING', 'COMPENSATING'].includes(data.status)) return data.status;
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-    return 'TIMEOUT';
-  };
-
-  console.log(`\n🧾 Compras de exemplo em ${api}`);
-  let created = 0;
-  let existing = 0;
-  // No máximo LOCAL_MAX_CONCURRENCY ao mesmo tempo: as 7 de uma vez sobem
-  // dezenas de contêineres no LocalStack (scripts/lib/localstack.mjs)
-  await mapLimit(SAMPLE_ORDERS, LOCAL_MAX_CONCURRENCY, async (order, index) => {
-    const label = `${order.productId} x${order.quantity}`;
-    try {
-      const { status, data } = await request('/saga/execute', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'idempotency-key': `seed-sample-order-${index + 1}` },
-        body: JSON.stringify(order)
-      });
-      // 202: saga nova; 200: a chave já tinha saga (idempotência), nada foi comprado
-      if (status === 202) {
-        created++;
-        console.log(`   ✅ ${label}: ${await waitSagaDone(data.sagaId)}`);
-      } else if (status === 200) existing++;
-      else console.warn(`   ⚠️  ${label}: HTTP ${status}${data.error ? ` (${data.error})` : ''}`);
-    } catch (error) {
-      console.warn(`   ⚠️  ${label}: ${error.message}`);
-    }
-  });
-  if (existing) console.log(`   ⏭️  ${existing} compras de exemplo já existiam (ignoradas pela idempotência)`);
-  console.log(`${created} compras de exemplo enviadas`);
-}

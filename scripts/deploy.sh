@@ -112,7 +112,8 @@ if [ ! -z "$API_URL" ]; then
     echo "                   curl -X DELETE -H \"Authorization: Bearer \$TOKEN\" $API_URL/products/<id>"
     echo "   Saga:       curl -X POST $API_URL/saga/execute -H \"Idempotency-Key: \$(uuidgen)\" -d '{\"productId\":\"apple\",\"quantity\":1}'"
     echo ""
-    echo "🌱 Popular produtos e compras de exemplo: npm run seed -- --stage dev --api $API_URL"
+    echo "🌱 Popular produtos: npm run seed -- --stage dev"
+    echo "   Compras de exemplo: npm run test:e2e:orders -- --api $API_URL"
 else
     echo "⚠️  Não foi possível obter a URL da API Gateway. Verifique o CloudFormation stack."
 fi

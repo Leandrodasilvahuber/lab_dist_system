@@ -243,11 +243,25 @@ dentro da página. Filtro numérico inválido (`priceMin=abc`) responde `400`.
   nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
 - **O dashboard usa só** `/health`, `/alarms`, `/logs`, `/trace/{id}`, `/metrics/*`,
   `/dlq` (e `POST /dlq/{id}/redrive|discard`), `GET/POST /products`, `DELETE /products/{id}`, `GET /stock`,
-  `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`, além de
+  `GET /orders`, `POST /saga/execute`, `GET /saga/{id}`, `GET /sagas`,
+  `GET/PUT/DELETE /chaos` e `GET/POST /reset`, além de
   `GET /auth/config` (diz se o login de admin é pelo Cognito ou pela chave). O
-  login de admin (botão no topo da página) é pedido nas abas Admin, Caos, Logs,
+  login de admin (botão no topo da página) é pedido nas abas Admin, Logs,
   Rastreio, Métricas e Recursos, nas ações da DLQ e no indicador de erros do
-  Monitoramento.
+  Monitoramento. A aba Caos e o botão **Zerar base** são abertos a todos. Ligar
+  o caos (`PUT /chaos`) conta no limite diário `DailyChaosLimit` (padrão 20;
+  cada ativação dura no máximo 60 min; desligar não conta; sem limite no
+  local-server, por causa do `npm run chaos`).
+- **Zerar base** (botão ao lado do indicador de conexão, `POST /reset`): apaga
+  pedidos, pagamentos, reservas, sagas, produtos e estoque e grava de novo os
+  produtos do seed (`src/common/seed-products.mjs`). Aberto a todos, no máximo
+  `DailyResetLimit` vezes por dia (padrão 10; vira às 12:00 de Brasília), com o
+  contador na tabela de sagas, que a limpeza mantém junto com os contadores do
+  limite de compras. Desligado em prod. O seed é gravado primeiro; tabela
+  grande que não cabe no tempo da Lambda volta com `complete: false`, e os
+  próximos POST (o botão repete sozinho; "Concluir reset") continuam sem gastar
+  outra vez, até 20 continuações. Sagas em andamento continuam no Step
+  Functions: zere com a loja parada.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
   rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem
   nenhuma rota pública.
@@ -320,7 +334,8 @@ npm run build             # empacota as Lambdas (sam build + esbuild)
 npm run localstack:start
 npm run localstack:deploy # publica Lambdas e saga no LocalStack (para o dashboard)
 npm run local-server      # dashboard em http://localhost:3001
-npm run seed:local        # dev: produtos + compras de exemplo (seed:local:prod: só produtos)
+npm run seed:local        # dev: produtos e estoque (seed:local:prod: sem o server)
+npm run test:e2e:orders   # compras de exemplo que ficam no dashboard
 npm run test:integration  # SDKs contra o DynamoDB do LocalStack
 npm run test:e2e          # saga completa: Lambda + Step Functions + DynamoDB
 npm run chaos             # experimentos de caos contra o local-server (ou --api <url>)
@@ -363,7 +378,8 @@ state machine no LocalStack. É o mesmo código que vai para a AWS.
 npm run localstack:start
 npm run build && npm run localstack:deploy   # publica as Lambdas e a saga no LocalStack
 npm run local-server                         # abra http://localhost:3001
-npm run seed:local                           # dev; npm run seed:local:prod só com o catálogo
+npm run seed:local                           # produtos e estoque (seed:local:prod: sem o server)
+npm run test:e2e:orders                      # compras de exemplo para o dashboard
 ```
 
 Localmente as rotas de admin ficam abertas, a menos que `ADMIN_API_KEY_HASH`
@@ -439,7 +455,7 @@ Alvo: `service` (`products`, `orders`, `payments`, `stock`, `saga`) e
 - Cada injeção grava `CHAOS_INJECTED` no rastreio da compra e a métrica `ChaosInjected` (dimensões `Service` e `Fault`).
 - Enquanto há falhas ativas, o dashboard mostra uma faixa de alerta em todas as telas.
 
-**Aba Caos (admin):** formulário para injetar uma falha, lista das ativas e os
+**Aba Caos (aberta a todos; desligada em prod):** formulário para injetar uma falha, lista das ativas e os
 experimentos prontos de `dashboard/js/services/chaos-presets.js`.
 
 **Experimentos automáticos:** `npm run chaos` (ou `npm run chaos -- payment-down --orders 10`).

@@ -69,8 +69,6 @@ describe('segurança da API local (com chave de admin)', () => {
         ['POST', '/products'],
         ['DELETE', '/products/apple'],
         ['POST', '/stock/apple/adjust'],
-        ['PUT', '/chaos'],
-        ['DELETE', '/chaos'],
         ['POST', '/dlq/abc/discard']
     ];
 
