@@ -165,7 +165,13 @@ estimado pelas métricas × tabela de preços, e o real do Cost Explorer na AWS)
 
 O custo também tem um aviso: o `MonthlyBudget` (AWS Budgets, parâmetro
 `MonthlyBudgetUSD`, padrão US$ 5) publica no mesmo tópico dos alarmes quando o
-gasto do mês passa de 80% ou a previsão passa do teto.
+gasto do mês passa de 80% ou a previsão passa do teto. Acima do teto, o
+`CostKillSwitchBudget` aciona o interruptor de custo (`CostKillSwitchFunction`),
+que zera o throttling do stage e a API passa a responder 429. Como o Budget vê o
+gasto com horas de atraso, o alarme `api-flood` (`FloodRequestsPer5Min`, padrão
+15000 requisições em 5 min por duas janelas seguidas, ~50 req/s) aciona o mesmo
+interruptor em ~10 min quando um script martela a API. Religar:
+`{"action":"restore"}` na `CostKillSwitchFunction` (ver `costKillSwitch.js`).
 
 A aba SLOs lê só as sagas da janela pelo índice `SagasByDayIndex` (dia de
 criação dividido em 10 shards, ver `src/common/saga-day-index.mjs`), sem varrer
@@ -181,10 +187,10 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) |
 | GET | `/logs?level=warn\|error&hours=24` 🔑 | Linhas de log warn/error, mais recentes primeiro (aba Logs); `hours` vira 1, 24, 168 ou 336 |
 | GET | `/trace/{correlationId}` 🔑 | Todas as linhas de log de uma compra, em ordem (aba Rastreio) |
-| GET | `/metrics/errors?hours=24` | `hours`: 1, 3, 24, 168 ou 336 (outro valor vai para o mais próximo). Séries de erros de negócio/não tratados por tipo e chamadas/duração por ação, gravadas via EMF (aba Métricas) |
+| GET | `/metrics/errors?hours=24` 🔑 | `hours`: 1, 3, 24, 168 ou 336 (outro valor vai para o mais próximo). Séries de erros de negócio/não tratados por tipo e chamadas/duração por ação, gravadas via EMF (aba Métricas) |
 | GET | `/metrics/sagas` | Tempo por passo das últimas 10 compras, do histórico do Step Functions (aba Desempenho) |
 | GET | `/metrics/slo?hours=24` | `hours`: 1, 24 ou 168. SLOs da janela: p95 das compras concluídas, % de sagas Completed/Compensated e mensagens na DLQ há mais de 24 h (aba SLOs) |
-| GET | `/metrics/memory?hours=3` | `hours` como em `/metrics/errors`. Memória máxima e média por Lambda (`MemoryUsedMB`) e o limite configurado (aba Recursos) |
+| GET | `/metrics/memory?hours=3` 🔑 | `hours` como em `/metrics/errors`. Memória máxima e média por Lambda (`MemoryUsedMB`) e o limite configurado (aba Recursos) |
 | GET | `/metrics/cost?days=14` 🔑 | `days`: 7, 14, 30 ou 90. Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pela última leitura do Cost Explorer (aba Recursos; é o gasto da conta inteira). Não chama o Cost Explorer: ele é lido a cada 6 h por uma regra agendada |
 | POST | `/metrics/cost/refresh` 🔑 | Lê o Cost Explorer agora (US$ 0,02), no máximo uma vez a cada 15 min; antes disso responde 429 com `Retry-After`. Até 5 por dia (`DailyCostRefreshLimit`; zera às 12:00 de Brasília; a leitura agendada não conta): depois, 429 com `code: CostRefreshLimitExceeded`. 503 no LocalStack |
 | GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) |
@@ -206,16 +212,19 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
 | GET | `/sagas` | Lista as compras, paginado (`?status=&limit=&nextToken=`); `?recent=N` (1 a 50) devolve as N mais recentes das últimas 24 h, pelo índice por dia (tela Comprar) |
 
-🔑 Rota administrativa: exige o header `X-Api-Key` com a chave de admin, guardada
-no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) e
-conferida por um authorizer Lambda do HttpApi. São de admin as escritas: cadastrar
+🔑 Rota administrativa: na AWS exige `Authorization: Bearer <access token>` de um
+usuário do Cognito (`AdminUserPool`, sem auto-cadastro), conferido pelo JWT
+authorizer do próprio HttpApi (sem Lambda); no local-server, o header `X-Api-Key`.
+São de admin as escritas: cadastrar
 e remover produto, ajustar estoque, ligar e desligar o caos e reprocessar ou
 descartar eventos da DLQ (descartar perde o evento de vez). O custo também, por
-ser o gasto da conta AWS inteira, e os logs e o rastreio, que mostram as linhas
-internas das Lambdas e são a leitura mais cara da observabilidade. As demais
+ser o gasto da conta AWS inteira, as métricas lidas do CloudWatch (`/metrics/errors`
+e `/metrics/memory`: o GetMetricData é cobrado por métrica pedida e fica fora do
+free tier), e os logs e o rastreio, que mostram as linhas internas das Lambdas e
+são a leitura mais cara da observabilidade. As demais
 rotas são públicas, inclusive pedidos, compras e a lista da DLQ, o que serve ao
 laboratório mas expõe as compras de todos. Cada rota tem throttling (padrão de
-20 req/s por rota), e as leituras caras e as escritas de admin têm limite
+10 req/s por rota), e as leituras caras e as escritas de admin têm limite
 próprio (`RouteSettings` no template). O limite é da rota, somando todos os clientes.
 
 **Paginação:** `GET /products`, `GET /stock`, `GET /orders` e `GET /sagas` devolvem até `limit` itens (padrão
@@ -234,15 +243,22 @@ dentro da página. Filtro numérico inválido (`priceMin=abc`) responde `400`.
   nunca dispara uma ação: `isActionInvocation` exige ausência de `requestContext`.
 - **O dashboard usa só** `/health`, `/alarms`, `/logs`, `/trace/{id}`, `/metrics/*`,
   `/dlq` (e `POST /dlq/{id}/redrive|discard`), `GET/POST /products`, `DELETE /products/{id}`, `GET /stock`,
-  `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. A
-  chave de admin (botão no topo da página) é pedida nas abas Admin, Caos, Logs e
-  Rastreio, nas ações da DLQ e no custo da aba Recursos.
+  `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`, além de
+  `GET /auth/config` (diz se o login de admin é pelo Cognito ou pela chave). O
+  login de admin (botão no topo da página) é pedido nas abas Admin, Caos, Logs,
+  Rastreio, Métricas e Recursos, nas ações da DLQ e no indicador de erros do
+  Monitoramento.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
   rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem
   nenhuma rota pública.
-- **Escritas administrativas exigem `X-Api-Key`.** É uma
-  chave única de admin, adequada ao laboratório; para usuários reais, troque
-  por um authorizer JWT (Cognito ou outro IdP).
+- **Rotas administrativas exigem login no Cognito (na AWS).** O dashboard manda
+  usuário e senha direto ao Cognito (`USER_PASSWORD_AUTH`, por TLS) e a API só
+  recebe o access token, que vale 1 h; o refresh token (12 h) fica no
+  `sessionStorage` da aba e é revogado ao sair. Nenhum segredo de longa duração
+  fica no navegador. Um token já emitido vale até expirar, mesmo depois de sair
+  (o authorizer não consulta o Cognito). O usuário só tem acesso às rotas de
+  admin: nenhuma permissão na conta AWS. Localmente, sem Cognito no LocalStack
+  gratuito, continua a chave `X-Api-Key`.
 
 Erros de negócio: `400` validação, `402` pagamento recusado, `404` não
 encontrado, `409` estado inválido, estoque insuficiente ou `Idempotency-Key`
@@ -364,8 +380,8 @@ Coloque a linha impressa no `.env`, substituindo a `ADMIN_API_KEY_HASH` (ou
 `ADMIN_API_KEY`) anterior, se houver, e deixe o arquivo legível só por você
 (`chmod 600 .env`).
 
-Na AWS o hash não é usado: a chave fica no SSM Parameter Store (SecureString,
-cifrada pelo KMS) e é conferida pelo authorizer.
+Na AWS o hash não é usado: o login de admin é pelo Cognito (usuário e senha),
+e o JWT authorizer do HttpApi confere o token.
 
 Uma variável já definida no shell tem prioridade sobre o `.env`. Por isso ele escuta só em `127.0.0.1`; para
 expor na rede, use `HOST=0.0.0.0` junto com a chave de admin (sem ela, o
@@ -431,7 +447,8 @@ Cada experimento tem uma hipótese. O script liga as falhas, dispara compras pel
 confere o status final das sagas (ou o 503 com `Retry-After`). No fim confere a
 invariante do estoque: disponível = antes − vendidos, sem reserva ativa. O caos é
 desligado mesmo com erro ou Ctrl+C. Contra a AWS use `--api <ApiGatewayUrl>` e
-`ADMIN_API_KEY` no ambiente. O `event-dlq` só roda na AWS, porque localmente não há
+`ADMIN_PASSWORD` (e `ADMIN_USERNAME`, padrão `admin`) no ambiente; localmente,
+`ADMIN_API_KEY`. O `event-dlq` só roda na AWS, porque localmente não há
 EventBridge nem DLQ.
 
 Localmente o LocalStack precisa de `ssm` em `SERVICES` (`docker-compose.yml`), e

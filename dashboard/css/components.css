@@ -107,6 +107,7 @@
 .connection-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--neutral); }
 .connection-dot.connected { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .connection-dot.disconnected { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+.connection-dot.alerting { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
 
 /* ---------- Popover de admin ---------- */
 .popover {
@@ -453,6 +454,8 @@
 .saga-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .saga-header h3 { font-size: 14.5px; }
 .saga-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 2px 0 10px; color: var(--text-3); font-size: 12.5px; }
+/* O id da saga é longo e sem espaços: quebra em vez de rolar o card */
+.saga-meta .mono { min-width: 0; overflow-wrap: anywhere; }
 .saga-error { margin-top: 10px; color: var(--bad-text); font-size: 13px; }
 
 .steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

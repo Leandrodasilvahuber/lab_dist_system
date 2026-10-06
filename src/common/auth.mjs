@@ -2,14 +2,15 @@ import { createHash, randomBytes, scrypt, scryptSync, timingSafeEqual } from 'no
 import { promisify } from 'node:util';
 
 /**
- * Rotas administrativas: exigem o header X-Api-Key com a chave de admin.
- * Na AWS quem aplica é o authorizer do HttpApi (template.yaml, Auth.Authorizer
- * em cada rota); o local-server usa esta mesma lista. Mantenha os dois iguais.
+ * Rotas administrativas. Na AWS exigem o access token do Cognito
+ * (Authorization: Bearer), validado pelo JWT authorizer do HttpApi
+ * (template.yaml, Auth.Authorizer em cada rota); no local-server, o header
+ * X-Api-Key com a chave de admin. Mantenha esta lista igual às do template.
  */
 export const ADMIN_ROUTES = [
   // Escritas da aba Admin: cadastrar e remover produto, e o ajuste de
-  // estoque (cria inventário). As leituras (pedidos, compras, métricas, a
-  // lista da DLQ) são abertas, como pede o laboratório
+  // estoque (cria inventário). As leituras (pedidos, compras, a lista da
+  // DLQ) são abertas, como pede o laboratório
   ['POST', /^\/products$/],
   ['DELETE', /^\/products\/[^/]+$/],
   ['POST', /^\/stock\/[^/]+\/adjust$/],
@@ -23,6 +24,11 @@ export const ADMIN_ROUTES = [
   // leitura sob demanda dele (cada uma custa US$ 0,02)
   ['GET', /^\/metrics\/cost$/],
   ['POST', /^\/metrics\/cost\/refresh$/],
+  // Métricas lidas com GetMetricData, cobrado por métrica pedida (a aba
+  // Métricas pede ~100 por leitura) e fora do free tier: abertas, um script
+  // girando os períodos gastaria dólares por dia mesmo com o cache, que é por container
+  ['GET', /^\/metrics\/errors$/],
+  ['GET', /^\/metrics\/memory$/],
   // Logs e rastreio: as linhas internas das Lambdas (erros, ids, dados das
   // compras) e a leitura mais cara da observabilidade (segundos de Lambda
   // por consulta ao CloudWatch Logs)
@@ -53,8 +59,7 @@ function receivedApiKey(headers) {
 }
 
 // Hash da chave de admin para o .env do local-server (npm run admin:hash).
-// Só local: na AWS a chave fica no SSM (SecureString) e o authorizer usa isValidApiKey,
-// sem pagar o custo do scrypt a cada chave recebida.
+// Só local: na AWS o login de admin é pelo Cognito (sem chave).
 const SCRYPT_KEY_LENGTH = 32;
 const scryptAsync = promisify(scrypt);
 // eslint-disable-next-line security/detect-unsafe-regex -- pares fixos de 2 caracteres, sem backtracking ambíguo

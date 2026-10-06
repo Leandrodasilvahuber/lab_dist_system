@@ -74,6 +74,28 @@ describe('CostKillSwitch', () => {
     assert.deepStrictEqual(stage.RouteSettings['GET /logs'], { ThrottlingBurstLimit: 2, ThrottlingRateLimit: 2 });
   });
 
+  it('restore volta o alarme de volume para OK, para ele poder bloquear de novo', async () => {
+    const stage = initialStage();
+    const { apigw, ssm } = fakes(stage);
+    const states = [];
+    const cloudwatch = { async send(command) { states.push(command.input); return {}; } };
+    const handler = createHandler({ ...config, floodAlarmName: 'dev-ecommerce-api-flood', apigw, ssm, cloudwatch });
+    await handler({ action: 'trip' });
+    assert.strictEqual(states.length, 0);
+    await handler({ action: 'restore' });
+    assert.strictEqual(stage.DefaultRouteSettings.ThrottlingRateLimit, 20);
+    assert.deepStrictEqual(states.map(s => [s.AlarmName, s.StateValue]), [['dev-ecommerce-api-flood', 'OK']]);
+  });
+
+  it('restore sem alarme de volume não mexe no CloudWatch', async () => {
+    const stage = initialStage();
+    const { apigw, ssm } = fakes(stage);
+    const cloudwatch = { async send() { throw new Error('não deveria chamar'); } };
+    const handler = createHandler({ ...config, apigw, ssm, cloudwatch });
+    await handler({ action: 'trip' });
+    assert.deepStrictEqual(await handler({ action: 'restore' }), { blocked: false });
+  });
+
   it('ignora mensagem que não é alerta de Budget estourado; {action: trip} bloqueia', async () => {
     const stage = initialStage();
     const { apigw, ssm } = fakes(stage);
@@ -84,6 +106,30 @@ describe('CostKillSwitch', () => {
     assert.strictEqual(apigw.updates.length, 0);
     assert.deepStrictEqual(await handler({ action: 'trip' }), { blocked: true, changed: true });
     assert.strictEqual(stage.DefaultRouteSettings.ThrottlingRateLimit, 0);
+  });
+
+  it('alarme de volume em ALARM bloqueia; OK, outro alarme ou mensagem inválida não', async () => {
+    const stage = initialStage();
+    const { apigw, ssm } = fakes(stage);
+    const handler = createHandler({ ...config, floodAlarmName: 'dev-ecommerce-api-flood', apigw, ssm });
+    const alarmEvent = alarm => ({ Records: [{ Sns: { Subject: 'ALARM: "x"', Message: typeof alarm === 'string' ? alarm : JSON.stringify(alarm) } }] });
+    for (const event of [
+      alarmEvent({ AlarmName: 'dev-ecommerce-api-flood', NewStateValue: 'OK' }),
+      alarmEvent({ AlarmName: 'dev-ecommerce-api-5xx', NewStateValue: 'ALARM' }),
+      alarmEvent('não é json')
+    ]) {
+      assert.deepStrictEqual(await handler(event), { blocked: false, ignored: true });
+    }
+    assert.strictEqual(apigw.updates.length, 0);
+    const result = await handler(alarmEvent({ AlarmName: 'dev-ecommerce-api-flood', NewStateValue: 'ALARM', NewStateReason: 'Threshold Crossed' }));
+    assert.deepStrictEqual(result, { blocked: true, changed: true });
+    assert.strictEqual(stage.DefaultRouteSettings.ThrottlingRateLimit, 0);
+  });
+
+  it('sem nome de alarme configurado, mensagem de alarme é ignorada', async () => {
+    const { apigw, ssm } = fakes(initialStage());
+    const event = { Records: [{ Sns: { Message: JSON.stringify({ AlarmName: 'dev-ecommerce-api-flood', NewStateValue: 'ALARM' }) } }] };
+    assert.deepStrictEqual(await createHandler({ ...config, floodAlarmName: '', apigw, ssm })(event), { blocked: false, ignored: true });
   });
 
   it('sem configuração falha em vez de bloquear às cegas', async () => {

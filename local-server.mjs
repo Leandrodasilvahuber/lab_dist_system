@@ -233,7 +233,8 @@ const inlineScriptHashes = [...fs.readFileSync(path.join(DASHBOARD_DIR, 'index.h
   .map(([, code]) => `'sha256-${createHash('sha256').update(code).digest('base64')}'`);
 
 // Headers de segurança de toda resposta (dashboard e API). connect-src aceita
-// o HttpApi da AWS porque o dashboard pode apontar para ele (?api=https://...);
+// o HttpApi da AWS porque o dashboard pode apontar para ele (?api=https://...),
+// e o Cognito da região (AWS_REGION, a mesma do deploy) para o login de admin lá;
 // style-src-attr libera só os style="" das barras e gráficos, não <style> nem CSS de fora
 const SECURITY_HEADERS = {
   'Content-Security-Policy': [
@@ -242,7 +243,8 @@ const SECURITY_HEADERS = {
     "style-src 'self'",
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data:",
-    "connect-src 'self' https://*.execute-api.amazonaws.com",
+    ['connect-src', "'self'", 'https://*.execute-api.amazonaws.com',
+      ...(process.env.AWS_REGION ? [`https://cognito-idp.${process.env.AWS_REGION}.amazonaws.com`] : [])].join(' '),
     "base-uri 'none'",
     "form-action 'self'",
     "frame-ancestors 'none'"

@@ -6,8 +6,10 @@ import { parseLogLine } from '../../src/common/log-query.mjs';
 // Limite do PutMetricData por chamada
 const MAX_DATUMS = 1000;
 // Na 1ª leitura as linhas antigas só vão para o buffer (Logs/Rastreio): publicar
-// as métricas de novo dobraria a contagem a cada reinício do local-server
-const BACKFILL_MS = 60 * 60 * 1000;
+// as métricas de novo dobraria a contagem a cada reinício do local-server.
+// 24 h para a aba Logs não ficar vazia depois de um reinício enquanto a aba
+// Métricas (guardada no CloudWatch do LocalStack) ainda mostra os erros do dia
+export const BACKFILL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Faz localmente o que o CloudWatch faz na AWS com o Embedded Metric Format:

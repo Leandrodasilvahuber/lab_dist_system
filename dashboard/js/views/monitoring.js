@@ -2,6 +2,7 @@ import { api } from '../core/api.js';
 import { API_BASE } from '../core/config.js';
 import { $ } from '../core/dom.js';
 import { emit } from '../core/events.js';
+import { isAdmin } from '../core/session.js';
 import { escapeHtml, nowTime, time } from '../core/format.js';
 import { ALARM_STATES, statusBadge } from '../components/badge.js';
 import { dataTable } from '../components/data-table.js';
@@ -13,7 +14,8 @@ let lastHealth = null;
 let lastAlarms = null;
 
 // Cada métrica é um item de MONITORS: check() devolve { value, ok, detail? }.
-// Para uma métrica nova, basta acrescentar um item (ok: null = só informativo)
+// Para uma métrica nova, basta acrescentar um item (ok: null = só informativo).
+// requiresAdmin: só roda (e só aparece) com a chave de admin ativa
 const MONITORS = [
     {
         id: 'api',
@@ -28,7 +30,8 @@ const MONITORS = [
                 lastHealth = { ok: false, error };
             }
             return lastHealth.ok
-                ? { value: 'Sistema saudável', ok: true, detail: 'GET /health' }
+                // Só diz que a API responde: alarmes e SLOs têm os cards deles
+                ? { value: 'API respondendo', ok: true, detail: 'GET /health' }
                 : { value: 'API indisponível', ok: false, detail: lastHealth.error.message };
         }
     },
@@ -62,6 +65,8 @@ const MONITORS = [
         id: 'business-errors',
         label: 'Erros (última hora)',
         icon: 'alert',
+        // GET /metrics/errors é de admin (GetMetricData é cobrado por métrica)
+        requiresAdmin: true,
         async check() {
             try {
                 const { business, unhandled } = await api('/metrics/errors?hours=1&summary=1');
@@ -129,7 +134,9 @@ export default {
 // indicador de conexão do topo
 export async function runMonitors() {
     const results = [];
+    const admin = isAdmin();
     for (const monitor of MONITORS) {
+        if (monitor.requiresAdmin && !admin) continue;
         try {
             results.push({ monitor, ...(await monitor.check()) });
         } catch (error) {
@@ -141,7 +148,10 @@ export async function runMonitors() {
     })));
     renderAlarms();
     $('monitorUpdated').textContent = `Última verificação às ${nowTime()} · a cada 30 s`;
-    emit('health', { healthy: Boolean(lastHealth?.ok) });
+    emit('health', {
+        healthy: Boolean(lastHealth?.ok),
+        firing: lastAlarms?.ok ? lastAlarms.items.filter(a => a.state === 'ALARM').length : 0
+    });
 }
 
 function renderAlarms() {

@@ -167,10 +167,10 @@ describe('GET /metrics/errors', () => {
     assert.deepStrictEqual(received, { hours: 3 });
   });
 
-  it('CloudWatch indisponível vira 503; rota é pública', async () => {
+  it('CloudWatch indisponível vira 503; rota é de admin (GetMetricData é cobrado por métrica)', async () => {
     const handler = createAPIHandler({ metrics: { errorMetrics: async () => { throw new Error('AccessDenied'); } } });
     assert.strictEqual((await handler(req({}))).statusCode, 503);
-    assert.ok(!isAdminRoute('GET', '/metrics/errors'));
+    assert.ok(isAdminRoute('GET', '/metrics/errors'));
   });
 });
 
@@ -209,6 +209,5 @@ describe('GET /trace/{correlationId}', () => {
     assert.strictEqual((await failing(req('saga_1'))).statusCode, 503);
     assert.ok(isAdminRoute('GET', '/trace/saga_1'));
     assert.ok(isAdminRoute('GET', '/logs'));
-    assert.ok(!isAdminRoute('GET', '/metrics/errors'));
   });
 });

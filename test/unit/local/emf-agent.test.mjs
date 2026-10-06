@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { aggregate, createEmfAgent } from '../../../scripts/lib/emf-agent.mjs';
+import { aggregate, BACKFILL_MS, createEmfAgent } from '../../../scripts/lib/emf-agent.mjs';
 import { emfFields } from '../../../src/common/emf.mjs';
 
 const START = Date.parse('2026-10-04T12:00:00Z');
@@ -45,7 +45,7 @@ describe('agente EMF local', () => {
     assert.strictEqual(aws.put[0].Namespace, 'Ecommerce/local');
     // Total + por ErrorType
     assert.deepStrictEqual(aws.put[0].MetricData.map(d => d.Dimensions), [[], [{ Name: 'ErrorType', Value: 'PaymentDeclined' }]]);
-    assert.strictEqual(aws.filters[0].startTime, START - 60 * 60 * 1000);
+    assert.strictEqual(aws.filters[0].startTime, START - BACKFILL_MS);
 
     // 2ª leitura continua do último horário e não repete a linha do mesmo milissegundo
     aws.events.push({ eventId: '4', timestamp: START + 2000, message: metricLine(START + 2000) });

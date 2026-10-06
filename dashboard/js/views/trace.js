@@ -2,7 +2,7 @@ import { api } from '../core/api.js';
 import { $ } from '../core/dom.js';
 import { escapeHtml, ms, time } from '../core/format.js';
 import { navigate } from '../core/nav.js';
-import { getAdminKey } from '../core/session.js';
+import { isAdmin } from '../core/session.js';
 import { productNames } from '../services/catalog.js';
 import { getSaga, sagaIdFrom } from '../services/sagas.js';
 import { LOG_LEVELS, statusBadge } from '../components/badge.js';
@@ -49,9 +49,9 @@ export default {
 
 // Lupa em qualquer tela (compras, logs, desempenho) abre o rastreio daquele id
 export function openTrace(id) {
-    // Sem a chave, avisa e fica na tela atual (o router voltaria para a inicial)
-    if (!getAdminKey()) {
-        showToast('Rastreio exige a chave de admin (botão no canto superior direito).', 'info');
+    // Sem login de admin, avisa e fica na tela atual (o router voltaria para a inicial)
+    if (!isAdmin()) {
+        showToast('Rastreio exige login de admin (botão no canto superior direito).', 'info');
         return;
     }
     $('traceId').value = id;

@@ -30,6 +30,7 @@ import { parseLogQuery, isTraceId } from '../../../../common/log-query.mjs';
  */
 const AVAILABLE_ENDPOINTS = [
   'GET  /health',
+  'GET  /auth/config',
   'GET  /alarms',
   'GET  /logs',
   'GET  /metrics/sagas',
@@ -59,6 +60,12 @@ const AVAILABLE_ENDPOINTS = [
   'GET  /sagas'
 ];
 
+export function authConfig(env = process.env) {
+  return env.ADMIN_AUTH_CLIENT_ID
+    ? { mode: 'cognito', region: env.ADMIN_AUTH_REGION, clientId: env.ADMIN_AUTH_CLIENT_ID }
+    : { mode: 'key' };
+}
+
 export function createAPIHandler({
   alarms = new AlarmsClient(),
   logs = new LogsClient(),
@@ -78,6 +85,12 @@ export function createAPIHandler({
 
     if (event.method === 'GET' && event.path === '/health') {
       return successResponse({ status: 'healthy', timestamp: new Date().toISOString() });
+    }
+
+    // Onde o dashboard faz o login de admin: Cognito na AWS, chave X-Api-Key
+    // no local-server (sem ADMIN_AUTH_CLIENT_ID). Nada aqui é segredo
+    if (event.method === 'GET' && event.path === '/auth/config') {
+      return successResponse(authConfig());
     }
 
     if (event.method === 'GET' && event.path === '/alarms') {

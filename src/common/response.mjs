@@ -6,13 +6,13 @@ import { isTransientAwsError } from './aws-client.mjs';
 // headers com os da CorsConfiguration do template.yaml (origem via parâmetro
 // AllowedOrigin). Eles só valem no local-server e em invocações diretas da
 // Lambda; CORS_ALLOW_ORIGIN não tem efeito na AWS.
-// Sem Access-Control-Allow-Credentials: a API não usa cookies (a chave de admin
-// vai no header X-Api-Key), e o navegador recusa Allow-Credentials junto com
+// Sem Access-Control-Allow-Credentials: a API não usa cookies (o admin vai no
+// header Authorization na AWS, X-Api-Key no local), e o navegador recusa Allow-Credentials junto com
 // Allow-Origin '*'.
 export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': process.env.CORS_ALLOW_ORIGIN || '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key, Idempotency-Key, X-Idempotency-Key, X-Correlation-ID',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key, Idempotency-Key, X-Idempotency-Key, X-Correlation-ID',
   // Sem isto o navegador esconde o Retry-After do 503 do JavaScript da página
   'Access-Control-Expose-Headers': 'Retry-After'
 };

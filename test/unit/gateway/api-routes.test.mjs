@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { AlarmsClient } from '../../../src/layers/api-gateway-layer/src/services/AlarmsClient.js';
-import { createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
+import { authConfig, createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
 import { LogsClient } from '../../../src/layers/api-gateway-layer/src/services/LogsClient.js';
 import { ChaosClient } from '../../../src/layers/api-gateway-layer/src/services/ChaosClient.js';
 
@@ -208,6 +208,24 @@ describe('GET /health', () => {
     const handler = createAPIHandler({ alarms: {}, logs: {}, dlq: {} });
     assert.strictEqual((await handler(req('GET'))).statusCode, 200);
     assert.strictEqual((await handler(req('POST'))).statusCode, 404);
+  });
+});
+
+describe('GET /auth/config', () => {
+  it('na AWS aponta o login para o client do Cognito', () => {
+    assert.deepStrictEqual(authConfig({ ADMIN_AUTH_REGION: 'us-east-1', ADMIN_AUTH_CLIENT_ID: 'abc123' }),
+      { mode: 'cognito', region: 'us-east-1', clientId: 'abc123' });
+  });
+
+  it('sem client configurado (local-server), o login é pela chave', () => {
+    assert.deepStrictEqual(authConfig({}), { mode: 'key' });
+  });
+
+  it('é pública e responde pelo handler', async () => {
+    const handler = createAPIHandler({ alarms: {}, logs: {}, dlq: {} });
+    const response = await handler({ requestContext: { http: { method: 'GET' } }, rawPath: '/auth/config', headers: {} });
+    assert.strictEqual(response.statusCode, 200);
+    assert.ok(['key', 'cognito'].includes(JSON.parse(response.body).mode));
   });
 });
 

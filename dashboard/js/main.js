@@ -4,7 +4,8 @@ import { on } from './core/events.js';
 import { escapeHtml, time } from './core/format.js';
 import { navigate } from './core/nav.js';
 import { currentView, initRouter, refreshCurrent, show, syncAdminViews } from './core/router.js';
-import { getAdminKey, setAdminKey } from './core/session.js';
+import { loadAuthConfig, login, revoke } from './core/cognito.js';
+import { getCredential, isAdmin, setCredential } from './core/session.js';
 import { storage } from './core/storage.js';
 import { icon } from './components/icons.js';
 import { showToast } from './components/toast.js';
@@ -45,10 +46,13 @@ document.addEventListener('click', event => {
 });
 
 // ---------- Indicador de conexão (alimentado pelo Monitoramento) ----------
-on('health', ({ healthy }) => {
-    $('connectionDot').className = `connection-dot ${healthy ? 'connected' : 'disconnected'}`;
+// Conectado com alarme disparado fica em amarelo: a API responder não quer dizer
+// que o sistema está saudável
+on('health', ({ healthy, firing = 0 }) => {
+    const alerting = healthy && firing > 0;
+    $('connectionDot').className = `connection-dot ${!healthy ? 'disconnected' : alerting ? 'alerting' : 'connected'}`;
     $('connectionStatus').textContent = healthy ? 'Conectado' : 'Desconectado';
-    $('statusLink').title = `${healthy ? 'Sistema saudável' : 'API indisponível'} · ver monitoramento`;
+    $('statusLink').title = `${!healthy ? 'API indisponível' : alerting ? `${firing} alarme(s) disparado(s)` : 'API respondendo, sem alarmes'} · ver monitoramento`;
 });
 
 // ---------- Faixa de caos: falha injetada não deve parecer bug ----------
@@ -62,7 +66,7 @@ on('chaos', ({ active, expiresAt, faults = [] }) => {
     chaosExpiry = setTimeout(loadChaos, Math.max(0, Date.parse(expiresAt) - Date.now()) + 1000);
     const targets = faults.map(f => `${f.service}/${f.action || '*'}`).join(', ');
     banner.innerHTML = `${icon('zap', { size: 16 })}<span><strong>Caos ativo até ${escapeHtml(time(expiresAt))}</strong> · ${faults.length} falha(s) injetada(s): <span class="mono">${escapeHtml(targets)}</span></span>
-        ${getAdminKey() ? navLink('chaos', 'Gerenciar', 'arrowRight') : ''}`;
+        ${isAdmin() ? navLink('chaos', 'Gerenciar', 'arrowRight') : ''}`;
 });
 
 // ---------- Tema claro/escuro (sem escolha, segue o sistema) ----------
@@ -85,22 +89,62 @@ $('themeBtn').addEventListener('click', () => {
 prefersDark.addEventListener('change', renderThemeButton);
 
 // ---------- Login de admin: popover no canto superior direito ----------
+// Na AWS, usuário e senha do Cognito; no local-server, a chave X-Api-Key
+// (GET /auth/config diz qual)
 const adminBtn = $('adminBtn');
 const adminPopover = $('adminPopover');
+const adminUserInput = $('adminUser');
 const adminKeyInput = $('adminKey');
+let authConfig = { mode: 'key' };
 
 function renderAdminButton() {
-    const active = Boolean(getAdminKey());
+    const active = isAdmin();
     adminBtn.innerHTML = `${icon(active ? 'unlock' : 'lock', { size: 15 })}<span>${active ? 'Admin ativo' : 'Admin'}</span>`;
     adminBtn.classList.toggle('is-admin', active);
-    adminBtn.title = active ? 'Chave de admin ativa' : 'Entrar como admin';
+    adminBtn.title = active ? `Admin ativo${getCredential().username ? ` (${getCredential().username})` : ''}` : 'Entrar como admin';
+}
+
+function renderAdminForm() {
+    const cognito = authConfig.mode === 'cognito';
+    adminUserInput.hidden = !cognito;
+    adminKeyInput.placeholder = cognito ? 'Senha' : 'Chave de admin';
+    adminKeyInput.autocomplete = cognito ? 'current-password' : 'off';
+    $('adminHint').textContent = cognito
+        ? `Login de admin para criar produtos e ver logs, métricas e custo. A sessão vale até fechar a aba.${otherApiWarning()}`
+        : 'Chave (X-Api-Key) para criar produtos e ver alarmes, métricas e DLQ. Fica só nesta aba.';
+}
+
+// Com ?api=, é essa API que diz qual client do Cognito recebe a senha: um link
+// com a API de outra pessoa mandaria a senha ao user pool dela (que pode ler a
+// senha num trigger de migração). O aviso mostra para onde vai
+function otherApiWarning() {
+    if (API_BASE === location.origin) return '';
+    let host = API_BASE;
+    try { host = new URL(API_BASE).host; } catch { /* mostra o texto como veio */ }
+    return ` Atenção: a senha vai para o login indicado por ${host}. Só entre se esta for a sua API.`;
+}
+
+// Relê a config (a leitura que falhou não fica guardada) e ajusta o formulário
+async function syncAuthConfig() {
+    authConfig = await loadAuthConfig();
+    renderAdminForm();
+    return authConfig;
 }
 
 function toggleAdminPopover(open = adminPopover.hidden) {
     adminPopover.hidden = !open;
     adminBtn.setAttribute('aria-expanded', String(open));
-    if (open) {
-        adminKeyInput.value = getAdminKey();
+    if (!open) return;
+    // A config pode ter falhado no carregamento da página (API fora do ar)
+    if (authConfig.mode !== 'cognito') syncAuthConfig();
+    const credential = getCredential();
+    if (authConfig.mode === 'cognito') {
+        // A senha nunca volta para o campo: só o token fica guardado
+        adminUserInput.value = credential?.username ?? adminUserInput.value;
+        adminKeyInput.value = '';
+        (adminUserInput.value ? adminKeyInput : adminUserInput).focus();
+    } else {
+        adminKeyInput.value = credential?.type === 'key' ? credential.value : '';
         adminKeyInput.focus();
     }
 }
@@ -110,7 +154,7 @@ on('admin', () => {
     syncAdminViews();
     toggleAdminPopover(false);
     // Saiu do admin estando numa tela de admin: show() volta para a inicial
-    if (!getAdminKey()) show(currentView(), { notify: false });
+    if (!isAdmin()) show(currentView(), { notify: false });
     else refreshCurrent();
 });
 
@@ -118,14 +162,40 @@ adminBtn.addEventListener('click', event => {
     event.stopPropagation();
     toggleAdminPopover();
 });
-$('adminForm').addEventListener('submit', event => {
+$('adminForm').addEventListener('submit', async event => {
     event.preventDefault();
-    const value = adminKeyInput.value.trim();
-    setAdminKey(value);
-    showToast(value ? 'Chave de admin ativa.' : 'Chave de admin removida.', 'info');
+    const secret = adminKeyInput.value;
+    // Espera a config: enviado antes de ela chegar, a senha do Cognito seria
+    // guardada como X-Api-Key
+    const mode = authConfig.mode;
+    if ((await syncAuthConfig()).mode !== mode) return showToast('Formulário de login atualizado: preencha de novo.', 'info');
+    if (authConfig.mode !== 'cognito') {
+        const value = secret.trim();
+        setCredential(value ? { type: 'key', value } : null);
+        showToast(value ? 'Chave de admin ativa.' : 'Chave de admin removida.', 'info');
+        return;
+    }
+    const username = adminUserInput.value.trim();
+    if (!username || !secret) return showToast('Informe usuário e senha.', 'info');
+    const submit = event.submitter;
+    if (submit) submit.disabled = true;
+    try {
+        setCredential({ type: 'cognito', username, ...(await login(authConfig, username, secret)) });
+        showToast('Login de admin feito.', 'info');
+    } catch (error) {
+        showToast(`Não foi possível entrar: ${error.message}.`, 'error');
+    } finally {
+        adminKeyInput.value = '';
+        if (submit) submit.disabled = false;
+    }
 });
 $('adminLogout').addEventListener('click', () => {
-    setAdminKey('');
+    const credential = getCredential();
+    // Invalida o refresh token no Cognito; falhar aqui não impede sair
+    if (credential?.type === 'cognito' && authConfig.mode === 'cognito') {
+        revoke(authConfig, credential.refreshToken).catch(() => {});
+    }
+    setCredential(null);
     showToast('Saiu do modo admin.', 'info');
 });
 document.addEventListener('click', event => {
@@ -140,6 +210,8 @@ document.addEventListener('keydown', event => {
 // ---------- Inicialização ----------
 renderThemeButton();
 renderAdminButton();
+renderAdminForm();
+syncAuthConfig();
 initRouter();
 // O indicador do topo vale em qualquer tela; no Monitoramento o refresh já roda
 if (currentView() !== 'monitoring') runMonitors();

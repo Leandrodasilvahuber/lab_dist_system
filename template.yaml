@@ -72,6 +72,15 @@ Parameters:
     Default: 5
     MinValue: 1
 
+  # Requisições à API em 5 min (todas as rotas, inclusive as recusadas com
+  # 429) que contam como ataque: duas janelas seguidas acima disso acionam o
+  # interruptor de custo (ApiFloodAlarm). 15000 = ~50 req/s sustentados por
+  # 10 min, muito acima do dashboard e dos testes de caos. 0 = sem alarme
+  FloodRequestsPer5Min:
+    Type: Number
+    Default: 15000
+    MinValue: 0
+
 Conditions:
   # Em prod as tabelas não podem ser apagadas (nem por sam delete); em dev/test
   # a stack continua descartável
@@ -80,6 +89,7 @@ Conditions:
   HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
   # Alarme purchase-limit só com o limite diário de compras ligado
   HasPurchaseLimit: !Not [!Equals [!Ref DailyPurchaseLimit, 0]]
+  HasFloodAlarm: !Not [!Equals [!Ref FloodRequestsPer5Min, 0]]
 
 # Todas as funções são empacotadas com esbuild a partir da raiz do projeto,
 # o que inclui automaticamente o código compartilhado de src/common.
@@ -114,7 +124,7 @@ Globals:
 Resources:
   # API Gateway Centralizado (HttpApi)
   # Rotas específicas vão para cada serviço; o resto cai na GatewayFunction ({proxy+}).
-  # Escritas de admin (produto, estoque, caos, ações da DLQ), o custo, os logs e o rastreio usam o authorizer AdminApiKey (mesma lista de src/common/auth.mjs).
+  # Escritas de admin (produto, estoque, caos, ações da DLQ), o custo, as métricas do CloudWatch, os logs e o rastreio usam o authorizer AdminJwt (token do Cognito; mesma lista de src/common/auth.mjs).
   ApiGateway:
     Type: AWS::Serverless::HttpApi
     # checkov:skip=CKV_AWS_95:cada requisição já fica no log estruturado do Gateway (ServicesLogGroup); access log dobraria a ingestão do CloudWatch
@@ -124,17 +134,20 @@ Resources:
       # O padrão vale para CADA rota sem limite próprio (não é um teto do stage
       # inteiro): com 100 req/s, um script batendo em várias rotas públicas
       # somaria mais de 1000 req/s, todas cobradas (HttpApi, Lambda, log).
-      # 20 req/s por rota cabe com folga no uso do dashboard e nos testes de
-      # caos (concorrência 4 na AWS). POST /saga/execute fica com o padrão
+      # 10 req/s por rota cabe com folga no uso do dashboard e nos testes de
+      # caos (concorrência 4 na AWS). POST /saga/execute fica com o padrão.
+      # O limite não é por cliente (o HttpApi não aceita WAF; rate limit por IP
+      # exigiria CloudFront + WAF, ~US$ 6/mês): quem segura um script contra
+      # todas as rotas é o ApiFloodAlarm, que aciona o interruptor de custo
       DefaultRouteSettings:
-        ThrottlingBurstLimit: 20
-        ThrottlingRateLimit: 20
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 10
       # Bulkhead na entrada: leituras caras (Scan, uma Query por produto,
       # consultas ao CloudWatch) têm limite menor que o padrão, para que um pico
       # nelas não consuma a concorrência das Lambdas que também executam os
       # passos da saga (Stock, Products) nem a capacidade do DynamoDB.
       # Catálogo e estoque: 20-30 req/s; listagens admin: 10; observabilidade: 5;
-      # escritas de admin: 2 (cada X-Api-Key diferente invoca o authorizer).
+      # escritas de admin: 2.
       # Burst nunca abaixo da taxa: o balde comporta ao menos 1s de requisições
       RouteSettings:
         # Fallback (rota inexistente): só devolve a lista de endpoints
@@ -142,6 +155,9 @@ Resources:
           ThrottlingBurstLimit: 2
           ThrottlingRateLimit: 2
         'GET /health':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 5
+        'GET /auth/config':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
         'POST /products':
@@ -162,6 +178,13 @@ Resources:
         'GET /products':
           ThrottlingBurstLimit: 30
           ThrottlingRateLimit: 30
+        'GET /orders/{id}':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 5
+        # Leitura da config de caos: o dashboard só lê ao abrir a aba
+        'GET /chaos':
+          ThrottlingBurstLimit: 2
+          ThrottlingRateLimit: 2
         'GET /stock':
           ThrottlingBurstLimit: 20
           ThrottlingRateLimit: 20
@@ -183,7 +206,7 @@ Resources:
           ThrottlingBurstLimit: 2
           ThrottlingRateLimit: 2
         # Públicas e com cache de 20 s (AlarmsClient, DlqClient), mas sem
-        # limite próprio ficariam com os 100 req/s do stage na GatewayFunction
+        # limite próprio ficariam com o padrão do stage na GatewayFunction
         'GET /alarms':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
@@ -221,45 +244,61 @@ Resources:
       CorsConfiguration:
         AllowOrigins: [!Ref AllowedOrigin]
         AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
-        AllowHeaders: [content-type, x-api-key, idempotency-key, x-idempotency-key, x-correlation-id]
+        AllowHeaders: [content-type, authorization, idempotency-key, x-idempotency-key, x-correlation-id]
         ExposeHeaders: [retry-after]
       Auth:
         Authorizers:
-          AdminApiKey:
-            FunctionArn: !GetAtt AdminAuthorizerFunction.Arn
-            FunctionPayloadType: REQUEST
-            AuthorizerPayloadFormatVersion: '2.0'
-            EnableSimpleResponses: true
-            EnableFunctionDefaultPermissions: true
-            Identity:
-              Headers: [x-api-key]
-              ReauthorizeEvery: 300
+          # Rotas de admin: access token do Cognito (Authorization: Bearer),
+          # validado pelo próprio HttpApi (assinatura, emissor, client e
+          # expiração), sem Lambda. O dashboard faz o login direto no Cognito
+          AdminJwt:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${AdminUserPool}'
+              audience:
+                - !Ref AdminUserPoolClient
 
-  # Authorizer das rotas administrativas: compara X-Api-Key com a chave guardada
-  # no SSM Parameter Store (SecureString, criado por scripts/deploy.sh). A chave
-  # não fica no template nem em variável de ambiente.
-  AdminAuthorizerFunction:
-    Type: AWS::Serverless::Function
+  # Usuários de admin do dashboard. Sem auto-cadastro: o scripts/deploy.sh cria
+  # o usuário (ADMIN_USERNAME/ADMIN_PASSWORD). Plano Lite: grátis até 10 mil
+  # usuários ativos por mês
+  AdminUserPool:
+    Type: AWS::Cognito::UserPool
     Properties:
-      CodeUri: .
-      Handler: adminAuthorizer.handler
-      # Igual a AUTHORIZER_MEMORY_MB da GatewayFunction (estimativa de custo)
-      MemorySize: 128
-      Timeout: 5
-      Environment:
-        Variables:
-          ADMIN_API_KEY_PARAM: !Sub '/${Environment}/ecommerce/admin-api-key'
+      UserPoolName: !Sub '${Environment}-ecommerce-admins'
+      UserPoolTier: LITE
+      DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: admin_only
+            Priority: 1
       Policies:
-        - SSMParameterReadPolicy:
-            ParameterName: !Sub '${Environment}/ecommerce/admin-api-key'
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Format: esm
-        OutExtension: ['.js=.mjs']
-        Target: es2022
-        EntryPoints: [src/layers/api-gateway-layer/src/auth/adminAuthorizer.js]
-        External: ['@aws-sdk/*']
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+
+  # Client público (sem secret: roda no navegador). USER_PASSWORD_AUTH manda a
+  # senha só ao Cognito, por TLS; a API só vê o access token, que vale 1 h
+  AdminUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref AdminUserPool
+      ClientName: dashboard
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 12
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: hours
 
   # Gateway Function - health check, alarmes, logs de erro, DLQ e roteamento de fallback
   GatewayFunction:
@@ -277,10 +316,9 @@ Resources:
           # Aba Recursos: teto do Budget (o id do HttpApi vem no requestContext;
           # !Ref ApiGateway aqui seria dependência circular)
           MONTHLY_BUDGET_USD: !Ref MonthlyBudgetUSD
-          # O authorizer não grava MemoryUsedMB (não passa pelos handlers dos
-          # serviços): entra na estimativa pelo nome e pelo MemorySize dele
-          AUTHORIZER_FUNCTION_NAME: !Ref AdminAuthorizerFunction
-          AUTHORIZER_MEMORY_MB: 128
+          # GET /auth/config: o dashboard descobre onde fazer o login de admin
+          ADMIN_AUTH_REGION: !Ref AWS::Region
+          ADMIN_AUTH_CLIENT_ID: !Ref AdminUserPoolClient
           # Última leitura do Cost Explorer (CostClient.refreshActual)
           COST_SNAPSHOTS_TABLE: !Ref CostSnapshotsTable
           COST_REFRESH_DAILY_LIMIT: !Ref DailyCostRefreshLimit
@@ -343,6 +381,12 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /health
             Method: GET
+        AuthConfig:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /auth/config
+            Method: GET
         Alarms:
           Type: HttpApi
           Properties:
@@ -356,31 +400,37 @@ Resources:
             Path: /logs
             Method: GET
             Auth:
-              Authorizer: AdminApiKey
+              Authorizer: AdminJwt
         SagaMetrics:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /metrics/sagas
             Method: GET
+        # GetMetricData é cobrado por métrica: só admin (src/common/auth.mjs)
         ErrorMetrics:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /metrics/errors
             Method: GET
+            Auth:
+              Authorizer: AdminJwt
         SloMetrics:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /metrics/slo
             Method: GET
+        # GetMetricData é cobrado por métrica: só admin (src/common/auth.mjs)
         MemoryMetrics:
           Type: HttpApi
           Properties:
             ApiId: !Ref ApiGateway
             Path: /metrics/memory
             Method: GET
+            Auth:
+              Authorizer: AdminJwt
         # Gasto da conta inteira (Cost Explorer): só admin (src/common/auth.mjs)
         CostMetrics:
           Type: HttpApi
@@ -389,7 +439,7 @@ Resources:
             Path: /metrics/cost
             Method: GET
             Auth:
-              Authorizer: AdminApiKey
+              Authorizer: AdminJwt
         # Lê o Cost Explorer agora (no máximo uma vez a cada 15 min): só admin
         RefreshCostNow:
           Type: HttpApi
@@ -398,7 +448,7 @@ Resources:
             Path: /metrics/cost/refresh
             Method: POST
             Auth:
-              Authorizer: AdminApiKey
+              Authorizer: AdminJwt
         # Lê o Cost Explorer e grava na CostSnapshotsTable: o custo fica fixo
         # (~4 leituras por dia), qualquer que seja o tráfego da aba Recursos
         RefreshCost:
@@ -413,7 +463,7 @@ Resources:
             Path: /trace/{correlationId}
             Method: GET
             Auth:
-              Authorizer: AdminApiKey
+              Authorizer: AdminJwt
         ListDlq:
           Type: HttpApi
           Properties:
@@ -428,7 +478,7 @@ Resources:
             Path: /dlq/{messageId}/{action}
             Method: POST
             Auth:
-              Authorizer: AdminApiKey
+              Authorizer: AdminJwt
         GetChaos:
           Type: HttpApi
           Properties:
@@ -443,7 +493,7 @@ Resources:
             Path: /chaos
             Method: PUT
             Auth:
-              Authorizer: AdminApiKey
+              Authorizer: AdminJwt
         DeleteChaos:
           Type: HttpApi
           Properties:
@@ -451,7 +501,7 @@ Resources:
             Path: /chaos
             Method: DELETE
             Auth:
-              Authorizer: AdminApiKey
+              Authorizer: AdminJwt
         Proxy:
           Type: HttpApi
           Properties:
@@ -496,7 +546,7 @@ Resources:
             Path: /products
             Method: POST
             Auth:
-              Authorizer: AdminApiKey
+              Authorizer: AdminJwt
         DeleteProduct:
           Type: HttpApi
           Properties:
@@ -504,7 +554,7 @@ Resources:
             Path: /products/{id}
             Method: DELETE
             Auth:
-              Authorizer: AdminApiKey
+              Authorizer: AdminJwt
       Policies:
         # Config de caos (src/common/chaos.mjs)
         - SSMParameterReadPolicy:
@@ -632,7 +682,7 @@ Resources:
             Path: /stock/{productId}/adjust
             Method: POST
             Auth:
-              Authorizer: AdminApiKey
+              Authorizer: AdminJwt
       Policies:
         # Config de caos (src/common/chaos.mjs)
         - SSMParameterReadPolicy:
@@ -1410,9 +1460,9 @@ Resources:
   # públicas continuaria gerando cobrança depois do aviso. Quando o gasto real
   # passa de MonthlyBudgetUSD (CostKillSwitchBudget), a função zera o
   # throttling do stage (toda requisição recebe 429 do API Gateway, sem chegar
-  # às Lambdas). O Budget é
-  # atualizado algumas vezes por dia, então o bloqueio chega com atraso: os
-  # limites por rota (ApiGateway) seguram o gasto até lá. Religar: ver
+  # às Lambdas). O Budget é atualizado algumas vezes por dia, então o bloqueio
+  # por ele chega com horas de atraso; o ApiFloodAlarm pega o volume anormal
+  # em ~10 min e aciona o mesmo tópico. Religar: ver
   # src/layers/api-gateway-layer/src/ops/costKillSwitch.js
   CostKillSwitchTopic:
     Type: AWS::SNS::Topic
@@ -1448,6 +1498,15 @@ Resources:
               - sns:SetTopicAttributes
               - sns:ListSubscriptionsByTopic
             Resource: !Ref CostKillSwitchTopic
+          - Sid: AllowCloudWatchAlarmsPublish
+            Effect: Allow
+            Principal:
+              Service: cloudwatch.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref CostKillSwitchTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
           - Sid: AllowBudgetsPublish
             Effect: Allow
             Principal:
@@ -1470,6 +1529,9 @@ Resources:
           API_ID: !Ref ApiGateway
           STAGE_NAME: !Ref Environment
           THROTTLE_BACKUP_PARAM: !Sub '/${Environment}/ecommerce/throttle-backup'
+          # Nome fixo, sem !Ref ApiFloodAlarm: o alarme depende do tópico, e o
+          # tópico (evento SNS) desta função; vazio sem o alarme
+          FLOOD_ALARM_NAME: !If [HasFloodAlarm, !Sub '${Environment}-ecommerce-api-flood', '']
       Policies:
         - Statement:
             - Effect: Allow
@@ -1482,6 +1544,10 @@ Resources:
                 - ssm:GetParameter
                 - ssm:PutParameter
               Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Environment}/ecommerce/throttle-backup'
+            # Restore: devolve o ApiFloodAlarm para OK (ver costKillSwitch.js)
+            - Effect: Allow
+              Action: cloudwatch:SetAlarmState
+              Resource: !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${Environment}-ecommerce-api-flood'
       Events:
         BudgetExceeded:
           Type: SNS
@@ -1495,6 +1561,36 @@ Resources:
         Target: es2022
         EntryPoints: [src/layers/api-gateway-layer/src/ops/costKillSwitch.js]
         External: ['@aws-sdk/*']
+
+  # Volume de ataque (script contra as rotas públicas): o Budget só vê o gasto
+  # horas depois, e até lá os limites por rota (somados, ~150 req/s) já teriam
+  # consumido o free tier. Duas janelas de 5 min acima de FloodRequestsPer5Min
+  # publicam no CostKillSwitchTopic e a API é bloqueada (religar: restore do
+  # CostKillSwitchFunction). Count inclui as recusadas com 429: depois do
+  # bloqueio o alarme continua em ALARM enquanto o script insistir, e o restore
+  # o devolve para OK, para que um ataque ainda ativo bloqueie a API de novo
+  ApiFloodAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasFloodAlarm
+    Properties:
+      AlarmActions: [!Ref CostKillSwitchTopic, !Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      AlarmName: !Sub '${Environment}-ecommerce-api-flood'
+      AlarmDescription: !Sub 'Mais de ${FloodRequestsPer5Min} requisições em 5 min por 10 min: API bloqueada pelo interruptor de custo (religar com {"action":"restore"} no CostKillSwitchFunction)'
+      Namespace: AWS/ApiGateway
+      MetricName: Count
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref ApiGateway
+        - Name: Stage
+          Value: !Ref Environment
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: !Ref FloodRequestsPer5Min
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
 
   # Cliente consultando em loop o que não existe (ex.: aba esquecida acompanhando
   # sagas apagadas): leituras com 404 (ClientErrors, http-handler.mjs), que ficam
@@ -1692,8 +1788,7 @@ Resources:
                 [ "...", "${OrderFunction}", { "label": "order" } ],
                 [ "...", "${PaymentFunction}", { "label": "payment" } ],
                 [ "...", "${StockFunction}", { "label": "stock" } ],
-                [ "...", "${SagaOrchestratorFunction}", { "label": "saga-orchestrator" } ],
-                [ "...", "${AdminAuthorizerFunction}", { "label": "admin-authorizer" } ]
+                [ "...", "${SagaOrchestratorFunction}", { "label": "saga-orchestrator" } ]
               ]
             } },
             { "type": "metric", "x": 0, "y": 20, "width": 12, "height": 6, "properties": {
@@ -1732,7 +1827,7 @@ Resources:
                 "${CircuitBreakerOpenAlarm.Arn}",
                 "${ClientErrorsAlarm.Arn}",
                 "${SagasStuckAlarm.Arn}",
-                "${LambdaThrottlesAlarm.Arn}"${PurchaseLimitAlarmEntry}
+                "${LambdaThrottlesAlarm.Arn}"${PurchaseLimitAlarmEntry}${FloodAlarmEntry}
               ]
             } },
             { "type": "metric", "x": 0, "y": 32, "width": 24, "height": 6, "properties": {
@@ -1748,6 +1843,7 @@ Resources:
           ]
         }
       - PurchaseLimitAlarmEntry: !If [HasPurchaseLimit, !Sub ',"${PurchaseLimitAlarm.Arn}"', '']
+        FloodAlarmEntry: !If [HasFloodAlarm, !Sub ',"${ApiFloodAlarm.Arn}"', '']
 
   # Consultas salvas (Logs Insights → Consultas salvas → ecommerce/<env>/...)
   # O like casa o id em qualquer lugar da linha: nas Lambdas ele está no campo
@@ -1943,6 +2039,14 @@ Outputs:
   ApiGatewayId:
     Description: "API Gateway ID"
     Value: !Ref ApiGateway
+
+  AdminUserPoolId:
+    Description: "User pool do Cognito com os admins do dashboard (scripts/deploy.sh cria o usuário)"
+    Value: !Ref AdminUserPool
+
+  AdminUserPoolClientId:
+    Description: "Client do dashboard no Cognito (login de admin)"
+    Value: !Ref AdminUserPoolClient
 
   EventBusName:
     Description: "EventBridge bus name"

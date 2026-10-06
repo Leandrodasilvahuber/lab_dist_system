@@ -17,6 +17,8 @@ export default {
     id: 'resources',
     label: 'Recursos',
     icon: 'cpu',
+    // Memória (GetMetricData) e custo da conta (Cost Explorer) são de admin
+    requiresAdmin: true,
     template: () => `
         ${toolbar(
             select('memoryHours', 'Memória', PERIODS.metrics, '3'),

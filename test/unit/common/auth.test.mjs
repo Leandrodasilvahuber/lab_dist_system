@@ -1,12 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { ADMIN_ROUTES, hashApiKey, isAdminRoute, isValidApiKey, isValidApiKeyHash } from '../../../src/common/auth.mjs';
-import { createHandler, createKeyProvider, CACHE_TTL_MS } from '../../../src/layers/api-gateway-layer/src/auth/adminAuthorizer.js';
 
 process.env.LOG_LEVEL = 'silent';
 
 describe('rotas de admin', () => {
-  it('protege as escritas de admin (produto, estoque, caos, ações da DLQ), o custo da conta, os logs e o rastreio', () => {
+  it('protege as escritas de admin (produto, estoque, caos, ações da DLQ), o custo da conta, as métricas do CloudWatch, os logs e o rastreio', () => {
     assert.ok(isAdminRoute('POST', '/products'));
     assert.ok(isAdminRoute('DELETE', '/products/p1'));
     assert.ok(isAdminRoute('POST', '/stock/p1/adjust'));
@@ -15,6 +14,8 @@ describe('rotas de admin', () => {
     assert.ok(isAdminRoute('POST', '/dlq/m1/redrive'));
     assert.ok(isAdminRoute('POST', '/dlq/m1/discard'));
     assert.ok(isAdminRoute('GET', '/metrics/cost'));
+    assert.ok(isAdminRoute('GET', '/metrics/errors'));
+    assert.ok(isAdminRoute('GET', '/metrics/memory'));
     assert.ok(isAdminRoute('GET', '/logs'));
     assert.ok(isAdminRoute('GET', '/trace/s1'));
   });
@@ -22,8 +23,8 @@ describe('rotas de admin', () => {
   it('deixa público todo o resto: vitrine, compras, pedidos, métricas e a lista da DLQ', () => {
     for (const [method, path] of [['GET', '/products'], ['GET', '/products/p1'], ['GET', '/stock'],
       ['POST', '/saga/execute'], ['GET', '/saga/s1'], ['GET', '/sagas'], ['GET', '/orders'], ['GET', '/orders/o1'],
-      ['GET', '/health'], ['GET', '/alarms'], ['GET', '/metrics/sagas'],
-      ['GET', '/metrics/errors'], ['GET', '/metrics/slo'], ['GET', '/metrics/memory'],
+      ['GET', '/health'], ['GET', '/auth/config'], ['GET', '/alarms'], ['GET', '/metrics/sagas'],
+      ['GET', '/metrics/slo'],
       ['GET', '/dlq'], ['POST', '/dlq/m1/other'], ['GET', '/chaos']]) {
       assert.ok(!isAdminRoute(method, path), `${method} ${path}`);
     }
@@ -34,7 +35,7 @@ describe('rotas de admin', () => {
     const fs = await import('node:fs');
     const template = fs.readFileSync(new URL('../../../template.yaml', import.meta.url), 'utf8');
     const routes = [...template.matchAll(/Path: (\S+)\n\s+Method: (\S+)(\n\s+Auth:\n\s+Authorizer: (\S+))?/g)]
-      .map(([, path, method, , authorizer]) => ({ path, method, admin: authorizer === 'AdminApiKey' }))
+      .map(([, path, method, , authorizer]) => ({ path, method, admin: authorizer === 'AdminJwt' }))
       .filter(route => !route.path.includes('{proxy+}'));
     assert.ok(routes.length > 10, 'rotas do template não encontradas');
 
@@ -84,51 +85,5 @@ describe('X-Api-Key', () => {
       valid.replace(/\$[0-9a-f]{2}/, '$zz'), `${valid}$extra`]) {
       assert.ok(!await isValidApiKeyHash({ 'x-api-key': key }, stored), String(stored));
     }
-  });
-
-  it('authorizer do HttpApi responde no formato simples', async () => {
-    const authorizer = createHandler(async () => key);
-    assert.deepStrictEqual(await authorizer({ headers: { 'x-api-key': key } }), { isAuthorized: true });
-    assert.deepStrictEqual(await authorizer({ headers: {} }), { isAuthorized: false });
-  });
-
-  it('authorizer nega se a chave não puder ser lida do SSM', async () => {
-    const authorizer = createHandler(async () => { throw new Error('SSM fora'); });
-    assert.deepStrictEqual(await authorizer({ headers: { 'x-api-key': key } }), { isAuthorized: false });
-  });
-});
-
-describe('chave de admin no SSM', () => {
-  const key = 'chave-de-teste-bem-longa';
-
-  function fakeSsm() {
-    const calls = [];
-    return {
-      calls,
-      send: async command => { calls.push(command.input); return { Parameter: { Value: key } }; }
-    };
-  }
-
-  it('lê o SecureString descriptografado e guarda em cache', async () => {
-    const client = fakeSsm();
-    const getKey = createKeyProvider({ parameterName: '/dev/ecommerce/admin-api-key', client, now: () => 0 });
-    assert.strictEqual(await getKey(), key);
-    assert.strictEqual(await getKey(), key);
-    assert.deepStrictEqual(client.calls, [{ Name: '/dev/ecommerce/admin-api-key', WithDecryption: true }]);
-  });
-
-  it('relê depois que o cache expira', async () => {
-    const client = fakeSsm();
-    let time = 0;
-    const getKey = createKeyProvider({ parameterName: '/p', client, now: () => time });
-    await getKey();
-    time = CACHE_TTL_MS + 1;
-    await getKey();
-    assert.strictEqual(client.calls.length, 2);
-  });
-
-  it('sem o nome do parâmetro configurado, falha (e o authorizer nega)', async () => {
-    const getKey = createKeyProvider({ parameterName: undefined, client: fakeSsm() });
-    await assert.rejects(getKey(), /ADMIN_API_KEY_PARAM/);
   });
 });

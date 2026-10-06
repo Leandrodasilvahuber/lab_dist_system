@@ -57,7 +57,8 @@
                         <div class="popover" id="adminPopover" role="dialog" aria-label="Login de admin" hidden>
                             <form id="adminForm" class="form">
                                 <h3>Acesso de admin</h3>
-                                <p>Chave (X-Api-Key) para criar produtos e ver alarmes, métricas e DLQ. Fica só neste navegador.</p>
+                                <p id="adminHint">Chave (X-Api-Key) para criar produtos e ver alarmes, métricas e DLQ. Fica só nesta aba.</p>
+                                <input type="text" id="adminUser" class="input" autocomplete="username" placeholder="Usuário" hidden>
                                 <input type="password" id="adminKey" class="input" autocomplete="off" placeholder="Chave de admin">
                                 <div class="popover-actions">
                                     <button type="submit" class="btn btn-primary">Entrar</button>

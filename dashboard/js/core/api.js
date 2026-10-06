@@ -1,18 +1,26 @@
 import { API_BASE } from './config.js';
-import { getAdminKey } from './session.js';
+import { authHeaders, getCredential } from './session.js';
 
 export const isAuthError = error => error.status === 401 || error.status === 403;
 
-export async function api(path, options = {}) {
-    const adminKey = getAdminKey();
-    const response = await fetch(API_BASE + path, {
+async function request(path, options, force) {
+    return fetch(API_BASE + path, {
         ...options,
         headers: {
             'Content-Type': 'application/json',
-            ...(adminKey && { 'X-Api-Key': adminKey }),
+            ...(await authHeaders({ force })),
             ...(options.headers || {})
         }
     });
+}
+
+export async function api(path, options = {}) {
+    let response = await request(path, options, false);
+    // Token do Cognito recusado (relógio adiantado, expirou no caminho): renova e
+    // tenta uma vez. Seguro mesmo em POST: na AWS o 401 vem do authorizer, antes
+    // do serviço. Só com Cognito: no local-server o 401 da chave vem do próprio
+    // serviço, e repetir não mudaria nada
+    if (response.status === 401 && getCredential()?.type === 'cognito') response = await request(path, options, true);
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
         // 429 sem code: limite por rota do API Gateway (RouteSettings no template.yaml);

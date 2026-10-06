@@ -190,20 +190,15 @@ export class CostClient {
     };
   }
 
-  // memoryMb: um MemorySize por função (o authorizer tem o dele)
+  // memoryMb: um MemorySize por função
   lambdaCost(memoryMb, durationMs, invocations) {
     return value => sum(memoryMb.map((mb, i) =>
       value(durationMs(i)) / 1000 * (mb / 1024) * PRICES.lambdaGbSecondArm + value(invocations(i)) * PRICES.lambdaRequest));
   }
 
   awsQueries(names, apiId) {
-    // As funções vêm do MemoryUsedMB (runtime-metrics.mjs); o authorizer não
-    // passa por ele e entra pelo nome que o template passa
+    // As funções vêm do MemoryUsedMB (runtime-metrics.mjs)
     const functions = names.map(name => ({ name, memoryMb: functionMemoryMb(this.env) }));
-    const authorizer = this.env.AUTHORIZER_FUNCTION_NAME;
-    if (authorizer && !names.includes(authorizer)) {
-      functions.push({ name: authorizer, memoryMb: Number(this.env.AUTHORIZER_MEMORY_MB) || 128 });
-    }
     const queries = functions.flatMap(({ name: FunctionName }, i) => [
       this.query(`lambda_ms_${i}`, 'AWS/Lambda', 'Duration', 'Sum', { FunctionName }),
       this.query(`lambda_n_${i}`, 'AWS/Lambda', 'Invocations', 'Sum', { FunctionName })

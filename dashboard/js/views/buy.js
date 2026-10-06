@@ -3,7 +3,7 @@ import { $ } from '../core/dom.js';
 import { newIdempotencyKey } from '../core/ids.js';
 import { on } from '../core/events.js';
 import { escapeHtml, hourMinute, money } from '../core/format.js';
-import { loadProducts, productNames } from '../services/catalog.js';
+import { loadProducts, productNames, products } from '../services/catalog.js';
 import { getSaga, recentSagas } from '../services/sagas.js';
 import { emptyState, errorState, loading } from '../components/empty.js';
 import { icon } from '../components/icons.js';
@@ -42,7 +42,7 @@ export default {
                         </div>
                         <div class="field">
                             <label for="buyQuantity">Quantidade</label>
-                            <input type="number" id="buyQuantity" required min="1" max="1000" step="1" value="1">
+                            <input type="number" id="buyQuantity" required min="1" max="${MAX_QUANTITY}" step="1" value="1">
                         </div>
                         <button type="submit" class="btn btn-success btn-block" id="buyButton">${icon('cart', { size: 16 })}<span>Comprar</span></button>
                     </form>`
@@ -53,6 +53,7 @@ export default {
 
     mount() {
         $('buyForm').addEventListener('submit', startPurchase);
+        $('buyProduct').addEventListener('change', limitQuantity);
         on('products', renderProductSelect);
         // Clique (ou Enter/espaço) num cartão mostra a compra no diagrama; a
         // lupa de rastreio (data-trace) segue com o comportamento dela
@@ -82,11 +83,29 @@ function renderProductSelect({ products }) {
         `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} — ${money(p.price)} (estoque ${stockLabel(p.stock)})</option>`
     ).join('');
     select.value = selected;
+    limitQuantity();
+}
+
+// O backend recusa quantidade acima do estoque, mas só no passo Estoque, uns
+// 20 s depois: o formulário já avisa, e sem estoque nem deixa comprar. Sem
+// estoque conhecido, vale o teto da API
+const MAX_QUANTITY = 1000;
+let purchasing = false;
+function limitQuantity() {
+    const product = products.find(p => p.id === $('buyProduct').value);
+    const available = typeof product?.stock === 'number' ? product.stock : MAX_QUANTITY;
+    const soldOut = available <= 0;
+    $('buyQuantity').max = Math.max(1, Math.min(available, MAX_QUANTITY));
+    const button = $('buyButton');
+    // Também durante a compra: o catálogo recarregado não religa o botão no meio dela
+    button.disabled = purchasing || soldOut;
+    button.title = soldOut ? 'Produto sem estoque' : '';
 }
 
 // Botão Comprar da aba Produtos: chega aqui com o produto já escolhido
 export function prefillPurchase(productId) {
     $('buyProduct').value = productId;
+    limitQuantity();
     const quantity = $('buyQuantity');
     quantity.value = 1;
     quantity.focus();
@@ -99,7 +118,11 @@ async function startPurchase(event) {
     const productId = $('buyProduct').value;
     const quantity = Number($('buyQuantity').value);
 
+    let started = false;
+    purchasing = true;
     button.disabled = true;
+    // Até o POST responder, o diagrama mostra a compra nova começando, não a anterior
+    $('sagaFlow').innerHTML = sagaDiagram({ status: 'RUNNING', steps: {} });
     // Uma chave por compra: enquanto a resposta não for definitiva (503,
     // falha de rede), repetir a mesma compra reusa a chave e retoma a
     // saga em vez de criar outra
@@ -115,6 +138,7 @@ async function startPurchase(event) {
             body: request
         });
         pendingPurchase = null;
+        started = true;
         selectedId = result.sagaId;
         showToast('Compra iniciada! Acompanhe o fluxo acima.', 'info');
         $('buyQuantity').value = 1;
@@ -135,7 +159,10 @@ async function startPurchase(event) {
             showToast(`Compra recusada: ${error.message}`, 'error');
         }
     } finally {
-        button.disabled = false;
+        purchasing = false;
+        limitQuantity();
+        // Compra que não começou: volta a mostrar a saga que estava no diagrama
+        if (!started) render();
     }
 }
 
@@ -178,7 +205,9 @@ async function fetchSagas({ onlyRunning = false } = {}) {
     }
 
     const sagas = sortedSagas();
-    notifyFinished(sagas);
+    // Estoque muda quando a compra termina (reserva confirmada ou devolvida):
+    // recarregar o catálogo a cada consulta da saga triplicava as requisições
+    if (notifyFinished(sagas)) loadProducts();
     render(sagas);
 
     const running = sagas.filter(isRunning);
@@ -212,10 +241,7 @@ function schedulePoll(hasRunning) {
     clearTimeout(pollTimer);
     pollTimer = null;
     if (!hasRunning || document.hidden) return;
-    pollTimer = setTimeout(() => {
-        fetchSagas({ onlyRunning: true });
-        loadProducts();
-    }, pollDelay);
+    pollTimer = setTimeout(() => fetchSagas({ onlyRunning: true }), pollDelay);
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -225,13 +251,17 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
+// true se alguma compra acompanhada terminou nesta consulta
 function notifyFinished(sagas) {
+    let finished = false;
     for (const s of sagas) {
         const before = lastStatuses[s.id];
         if (before && !TERMINAL.includes(before) && TERMINAL.includes(s.status)) {
+            finished = true;
             if (s.status === 'COMPLETED') showToast('Compra concluída!', 'success');
             else showToast(`Compra desfeita: ${s.error?.message || s.status}`, 'error');
         }
         lastStatuses[s.id] = s.status;
     }
+    return finished;
 }

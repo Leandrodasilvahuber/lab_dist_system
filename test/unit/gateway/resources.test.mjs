@@ -322,18 +322,6 @@ describe('CostClient', () => {
     await assert.rejects(none.costs({ days: 1 }), /CloudWatch down/);
   });
 
-  it('AWS: o authorizer (sem MemoryUsedMB) entra na estimativa com o MemorySize dele', async () => {
-    const cloudwatch = fakeCloudWatch({
-      functions: [],
-      data: { lambda_ms_0: [[new Date(TODAY), 1_000_000]], lambda_n_0: [[new Date(TODAY), 100]] }
-    });
-    const cost = new CostClient({ cloudwatch, costExplorer: fakeCostExplorer(), store: fakeStore(), local: false, now: () => NOW, env: { AUTHORIZER_FUNCTION_NAME: 'dev-Authorizer', AUTHORIZER_MEMORY_MB: '128' } });
-    const result = await cost.costs({ days: 1 });
-    const query = cloudwatch.sent.find(c => c.name === 'GetMetricDataCommand').input.MetricDataQueries[0];
-    assert.deepStrictEqual(query.MetricStat.Metric.Dimensions, [{ Name: 'FunctionName', Value: 'dev-Authorizer' }]);
-    close(result.estimated.byService[0].total, 1000 * 0.125 * PRICES.lambdaGbSecondArm + 100 * PRICES.lambdaRequest);
-  });
-
   it('local: estimativa pelo InvocationDurationMs, sem Cost Explorer', async () => {
     const cloudwatch = fakeCloudWatch({
       functions: ['local-OrderFunction', 'local-server'],
@@ -418,8 +406,8 @@ describe('GET /metrics/memory e /metrics/cost', () => {
     assert.strictEqual((await handler(req('/metrics/cost'))).statusCode, 503);
   });
 
-  it('memória é pública; o custo (conta AWS inteira) é de admin', () => {
-    assert.strictEqual(isAdminRoute('GET', '/metrics/memory'), false);
+  it('memória (GetMetricData) e custo (conta AWS inteira) são de admin', () => {
+    assert.strictEqual(isAdminRoute('GET', '/metrics/memory'), true);
     assert.strictEqual(isAdminRoute('GET', '/metrics/cost'), true);
     assert.strictEqual(isAdminRoute('POST', '/metrics/cost/refresh'), true);
   });

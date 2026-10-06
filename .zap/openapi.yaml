@@ -16,19 +16,11 @@ paths:
     get: { responses: { '200': { description: ok } } }
   /dlq:
     get: { responses: { '200': { description: ok } } }
-  /metrics/errors:
-    get:
-      parameters: [{ name: hours, in: query, schema: { type: integer, example: 24 } }]
-      responses: { '200': { description: ok } }
   /metrics/sagas:
     get: { responses: { '200': { description: ok } } }
   /metrics/slo:
     get:
       parameters: [{ name: hours, in: query, schema: { type: integer, example: 24 } }]
-      responses: { '200': { description: ok } }
-  /metrics/memory:
-    get:
-      parameters: [{ name: hours, in: query, schema: { type: integer, example: 3 } }]
       responses: { '200': { description: ok } }
   /products:
     get:

@@ -11,6 +11,8 @@ export default {
     id: 'metrics',
     label: 'Métricas',
     icon: 'chart',
+    // GET /metrics/errors é de admin (GetMetricData é cobrado por métrica)
+    requiresAdmin: true,
     template: () => `
         ${toolbar(select('metricsHours', 'Período', PERIODS.metrics, '24'), spacer, status('metricsUpdated'), refreshButton('metricsRefresh'))}
         <div class="stat-grid" id="metricsSummary"></div>

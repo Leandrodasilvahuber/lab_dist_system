@@ -21,31 +21,11 @@ if ! aws sts get-caller-identity &> /dev/null; then
 fi
 
 ENVIRONMENT=dev
-ADMIN_KEY_PARAM="/$ENVIRONMENT/ecommerce/admin-api-key"
-
-# Chave das rotas administrativas: guardada no SSM Parameter Store
-# (SecureString), lida pelo authorizer. Sem ADMIN_API_KEY, mantém a que já existe.
-if [ -n "$ADMIN_API_KEY" ]; then
-    if [ ${#ADMIN_API_KEY} -lt 16 ]; then
-        echo "❌ ADMIN_API_KEY precisa ter no mínimo 16 caracteres:"
-        echo "   export ADMIN_API_KEY=\$(openssl rand -hex 24)"
-        exit 1
-    fi
-    # Passa a chave por arquivo (permissão 600), não pela linha de comando,
-    # onde ficaria visível para outros processos (ps)
-    KEY_FILE=$(umask 077 && mktemp)
-    trap 'rm -f "$KEY_FILE"' EXIT
-    printf '%s' "$ADMIN_API_KEY" > "$KEY_FILE"
-    aws ssm put-parameter --name "$ADMIN_KEY_PARAM" --type SecureString --overwrite \
-        --value "file://$KEY_FILE" > /dev/null || exit 1
-    rm -f "$KEY_FILE"
-    echo "🔑 Chave de admin gravada em $ADMIN_KEY_PARAM"
-elif ! aws ssm get-parameter --name "$ADMIN_KEY_PARAM" > /dev/null 2>&1; then
-    echo "❌ Defina ADMIN_API_KEY (mínimo 16 caracteres) com a chave das rotas de admin:"
-    echo "   export ADMIN_API_KEY=\$(openssl rand -hex 24)"
-    echo "   Guarde a chave: o dashboard e as chamadas de admin usam o header X-Api-Key."
-    exit 1
-fi
+STACK_NAME=distributed-ecommerce-system
+# Login de admin do dashboard (Cognito). O usuário é criado ou tem a senha
+# trocada depois do deploy, só com ADMIN_PASSWORD definida. Ele só entra nas
+# rotas de admin da API: não tem permissão na conta AWS nem faz deploy
+ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
 
 # O bucket S3 de artefatos é criado/gerenciado pelo SAM (resolve_s3 = true no samconfig.toml)
 
@@ -61,7 +41,7 @@ echo "🚀 Fazendo deploy na AWS..."
 # ALERT_EMAIL: assina esse e-mail no tópico dos alarmes (AlarmTopic). A AWS
 # manda um e-mail de confirmação; sem confirmar, nenhum alarme chega.
 # Sem a variável no shell, vem do .env (fora do git). Só essa linha é lida:
-# o .env também guarda o hash da chave de admin e não é executado aqui
+# o .env também guarda o hash da chave de admin (local) e não é executado aqui
 if [ -z "$ALERT_EMAIL" ] && [ -f .env ]; then
     ALERT_EMAIL=$(sed -n 's/^ALERT_EMAIL=//p' .env | tail -1 | tr -d "\"' \r")
 fi
@@ -74,6 +54,41 @@ sam deploy --config-file samconfig.toml \
 echo ""
 echo "✅ Deployment concluído!"
 
+stack_output() {
+    aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+        --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text 2>/dev/null
+}
+
+USER_POOL_ID=$(stack_output AdminUserPoolId)
+if [ -z "$USER_POOL_ID" ] || [ "$USER_POOL_ID" = "None" ]; then
+    echo "❌ Output AdminUserPoolId não encontrado no stack $STACK_NAME: login de admin não configurado"
+    exit 1
+fi
+if [ -n "$ADMIN_PASSWORD" ]; then
+    if ! aws cognito-idp admin-get-user --user-pool-id "$USER_POOL_ID" --username "$ADMIN_USERNAME" > /dev/null 2>&1; then
+        aws cognito-idp admin-create-user --user-pool-id "$USER_POOL_ID" --username "$ADMIN_USERNAME" \
+            --message-action SUPPRESS > /dev/null || exit 1
+    fi
+    # A senha vai por arquivo (permissão 600), não pela linha de comando, onde
+    # ficaria visível para outros processos (ps). O node monta o JSON com o escape certo
+    INPUT_FILE=$(umask 077 && mktemp)
+    trap 'rm -f "$INPUT_FILE"' EXIT
+    USER_POOL_ID="$USER_POOL_ID" ADMIN_USERNAME="$ADMIN_USERNAME" node -e 'process.stdout.write(JSON.stringify({
+        UserPoolId: process.env.USER_POOL_ID, Username: process.env.ADMIN_USERNAME,
+        Password: process.env.ADMIN_PASSWORD, Permanent: true }))' > "$INPUT_FILE"
+    aws cognito-idp admin-set-user-password --cli-input-json "file://$INPUT_FILE" || exit 1
+    rm -f "$INPUT_FILE"
+    echo "🔑 Login de admin pronto: usuário $ADMIN_USERNAME"
+elif ! aws cognito-idp admin-get-user --user-pool-id "$USER_POOL_ID" --username "$ADMIN_USERNAME" > /dev/null 2>&1; then
+    echo "⚠️  Nenhum admin no Cognito ainda: rode de novo com a senha para criar o usuário $ADMIN_USERNAME:"
+    echo "   read -rs ADMIN_PASSWORD && export ADMIN_PASSWORD && ./scripts/deploy.sh"
+fi
+
+# A chave antiga (X-Api-Key) não é mais usada na AWS
+if aws ssm get-parameter --name "/$ENVIRONMENT/ecommerce/admin-api-key" > /dev/null 2>&1; then
+    echo "🧹 Chave antiga sem uso: aws ssm delete-parameter --name /$ENVIRONMENT/ecommerce/admin-api-key"
+fi
+
 # Exibe os outputs do stack
 echo ""
 echo "📊 Recursos Criados:"
@@ -81,10 +96,7 @@ echo "=================="
 
 # O sam deploy só termina com o changeset aplicado: os outputs já existem
 # Pega o URL da API Gateway
-API_URL=$(aws cloudformation describe-stacks \
-    --stack-name distributed-ecommerce-system \
-    --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" \
-    --output text 2>/dev/null || echo "")
+API_URL=$(stack_output ApiGatewayUrl)
 
 if [ ! -z "$API_URL" ]; then
     echo "🌐 API Gateway URL: $API_URL"
@@ -94,7 +106,10 @@ if [ ! -z "$API_URL" ]; then
     echo "   Products:   $API_URL/products"
     echo "   Stock:      $API_URL/stock"
     echo "   Orders:     $API_URL/orders"
-    echo "   Admin:      curl -X DELETE -H \"X-Api-Key: \$ADMIN_API_KEY\" $API_URL/products/<id>"
+    echo "   Admin:      faça login pelo botão Admin do dashboard (usuário $ADMIN_USERNAME)"
+    echo "               ou: TOKEN=\$(aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH --client-id $(stack_output AdminUserPoolClientId) \\"
+    echo "                     --auth-parameters USERNAME=$ADMIN_USERNAME,PASSWORD=\"\$ADMIN_PASSWORD\" --query AuthenticationResult.AccessToken --output text)"
+    echo "                   curl -X DELETE -H \"Authorization: Bearer \$TOKEN\" $API_URL/products/<id>"
     echo "   Saga:       curl -X POST $API_URL/saga/execute -H \"Idempotency-Key: \$(uuidgen)\" -d '{\"productId\":\"apple\",\"quantity\":1}'"
     echo ""
     echo "🌱 Popular produtos e compras de exemplo: npm run seed -- --stage dev --api $API_URL"

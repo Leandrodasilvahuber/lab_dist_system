@@ -19,7 +19,8 @@
  *   npm run chaos -- payment-down refund-flaky    # só estes
  *   npm run chaos -- --api https://xxx.execute-api.us-east-1.amazonaws.com --orders 6
  *   npm run chaos -- --product <id>               # produto usado nas compras
- * Chave de admin (PUT/DELETE /chaos, POST /products e POST /dlq/{id}/redrive): variável ADMIN_API_KEY.
+ * Admin (PUT/DELETE /chaos, POST /products e POST /dlq/{id}/redrive): local, a chave
+ * em ADMIN_API_KEY; na AWS, o login do Cognito em ADMIN_USERNAME (padrão admin) e ADMIN_PASSWORD.
  * Na AWS cada compra gasta o limite diário (PurchaseQuota): faça o deploy com
  * DailyPurchaseLimit=0 e DailyPurchaseLimitPerClient=0 antes; se o limite for
  * atingido, a rodada para com aviso.
@@ -59,12 +60,41 @@ const bad = text => color(31, text);
 const dim = text => color(2, text);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// Na AWS (GET /auth/config com mode cognito), entra no Cognito como o
+// dashboard e renova o access token (1 h) antes de expirar. A config é lida
+// uma vez (no local-server, modo key, não repete a consulta a cada requisição);
+// falha ao lê-la não fica guardada
+let session;
+let authConfig;
+const keyHeaders = () => (process.env.ADMIN_API_KEY ? { 'X-Api-Key': process.env.ADMIN_API_KEY } : {});
+async function adminHeaders() {
+  if (!process.env.ADMIN_PASSWORD) return keyHeaders();
+  authConfig ??= await fetch(`${API}/auth/config`).then(r => (r.ok ? r.json() : undefined)).catch(() => undefined);
+  const config = authConfig ?? {};
+  if (config.mode !== 'cognito') return keyHeaders();
+  if (!session || session.expiresAt - 60_000 < Date.now()) {
+    const response = await fetch(`https://cognito-idp.${config.region}.amazonaws.com/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth' },
+      body: JSON.stringify({
+        AuthFlow: 'USER_PASSWORD_AUTH',
+        ClientId: config.clientId,
+        AuthParameters: { USERNAME: process.env.ADMIN_USERNAME || 'admin', PASSWORD: process.env.ADMIN_PASSWORD }
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!data.AuthenticationResult) throw new Error(`Login de admin no Cognito falhou: ${data.message || response.status}`);
+    session = { token: data.AuthenticationResult.AccessToken, expiresAt: Date.now() + data.AuthenticationResult.ExpiresIn * 1000 };
+  }
+  return { Authorization: `Bearer ${session.token}` };
+}
+
 async function request(path, { method = 'GET', body, headers = {} } = {}) {
   const response = await fetch(API + path, {
     method,
     headers: {
       'Content-Type': 'application/json',
-      ...(process.env.ADMIN_API_KEY && { 'X-Api-Key': process.env.ADMIN_API_KEY }),
+      ...(await adminHeaders()),
       ...headers
     },
     ...(body !== undefined && { body: JSON.stringify(body) })

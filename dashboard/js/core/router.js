@@ -3,7 +3,7 @@ import { icon } from '../components/icons.js';
 import { $ } from './dom.js';
 import { escapeHtml } from './format.js';
 import { setNavigator } from './nav.js';
-import { getAdminKey } from './session.js';
+import { isAdmin } from './session.js';
 import { showToast } from '../components/toast.js';
 
 // Monta a navegação e todas as telas uma vez; trocar de tela só mostra/esconde
@@ -62,7 +62,7 @@ export function refreshCurrent() {
 // Telas de admin só aparecem no menu (e nos atalhos de outras telas, como o
 // "Logs de erro" do Monitoramento) com a chave ativa
 export function syncAdminViews() {
-    const hasKey = Boolean(getAdminKey());
+    const hasKey = isAdmin();
     for (const view of views.values()) {
         if (!view.requiresAdmin) continue;
         document.querySelector(`.nav-list [data-view="${view.id}"]`).hidden = !hasKey;
@@ -73,8 +73,8 @@ export function syncAdminViews() {
 // `notify: false`: quem chama já avisou (ex.: saiu do modo admin)
 export function show(name, { notify = true } = {}) {
     let view = views.get(name) || views.get(DEFAULT_VIEW);
-    if (view.requiresAdmin && !getAdminKey()) {
-        if (notify) showToast(`${view.label} exige a chave de admin (botão no canto superior direito).`, 'info');
+    if (view.requiresAdmin && !isAdmin()) {
+        if (notify) showToast(`${view.label} exige login de admin (botão no canto superior direito).`, 'info');
         view = views.get(DEFAULT_VIEW);
     }
     if (fromHash() !== view.id) history.replaceState(null, '', `#/${view.id}`);

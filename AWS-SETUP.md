@@ -15,21 +15,22 @@
 ```bash
 npm install
 npm run validate     # opcional: sam validate --lint
-export ADMIN_API_KEY=$(openssl rand -hex 24)   # guarde: é a chave das rotas de admin
+read -rs ADMIN_PASSWORD && export ADMIN_PASSWORD  # senha do admin do dashboard (não fica no histórico)
 export ALERT_EMAIL=voce@exemplo.com             # opcional: recebe os alarmes (confirme o e-mail da AWS)
 npm run deploy       # scripts/deploy.sh: sam build + sam deploy
 ```
 
-O `deploy.sh` grava `ADMIN_API_KEY` no SSM Parameter Store como SecureString
-(`/dev/ecommerce/admin-api-key`), passando o valor por arquivo temporário, e não
-pela linha de comando. O authorizer lê a chave de lá, com cache de 1 minuto.
-Nos deploys seguintes `ADMIN_API_KEY` é opcional: sem ela, a chave atual é
-mantida. Para trocar a chave sem redeploy:
-`aws ssm put-parameter --name /dev/ecommerce/admin-api-key --type SecureString --overwrite --value file://chave.txt`.
-A chave antiga ainda é aceita por até ~6 minutos depois da troca: 1 minuto de
-cache no authorizer mais os 5 minutos em que o HttpApi guarda a decisão
-(`ReauthorizeEvery: 300` no template).
-Exigem o header `X-Api-Key` com essa chave as escritas: cadastrar e remover
+O `deploy.sh` cria no Cognito (`AdminUserPool`) o usuário `admin` (ou
+`ADMIN_USERNAME`) com a senha `ADMIN_PASSWORD`, passada por arquivo temporário e
+não pela linha de comando. Nos deploys seguintes `ADMIN_PASSWORD` é opcional: com
+ela, a senha é trocada. A política exige 12+ caracteres com maiúscula, minúscula,
+número e símbolo. Esse usuário só entra nas rotas de admin da API; não tem
+permissão na conta AWS (deploy e console continuam com as credenciais do
+`aws configure`). Custo: o plano Lite do Cognito é grátis até 10 mil usuários
+ativos por mês.
+O dashboard faz o login pelo botão Admin (descobre o Cognito por `GET /auth/config`)
+e manda `Authorization: Bearer <access token>`, que vale 1 h e é renovado sozinho.
+Exigem o token de admin as escritas: cadastrar e remover
 produto (`POST /products`, `DELETE /products/{id}`), ajustar estoque
 (`POST /stock/{id}/adjust`), ligar e desligar o caos (`PUT`/`DELETE /chaos`) e
 reprocessar ou descartar eventos da DLQ (`POST /dlq/{id}/redrive|discard`),
@@ -76,7 +77,7 @@ estoque aos valores do seed, use `npm run seed -- --stage dev --reset`.
 | `ProductFunction`, `OrderFunction`, `StockFunction` | Serviços (HTTP + ações/eventos internos) |
 | `PaymentFunction` | Só ações da saga (sem rota HTTP) |
 | `SagaOrchestratorFunction` | `/saga/execute`, `/saga/{id}`, `/sagas` |
-| `AdminAuthorizerFunction` | Authorizer das rotas de admin (`X-Api-Key`): escritas de produto, estoque, caos e DLQ, custo, logs e rastreio (lista em `src/common/auth.mjs`) |
+| `AdminUserPool` / `AdminUserPoolClient` | Login de admin (Cognito): o JWT authorizer do HttpApi confere o token nas escritas de produto, estoque, caos e DLQ, custo, logs e rastreio (lista em `src/common/auth.mjs`) |
 | `SagaStateMachine` (`dev-purchase-saga`) | Saga de compra (Step Functions Standard) |
 | `GatewayFunction` | `/health`, `/alarms` (alarmes `dev-ecommerce-*`), `/logs` (linhas warn/error do `ServicesLogGroup`), `/trace/{correlationId}` (linhas de uma compra), `/metrics/errors` (métricas EMF), `/metrics/sagas`, `/metrics/slo` (SLOs da tabela de sagas e da DLQ), `/dlq` (lista, reprocessa e descarta eventos da `ProductEventsDlq`) e 404 com a lista de endpoints |
 | Tabelas `dev-Products`, `dev-Orders`, `dev-Payments`, `dev-Inventory`, `dev-StockReservations`, `dev-Sagas` | DynamoDB on-demand, uma ou mais por serviço |
@@ -122,8 +123,12 @@ curl $API/saga/<sagaId da resposta>
 curl $API/orders
 curl $API/sagas
 
-# Rota de admin
-curl -X POST -H "X-Api-Key: $ADMIN_API_KEY" $API/stock/apple/adjust -d '{"delta": 10}'
+# Rota de admin: access token do Cognito (vale 1 h)
+CLIENT_ID=$(aws cloudformation describe-stacks --stack-name distributed-ecommerce-system \
+  --query "Stacks[0].Outputs[?OutputKey=='AdminUserPoolClientId'].OutputValue" --output text)
+TOKEN=$(aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH --client-id $CLIENT_ID \
+  --auth-parameters USERNAME=admin,PASSWORD="$ADMIN_PASSWORD" --query AuthenticationResult.AccessToken --output text)
+curl -X POST -H "Authorization: Bearer $TOKEN" $API/stock/apple/adjust -d '{"delta": 10}'
 
 # Pagamento recusado (produto de 25000 > limite de 10000): saga termina COMPENSATED
 curl -X POST $API/saga/execute -H "Idempotency-Key: $(uuidgen)" -d '{"productId": "server", "quantity": 1}'
@@ -209,10 +214,12 @@ Budget (`dev-ecommerce-kill-switch`, mesmo `MonthlyBudgetUSD`) publica no tópic
 zera o throttling do stage. A partir daí toda requisição recebe 429 do API
 Gateway, sem chegar às Lambdas. Os limites anteriores ficam no parâmetro
 `/dev/ecommerce/throttle-backup` do SSM. O `AlertEmail` também assina esse
-tópico. A função só age com o alerta de teto estourado do Budget; qualquer
-outra mensagem no tópico é ignorada (e registrada no log). O Budget é
-atualizado algumas vezes por dia, então o bloqueio chega com horas de atraso;
-até lá, quem segura o gasto são os limites por rota. Para religar a API (um
+tópico. A função só age com o alerta de teto estourado do Budget ou com o
+`ApiFloodAlarm` entrando em ALARM (mais de `FloodRequestsPer5Min` requisições
+em 5 min, por 10 min); qualquer outra mensagem no tópico é ignorada (e
+registrada no log). O Budget é atualizado algumas vezes por dia, então o
+bloqueio por ele chega com horas de atraso; o alarme de volume pega um script
+em ~10 min. Para religar a API (um
 novo deploy não desfaz o bloqueio, porque o CloudFormation não corrige
 mudanças feitas fora dele):
 
@@ -232,11 +239,14 @@ Cuidados:
   `restore`: o backup guarda os limites de antes do deploy.
 - O Budget avisa uma vez por mês. Depois de um `restore`, um novo gasto acima
   do teto no mesmo mês não bloqueia de novo; só os limites por rota seguram.
+- O `restore` devolve o `ApiFloodAlarm` para OK. Se o ataque continuar, ele
+  volta a ALARM na avaliação seguinte e bloqueia de novo; religue depois de
+  10 min sem o volume alto.
 
 Cada requisição custa API Gateway + Lambda + DynamoDB: um cliente com bug em
 loop (como abas esquecidas consultando sagas apagadas) ou um script de propósito
 vira custo. O throttling do template é **por rota**, somando todos os clientes:
-o padrão (20 req/s) vale para cada rota sem limite próprio. As rotas que leem
+o padrão (10 req/s) vale para cada rota sem limite próprio. As rotas que leem
 o CloudWatch têm limites menores e reaproveitam a leitura por alguns segundos:
 as métricas, públicas, e os logs e o rastreio, que são de admin. O AWS WAF não se associa a um
 HttpApi; para limitar por IP, coloque um CloudFront com WAF (rate-based rule)
