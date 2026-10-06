@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { MemoryMetricsClient, memoryLimitFor } from '../../../src/layers/api-gateway-layer/src/services/MemoryMetricsClient.js';
-import { CostClient, parseCostQuery, PRICES, SERVICES, TRANSITIONS_PER_SAGA } from '../../../src/layers/api-gateway-layer/src/services/CostClient.js';
+import { CostClient, parseCostQuery, snapshotStore, PRICES, SERVICES, TRANSITIONS_PER_SAGA } from '../../../src/layers/api-gateway-layer/src/services/CostClient.js';
 import { createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
 import { isAdminRoute } from '../../../src/common/auth.mjs';
 
@@ -96,6 +96,21 @@ function fakeCostExplorer({ days = {}, forecast = 1.5, fail = false } = {}) {
   };
 }
 
+// CostSnapshotsTable em memória, com a mesma trava de snapshotStore
+function fakeStore(initial = null) {
+  return {
+    item: initial,
+    async get() { return this.item?.fetchedAt ? this.item : null; },
+    async tryLock(now, minIntervalMs) {
+      const lockedAt = this.item?.refreshStartedAt;
+      if (lockedAt !== undefined && lockedAt >= now - minIntervalMs) return { acquired: false, lockedAt };
+      this.item = { ...this.item, refreshStartedAt: now };
+      return { acquired: true };
+    },
+    async save(snapshot) { this.item = snapshot; }
+  };
+}
+
 describe('CostClient', () => {
   it('days entre 1 e 90, padrão 14', () => {
     assert.deepStrictEqual(parseCostQuery({}), { days: 14 });
@@ -124,6 +139,7 @@ describe('CostClient', () => {
     const cost = new CostClient({
       cloudwatch,
       costExplorer: fakeCostExplorer(),
+      store: fakeStore(),
       local: false,
       now: () => NOW,
       env: { FUNCTION_MEMORY_MB: '512', SAGA_STATE_MACHINE_ARN: 'arn:sm', ENVIRONMENT: 'dev', ORDERS_TABLE: 'orders', MONTHLY_BUDGET_USD: '5' }
@@ -144,7 +160,7 @@ describe('CostClient', () => {
     assert.deepStrictEqual(api.MetricStat.Metric.Dimensions, [{ Name: 'ApiId', Value: 'abc' }, { Name: 'Stage', Value: 'dev' }]);
   });
 
-  it('AWS: custo real do Cost Explorer recortado no período, mês até hoje e previsão', async () => {
+  it('AWS: leitura do Cost Explorer gravada e recortada no período, mês até hoje e previsão', async () => {
     const costExplorer = fakeCostExplorer({
       days: {
         '2026-09-30': { 'AWS Lambda': 9 },
@@ -153,9 +169,12 @@ describe('CostClient', () => {
       },
       forecast: 2
     });
-    const cost = new CostClient({ cloudwatch: fakeCloudWatch({}), costExplorer, local: false, now: () => NOW, env: {} });
-    const result = await cost.costs({ days: 2 });
+    const store = fakeStore();
+    const cost = new CostClient({ cloudwatch: fakeCloudWatch({}), costExplorer, store, local: false, now: () => NOW, env: {} });
+    assert.deepStrictEqual(await cost.refreshActual(), { refreshed: true, fetchedAt: new Date(NOW).toISOString() });
+    assert.deepStrictEqual(store.item.byService['AWS Lambda'], { '2026-09-30': 9, '2026-10-01': 0.5, '2026-10-04': 0.25 });
 
+    const result = await cost.costs({ days: 2 });
     assert.deepStrictEqual(result.actual.byService.map(s => [s.service, s.values]), [['AWS Lambda', [0, 0.25]], ['Amazon DynamoDB', [0, 0.1]]]);
     close(result.actual.total, 0.35);
     close(result.actual.monthToDate, 0.85);
@@ -167,29 +186,76 @@ describe('CostClient', () => {
     assert.deepStrictEqual(forecast.input.TimePeriod, { Start: '2026-10-05', End: '2026-11-01' });
   });
 
-  it('Cost Explorer lido uma vez a cada 6 h, qualquer que seja o período', async () => {
+  it('GET nunca chama o Cost Explorer: só lê a última leitura gravada', async () => {
     let now = NOW;
     const costExplorer = fakeCostExplorer();
-    const cost = new CostClient({ cloudwatch: fakeCloudWatch({}), costExplorer, local: false, now: () => now, env: {} });
-    await cost.costs({ days: 7 });
+    const cost = new CostClient({ cloudwatch: fakeCloudWatch({}), costExplorer, store: fakeStore(), local: false, now: () => now, env: {} });
+    const empty = await cost.costs({ days: 7 });
+    assert.strictEqual(empty.actual, null);
+    assert.match(empty.actualReason, /ainda não lido/);
+    now += 7 * 60 * 60 * 1000;
     await cost.costs({ days: 30 });
+    assert.strictEqual(costExplorer.sent.length, 0);
+  });
+
+  it('no máximo uma leitura do Cost Explorer a cada 15 min', async () => {
+    let now = NOW;
+    const costExplorer = fakeCostExplorer();
+    const cost = new CostClient({ cloudwatch: fakeCloudWatch({}), costExplorer, store: fakeStore(), local: false, now: () => now, env: {} });
+    await cost.refreshActual();
     assert.strictEqual(costExplorer.sent.length, 2);
-    now += 6 * 60 * 60 * 1000 + 1;
-    await cost.costs({ days: 7 });
+    now += 5 * 60 * 1000;
+    assert.deepStrictEqual(await cost.refreshActual(), { refreshed: false, retryAt: new Date(NOW + 15 * 60 * 1000).toISOString() });
+    assert.strictEqual(costExplorer.sent.length, 2);
+    now = NOW + 15 * 60 * 1000 + 1;
+    assert.strictEqual((await cost.refreshActual()).refreshed, true);
     assert.strictEqual(costExplorer.sent.length, 4);
   });
 
+  it('local: não há Cost Explorer para atualizar (503)', async () => {
+    const cost = new CostClient({ cloudwatch: fakeCloudWatch({}), local: true, now: () => NOW, env: {} });
+    await assert.rejects(cost.refreshActual(), err => err.statusCode === 503);
+  });
+
+  it('snapshotStore: trava condicional no DynamoDB', async () => {
+    const sent = [];
+    const client = {
+      async send(command) {
+        sent.push(command);
+        if (sent.length === 2) {
+          throw Object.assign(new Error('locked'), { name: 'ConditionalCheckFailedException', Item: { refreshStartedAt: { N: String(NOW) } } });
+        }
+        return {};
+      }
+    };
+    const store = snapshotStore('dev-CostSnapshots', client);
+    assert.deepStrictEqual(await store.tryLock(NOW, 1000), { acquired: true });
+    assert.strictEqual(sent[0].input.ExpressionAttributeValues[':cutoff'], NOW - 1000);
+    assert.match(sent[0].input.ConditionExpression, /refreshStartedAt < :cutoff/);
+    assert.deepStrictEqual(await store.tryLock(NOW + 10, 1000), { acquired: false, lockedAt: NOW });
+  });
+
   it('falha do Cost Explorer não derruba a estimativa', async () => {
-    const cost = new CostClient({ cloudwatch: fakeCloudWatch({}), costExplorer: fakeCostExplorer({ fail: true }), local: false, now: () => NOW, env: {} });
+    const cost = new CostClient({ cloudwatch: fakeCloudWatch({}), costExplorer: fakeCostExplorer({ fail: true }), store: fakeStore(), local: false, now: () => NOW, env: {} });
+    await assert.rejects(cost.refreshActual(), /AccessDenied/);
     const result = await cost.costs({ days: 7 });
     assert.strictEqual(result.actual, null);
-    assert.match(result.actualReason, /AccessDenied/);
+    assert.ok(result.estimated);
+  });
+
+  it('DynamoDB fora do ar não derruba a estimativa', async () => {
+    const store = { async get() { throw new Error('Throttled'); } };
+    const cost = new CostClient({ cloudwatch: fakeCloudWatch({}), store, local: false, now: () => NOW, env: {} });
+    const result = await cost.costs({ days: 7 });
+    assert.strictEqual(result.actual, null);
+    assert.match(result.actualReason, /Throttled/);
     assert.ok(result.estimated);
   });
 
   it('estimativa fora do ar não esconde o custo real; sem nenhum dos dois, erro (503)', async () => {
     const broken = { async send() { throw new Error('CloudWatch down'); } };
-    const ok = new CostClient({ cloudwatch: broken, costExplorer: fakeCostExplorer({ days: { '2026-10-04': { 'AWS Lambda': 1 } } }), local: false, now: () => NOW, env: {} });
+    const ok = new CostClient({ cloudwatch: broken, costExplorer: fakeCostExplorer({ days: { '2026-10-04': { 'AWS Lambda': 1 } } }), store: fakeStore(), local: false, now: () => NOW, env: {} });
+    await ok.refreshActual();
     const result = await ok.costs({ days: 1 });
     assert.strictEqual(result.estimated, null);
     assert.match(result.estimatedError, /CloudWatch down/);
@@ -204,7 +270,7 @@ describe('CostClient', () => {
       functions: [],
       data: { lambda_ms_0: [[new Date(TODAY), 1_000_000]], lambda_n_0: [[new Date(TODAY), 100]] }
     });
-    const cost = new CostClient({ cloudwatch, costExplorer: fakeCostExplorer(), local: false, now: () => NOW, env: { AUTHORIZER_FUNCTION_NAME: 'dev-Authorizer', AUTHORIZER_MEMORY_MB: '128' } });
+    const cost = new CostClient({ cloudwatch, costExplorer: fakeCostExplorer(), store: fakeStore(), local: false, now: () => NOW, env: { AUTHORIZER_FUNCTION_NAME: 'dev-Authorizer', AUTHORIZER_MEMORY_MB: '128' } });
     const result = await cost.costs({ days: 1 });
     const query = cloudwatch.sent.find(c => c.name === 'GetMetricDataCommand').input.MetricDataQueries[0];
     assert.deepStrictEqual(query.MetricStat.Metric.Dimensions, [{ Name: 'FunctionName', Value: 'dev-Authorizer' }]);
@@ -251,6 +317,28 @@ describe('GET /metrics/memory e /metrics/cost', () => {
     assert.deepStrictEqual(costArgs, { days: 30, apiId: 'abc' });
   });
 
+  it('POST /metrics/cost/refresh: 200, 429 com Retry-After quando travado, 503 se falhar', async () => {
+    const results = [
+      { refreshed: true, fetchedAt: '2026-10-04T12:00:00.000Z' },
+      { refreshed: false, retryAt: new Date(Date.now() + 90 * 1000).toISOString() }
+    ];
+    const handler = createAPIHandler({ cost: { async refreshActual() { return results.shift(); } } });
+    const post = { requestContext: { http: { method: 'POST' } }, rawPath: '/metrics/cost/refresh', headers: {} };
+    assert.strictEqual((await handler(post)).statusCode, 200);
+    const locked = await handler(post);
+    assert.strictEqual(locked.statusCode, 429);
+    assert.ok(Number(locked.headers['Retry-After']) >= 89);
+    const failing = createAPIHandler({ cost: { async refreshActual() { throw new Error('AccessDenied'); } } });
+    assert.strictEqual((await failing(post)).statusCode, 503);
+  });
+
+  it('a regra agendada lê o Cost Explorer', async () => {
+    let calls = 0;
+    const handler = createAPIHandler({ cost: { async refreshActual() { calls++; return { refreshed: true }; } } });
+    assert.deepStrictEqual(await handler({ action: 'refreshCost' }), { refreshed: true });
+    assert.strictEqual(calls, 1);
+  });
+
   it('503 quando a leitura falha', async () => {
     const handler = createAPIHandler({
       memory: { async memoryMetrics() { throw new Error('boom'); } },
@@ -263,5 +351,6 @@ describe('GET /metrics/memory e /metrics/cost', () => {
   it('memória é pública; o custo (conta AWS inteira) é de admin', () => {
     assert.strictEqual(isAdminRoute('GET', '/metrics/memory'), false);
     assert.strictEqual(isAdminRoute('GET', '/metrics/cost'), true);
+    assert.strictEqual(isAdminRoute('POST', '/metrics/cost/refresh'), true);
   });
 });

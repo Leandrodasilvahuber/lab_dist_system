@@ -1,10 +1,13 @@
 import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import { CostExplorerClient, GetCostAndUsageCommand, GetCostForecastCommand } from '@aws-sdk/client-cost-explorer';
+import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { metricNamespace } from '../../../../common/emf.mjs';
 import { awsClientConfig, IS_LOCAL, QUERY_CLIENT_OPTIONS } from '../../../../common/aws-client.mjs';
 import { CloudWatchMetricsClient } from './CloudWatchMetricsClient.js';
 import { functionMemoryMb } from './MemoryMetricsClient.js';
 import { parseHours } from '../../../../common/validation.mjs';
+import { DomainError } from '../../../../common/errors.mjs';
+import { docClient } from '../../../../common/database.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAY_S = DAY_MS / 1000;
@@ -12,10 +15,13 @@ const DAY_S = DAY_MS / 1000;
 // Estimativa muda pouco de um minuto para o outro e lê várias métricas
 export const COST_ESTIMATE_CACHE_TTL_MS = 5 * 60 * 1000;
 // Cada chamada ao Cost Explorer custa US$ 0,01 e os dados dele atualizam
-// poucas vezes por dia: uma leitura a cada 6 h. O cache é do container da
-// Lambda, então cada container novo paga a 1ª leitura (2 chamadas, US$ 0,02);
-// a rota é só de admin e o throttling dela (5 req/s) limita quantos sobem
-export const COST_ACTUAL_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+// poucas vezes por dia. Quem chama é só refreshActual: a regra agendada
+// (RefreshCost no template.yaml, a cada 6 h) e o POST /metrics/cost/refresh
+// de admin. Os dois gravam o resultado na CostSnapshotsTable e a rota GET só
+// lê de lá, então o custo não depende de quantos acessam a aba.
+// Entre duas leituras, no mínimo este intervalo (trava condicional no DynamoDB)
+export const COST_REFRESH_MIN_INTERVAL_MS = 15 * 60 * 1000;
+const SNAPSHOT_ID = 'actual';
 // Janela fixa do Cost Explorer: qualquer período da aba sai da mesma leitura
 const ACTUAL_WINDOW_DAYS = 90;
 
@@ -69,7 +75,8 @@ const sum = values => values.reduce((a, b) => a + b, 0);
  *    grátis). Local: InvocationDurationMs (runtime-metrics.mjs), já que o
  *    LocalStack não publica as métricas dos serviços; DynamoDB fica de fora.
  *  - actual/forecast: Cost Explorer, só na AWS (o LocalStack não tem). É o
- *    custo da conta inteira, não só desta stack.
+ *    custo da conta inteira, não só desta stack. Lido da última leitura
+ *    gravada por refreshActual, nunca do Cost Explorer na hora.
  */
 export class CostClient {
   constructor({
@@ -80,7 +87,7 @@ export class CostClient {
     env = process.env,
     now = Date.now,
     cacheTtlMs = COST_ESTIMATE_CACHE_TTL_MS,
-    actualCacheTtlMs = COST_ACTUAL_CACHE_TTL_MS
+    store
   } = {}) {
     this.namespace = namespace;
     this.metrics = new CloudWatchMetricsClient({
@@ -92,9 +99,9 @@ export class CostClient {
     this.env = env;
     this.now = now;
     this.cacheTtlMs = cacheTtlMs;
-    this.actualCacheTtlMs = actualCacheTtlMs;
     this.cache = new Map();
-    this.actualCache = null;
+    this.snapshotCache = null;
+    this.store = store || (local ? null : snapshotStore(env.COST_SNAPSHOTS_TABLE));
     // Cost Explorer só responde em us-east-1, qualquer que seja a região da stack
     this.costExplorer = costExplorer || (local ? null : new CostExplorerClient({ region: 'us-east-1', ...QUERY_CLIENT_OPTIONS }));
   }
@@ -262,30 +269,52 @@ export class CostClient {
 
   async readActual(buckets) {
     try {
-      const data = await this.costExplorerData();
+      const data = await this.snapshot();
+      if (!data) {
+        return { actual: null, forecast: null, actualReason: 'Custo real ainda não lido: a leitura roda a cada 6 h (ou use Atualizar agora)' };
+      }
       const days = buckets.map(isoDay);
-      const byService = [...data.byService.entries()]
+      const byService = Object.entries(data.byService)
         .map(([service, perDay]) => {
-          const values = days.map(day => round(perDay.get(day) || 0));
+          const values = days.map(day => round(perDay[day] || 0));
           return { service, values, total: round(sum(values)) };
         })
         .filter(s => s.total > 0)
         .sort((a, b) => b.total - a.total);
       return {
         actual: { total: round(sum(byService.map(s => s.total))), byService, monthToDate: data.monthToDate, fetchedAt: data.fetchedAt },
-        forecast: data.forecast
+        forecast: data.forecast ?? null
       };
     } catch (error) {
-      return { actual: null, forecast: null, actualReason: `Cost Explorer indisponível: ${error.message}` };
+      return { actual: null, forecast: null, actualReason: `Custo real indisponível: ${error.message}` };
     }
   }
 
-  costExplorerData() {
-    if (this.actualCache && this.actualCache.expiresAt > this.now()) return this.actualCache.value;
-    const value = this.fetchCostExplorer();
-    this.actualCache = { value, expiresAt: this.now() + this.actualCacheTtlMs };
-    value.catch(() => { if (this.actualCache?.value === value) this.actualCache = null; });
+  // Última leitura gravada, com o mesmo cache curto da estimativa: a memória é
+  // a 1ª camada, o DynamoDB (compartilhado entre os containers) a 2ª
+  snapshot() {
+    if (this.snapshotCache && this.snapshotCache.expiresAt > this.now()) return this.snapshotCache.value;
+    const value = this.store.get();
+    this.snapshotCache = { value, expiresAt: this.now() + this.cacheTtlMs };
+    value.catch(() => { if (this.snapshotCache?.value === value) this.snapshotCache = null; });
     return value;
+  }
+
+  /**
+   * Lê o Cost Explorer e grava o resultado. No máximo uma leitura a cada
+   * minIntervalMs, entre todos os containers: a trava é uma escrita
+   * condicional no DynamoDB, e quem não a pega recebe { refreshed: false,
+   * retryAt } sem chamar o Cost Explorer.
+   */
+  async refreshActual({ minIntervalMs = COST_REFRESH_MIN_INTERVAL_MS } = {}) {
+    if (this.local) throw new DomainError('Cost Explorer não existe no LocalStack', 'CostExplorerUnavailable', 503);
+    const now = this.now();
+    const lock = await this.store.tryLock(now, minIntervalMs);
+    if (!lock.acquired) return { refreshed: false, retryAt: new Date(lock.lockedAt + minIntervalMs).toISOString() };
+    const data = await this.fetchCostExplorer();
+    await this.store.save({ ...data, refreshStartedAt: now });
+    this.snapshotCache = null;
+    return { refreshed: true, fetchedAt: data.fetchedAt };
   }
 
   async fetchCostExplorer() {
@@ -296,7 +325,8 @@ export class CostClient {
     const nextMonth = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
     const start = Math.min(tomorrow - ACTUAL_WINDOW_DAYS * DAY_MS, monthStart);
 
-    const byService = new Map();
+    // { serviço: { dia: valor } }: vai direto para o item do DynamoDB
+    const byService = {};
     let NextPageToken;
     do {
       const page = await this.costExplorer.send(new GetCostAndUsageCommand({
@@ -309,17 +339,16 @@ export class CostClient {
       for (const { TimePeriod, Groups = [] } of page.ResultsByTime || []) {
         for (const { Keys = [], Metrics = {} } of Groups) {
           const amount = Number(Metrics.UnblendedCost?.Amount) || 0;
-          if (!byService.has(Keys[0])) byService.set(Keys[0], new Map());
-          const perDay = byService.get(Keys[0]);
-          perDay.set(TimePeriod.Start, (perDay.get(TimePeriod.Start) || 0) + amount);
+          const perDay = byService[Keys[0]] ??= {};
+          perDay[TimePeriod.Start] = (perDay[TimePeriod.Start] || 0) + amount;
         }
       }
       NextPageToken = page.NextPageToken;
     } while (NextPageToken);
 
     const monthDay = isoDay(monthStart);
-    const monthToDate = round(sum([...byService.values()].flatMap(perDay =>
-      [...perDay.entries()].filter(([day]) => day >= monthDay).map(([, amount]) => amount))));
+    const monthToDate = round(sum(Object.values(byService).flatMap(perDay =>
+      Object.entries(perDay).filter(([day]) => day >= monthDay).map(([, amount]) => amount))));
 
     return { byService, monthToDate, forecast: await this.forecast(tomorrow, nextMonth, monthToDate), fetchedAt: new Date(this.now()).toISOString() };
   }
@@ -339,4 +368,40 @@ export class CostClient {
       return null;
     }
   }
+}
+
+/**
+ * Última leitura do Cost Explorer: um item só (id 'actual') na
+ * CostSnapshotsTable. refreshStartedAt é a trava de refreshActual.
+ */
+export function snapshotStore(TableName, client = docClient) {
+  const Key = { id: SNAPSHOT_ID };
+  return {
+    async get() {
+      const { Item } = await client.send(new GetCommand({ TableName, Key }));
+      return Item?.fetchedAt ? Item : null;
+    },
+    // Pega a trava se a última leitura começou há mais de minIntervalMs
+    async tryLock(now, minIntervalMs) {
+      try {
+        await client.send(new UpdateCommand({
+          TableName,
+          Key,
+          UpdateExpression: 'SET refreshStartedAt = :now',
+          ConditionExpression: 'attribute_not_exists(refreshStartedAt) OR refreshStartedAt < :cutoff',
+          ExpressionAttributeValues: { ':now': now, ':cutoff': now - minIntervalMs },
+          ReturnValuesOnConditionCheckFailure: 'ALL_OLD'
+        }));
+        return { acquired: true };
+      } catch (error) {
+        if (error.name !== 'ConditionalCheckFailedException') throw error;
+        // O item da falha vem no formato do DynamoDB ({ N: '...' }), sem o unmarshall do DocumentClient
+        const lockedAt = error.Item?.refreshStartedAt;
+        return { acquired: false, lockedAt: Number(lockedAt?.N ?? lockedAt) || now };
+      }
+    },
+    async save(snapshot) {
+      await client.send(new PutCommand({ TableName, Item: { id: SNAPSHOT_ID, ...snapshot } }));
+    }
+  };
 }

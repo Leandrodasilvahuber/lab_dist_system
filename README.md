@@ -184,7 +184,8 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/metrics/sagas` | Tempo por passo das últimas 10 compras, do histórico do Step Functions (aba Desempenho) |
 | GET | `/metrics/slo?hours=24` | `hours`: 1, 24 ou 168. SLOs da janela: p95 das compras concluídas, % de sagas Completed/Compensated e mensagens na DLQ há mais de 24 h (aba SLOs) |
 | GET | `/metrics/memory?hours=3` | `hours` como em `/metrics/errors`. Memória máxima e média por Lambda (`MemoryUsedMB`) e o limite configurado (aba Recursos) |
-| GET | `/metrics/cost?days=14` 🔑 | `days`: 7, 14, 30 ou 90. Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pelo Cost Explorer (aba Recursos; é o gasto da conta inteira) |
+| GET | `/metrics/cost?days=14` 🔑 | `days`: 7, 14, 30 ou 90. Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pela última leitura do Cost Explorer (aba Recursos; é o gasto da conta inteira). Não chama o Cost Explorer: ele é lido a cada 6 h por uma regra agendada |
+| POST | `/metrics/cost/refresh` 🔑 | Lê o Cost Explorer agora (US$ 0,02), no máximo uma vez a cada 15 min; antes disso responde 429 com `Retry-After`. 503 no LocalStack |
 | GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) |
 | POST | `/dlq/{messageId}/redrive` 🔑 | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
 | POST | `/dlq/{messageId}/discard` 🔑 | Apaga o evento da DLQ |

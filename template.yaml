@@ -158,6 +158,11 @@ Resources:
         'GET /metrics/cost':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
+        # Cada leitura do Cost Explorer custa US$ 0,02; o CostClient ainda trava
+        # em uma a cada 15 min
+        'POST /metrics/cost/refresh':
+          ThrottlingBurstLimit: 1
+          ThrottlingRateLimit: 1
       CorsConfiguration:
         AllowOrigins: [!Ref AllowedOrigin]
         AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
@@ -221,6 +226,8 @@ Resources:
           # serviços): entra na estimativa pelo nome e pelo MemorySize dele
           AUTHORIZER_FUNCTION_NAME: !Ref AdminAuthorizerFunction
           AUTHORIZER_MEMORY_MB: 128
+          # Última leitura do Cost Explorer (CostClient.refreshActual)
+          COST_SNAPSHOTS_TABLE: !Ref CostSnapshotsTable
       Policies:
         - Statement:
             # GetMetricData/ListMetrics: aba Métricas (namespace Ecommerce/<env>, gravado via EMF)
@@ -231,12 +238,19 @@ Resources:
                 - cloudwatch:ListMetrics
               Resource: '*'
             # Aba Recursos: custo real e previsão do mês (cada chamada custa
-            # US$ 0,01; CostClient guarda o resultado por 6 h)
+            # US$ 0,01). Só a regra RefreshCost (a cada 6 h) e o POST
+            # /metrics/cost/refresh de admin chamam; o GET lê a CostSnapshotsTable
             - Effect: Allow
               Action:
                 - ce:GetCostAndUsage
                 - ce:GetCostForecast
               Resource: '*'
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt CostSnapshotsTable.Arn
             # Aba Desempenho: lê o histórico das últimas execuções da saga
             - Effect: Allow
               Action: states:ListExecutions
@@ -318,6 +332,22 @@ Resources:
             Method: GET
             Auth:
               Authorizer: AdminApiKey
+        # Lê o Cost Explorer agora (no máximo uma vez a cada 15 min): só admin
+        RefreshCostNow:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /metrics/cost/refresh
+            Method: POST
+            Auth:
+              Authorizer: AdminApiKey
+        # Lê o Cost Explorer e grava na CostSnapshotsTable: o custo fica fixo
+        # (~4 leituras por dia), qualquer que seja o tráfego da aba Recursos
+        RefreshCost:
+          Type: Schedule
+          Properties:
+            Schedule: rate(6 hours)
+            Input: '{"action":"refreshCost"}'
         Trace:
           Type: HttpApi
           Properties:
@@ -1671,6 +1701,20 @@ Resources:
           Projection:
             ProjectionType: INCLUDE
             NonKeyAttributes: [status, updatedAt]
+
+  # Última leitura do Cost Explorer: um item só (id 'actual'), regravado a
+  # cada leitura. Sem PITR: é cache, a próxima leitura recria
+  CostSnapshotsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-CostSnapshots'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
 
 Outputs:
   AlarmTopicArn:

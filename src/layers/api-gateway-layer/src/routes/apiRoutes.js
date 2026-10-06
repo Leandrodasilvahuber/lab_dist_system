@@ -37,6 +37,7 @@ const AVAILABLE_ENDPOINTS = [
   'GET  /metrics/slo',
   'GET  /metrics/memory',
   'GET  /metrics/cost',
+  'POST /metrics/cost/refresh',
   'GET  /trace/{correlationId}',
   'GET  /dlq',
   'POST /dlq/{messageId}/redrive',
@@ -70,6 +71,9 @@ export function createAPIHandler({
   chaos = new ChaosClient()
 } = {}) {
   return async function handleAPIRequest(rawEvent) {
+    // Regra agendada (RefreshCost no template.yaml): lê o Cost Explorer e grava o resultado
+    if (rawEvent?.action === 'refreshCost') return refreshCost(cost);
+
     const event = normalizeHttpEvent(rawEvent);
 
     if (event.method === 'GET' && event.path === '/health') {
@@ -146,6 +150,20 @@ export function createAPIHandler({
       }
     }
 
+    // admin: lê o Cost Explorer agora, no máximo uma vez a cada 15 min
+    if (event.method === 'POST' && event.path === '/metrics/cost/refresh') {
+      try {
+        const result = await cost.refreshActual();
+        if (result.refreshed) return successResponse(result);
+        const seconds = Math.max(1, Math.ceil((Date.parse(result.retryAt) - Date.now()) / 1000));
+        return errorResponse('Cost Explorer read recently', 429, { 'Retry-After': String(seconds) });
+      } catch (error) {
+        if (error instanceof DomainError) return errorResponse(error.message, error.statusCode);
+        log({ event: 'COST_REFRESH_FAILED', correlationId: event.headers.correlationId, status: 'error', message: 'Could not read Cost Explorer', error });
+        return errorResponse('Cost Explorer unavailable', 503);
+      }
+    }
+
     // todas as linhas de log de uma compra (correlationId)
     const traceMatch = event.method === 'GET' && event.path.match(/^\/trace\/([^/]+)$/);
     if (traceMatch) {
@@ -215,6 +233,22 @@ async function chaosCall(event, chaos) {
     if (error instanceof DomainError) return errorResponse(error.message, error.statusCode);
     log({ event: 'CHAOS_UNAVAILABLE', correlationId: event.headers.correlationId, status: 'error', message: `Chaos ${event.method} failed`, error });
     return errorResponse('Chaos config unavailable', 503);
+  }
+}
+
+async function refreshCost(cost) {
+  try {
+    const result = await cost.refreshActual();
+    log({
+      event: result.refreshed ? 'COST_REFRESHED' : 'COST_REFRESH_SKIPPED',
+      status: 'info',
+      message: result.refreshed ? 'Cost Explorer read' : `Cost Explorer read recently, next at ${result.retryAt}`,
+      data: result
+    });
+    return result;
+  } catch (error) {
+    log({ event: 'COST_REFRESH_FAILED', status: 'error', message: 'Could not read Cost Explorer', error });
+    throw error;
   }
 }
 

@@ -19,8 +19,10 @@ export const ADMIN_ROUTES = [
   // Reprocessar e descartar eventos da DLQ: descartar perde o evento de vez
   // (o inventário do produto nunca seria criado ou removido)
   ['POST', /^\/dlq\/[^/]+\/(?:redrive|discard)$/],
-  // Gasto da conta AWS inteira (Cost Explorer), não só desta stack
-  ['GET', /^\/metrics\/cost$/]
+  // Gasto da conta AWS inteira (Cost Explorer), não só desta stack, e a
+  // leitura sob demanda dele (cada uma custa US$ 0,02)
+  ['GET', /^\/metrics\/cost$/],
+  ['POST', /^\/metrics\/cost\/refresh$/]
 ];
 
 export function isAdminRoute(method, path) {

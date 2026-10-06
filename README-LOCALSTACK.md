@@ -119,7 +119,8 @@ log groups só para as abas de log (sem republicar métricas).
   `FunctionMemoryMB` do `template.yaml`) e do processo do `local-server`, que
   roda todos os outros handlers e por isso não tem limite. O custo é só
   estimado, a partir de `InvocationDurationMs`: o LocalStack não tem Cost
-  Explorer e não publica o consumo do DynamoDB, que fica de fora.
+  Explorer (o botão *Atualizar agora* responde 503) e não publica o consumo do
+  DynamoDB, que fica de fora.
 
 Logs e Rastreio leem um buffer em memória (últimas 2000 linhas, desde que o
 servidor subiu, mais a última hora das Lambdas); na AWS, do CloudWatch Logs.

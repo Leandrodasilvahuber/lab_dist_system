@@ -33,7 +33,7 @@ Exigem o header `X-Api-Key` com essa chave as escritas: cadastrar e remover
 produto (`POST /products`, `DELETE /products/{id}`), ajustar estoque
 (`POST /stock/{id}/adjust`), ligar e desligar o caos (`PUT`/`DELETE /chaos`) e
 reprocessar ou descartar eventos da DLQ (`POST /dlq/{id}/redrive|discard`),
-além do custo da conta (`GET /metrics/cost`). O resto é aberto, inclusive
+além do custo da conta (`GET /metrics/cost` e `POST /metrics/cost/refresh`). O resto é aberto, inclusive
 pedidos e compras (`/orders`, `/sagas`), logs, rastreio, métricas e a lista da
 DLQ: serve ao laboratório, mas expõe as compras de todos. Para restringir o CORS a uma origem, passe
 também `AllowedOrigin=https://...` em `--parameter-overrides`.
@@ -181,10 +181,15 @@ A aba 🧠 **Recursos** do dashboard mostra o custo de duas formas:
 - **Estimado**: métricas grátis (`AWS/Lambda`, `AWS/States`, `AWS/ApiGateway`,
   `AWS/DynamoDB`) × a tabela `PRICES` de `CostClient.js`, sem free tier.
 - **Real**: Cost Explorer (custo da **conta inteira**), com previsão do mês. Cada
-  chamada à API custa US$ 0,01, então a GatewayFunction guarda o resultado por
-  6 h. O cache é de cada container da Lambda: um container novo paga a primeira
-  leitura (US$ 0,02, com a previsão). A rota `GET /metrics/cost` mostra o gasto
-  da conta inteira, então exige a chave de admin; `?days=` aceita só 7, 14, 30 ou 90, para
+  chamada à API custa US$ 0,01 (US$ 0,02 por leitura, com a previsão), então a
+  rota nunca chama o Cost Explorer: uma regra agendada (`RefreshCost`, a cada
+  6 h) lê e grava o resultado na tabela `<env>-CostSnapshots`, e o
+  `GET /metrics/cost` só lê esse item. O custo fica fixo em ~4 leituras por dia
+  (~US$ 2,40/mês), qualquer que seja o tráfego. O botão *Atualizar agora* da aba
+  Recursos (`POST /metrics/cost/refresh`) lê na hora, no máximo uma vez a cada
+  15 min (trava condicional no DynamoDB, valendo também para a regra agendada).
+  Logo depois do deploy ainda não há leitura: use o botão ou espere a regra. As
+  duas rotas exigem a chave de admin; `?days=` aceita só 7, 14, 30 ou 90, para
   que trocar o período não fure o cache da estimativa. Numa conta nova, o Cost Explorer precisa ser ativado uma vez no console
   (Billing → Cost Explorer) e leva até 24 h para ter dados.
 

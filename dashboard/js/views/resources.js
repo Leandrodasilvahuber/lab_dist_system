@@ -4,8 +4,10 @@ import { escapeHtml, nowTime, usd } from '../core/format.js';
 import { lineChart, periodLabel, stackedChart } from '../components/chart.js';
 import { dataTable } from '../components/data-table.js';
 import { emptyState, errorState } from '../components/empty.js';
+import { icon } from '../components/icons.js';
 import { bindRefresh, hint, panel, PERIODS, refreshButton, select, spacer, status, toolbar } from '../components/layout.js';
 import { statCards } from '../components/stat-card.js';
+import { showToast } from '../components/toast.js';
 
 const COST_DAYS = [['7', 'últimos 7 dias'], ['14', 'últimos 14 dias'], ['30', 'últimos 30 dias'], ['90', 'últimos 90 dias']];
 // O Cost Explorer lista todos os serviços da conta: o resto vira "Outros"
@@ -23,18 +25,25 @@ export default {
         ${hint(`Memória: cada invocação grava <code>MemoryUsedMB</code> (RSS do processo ao fim da invocação, via EMF), uma
             aproximação do <em>Max Memory Used</em> da Lambda; no local-server os handlers dividem um processo só.
             Custo: a estimativa multiplica as métricas de uso pela tabela de preços (sem free tier); o valor real vem do
-            Cost Explorer (só na AWS, conta inteira, atualizado a cada 6 h). O custo exige entrar como admin.`)}
+            Cost Explorer (só na AWS, conta inteira), lido a cada 6 h; <em>Atualizar agora</em> lê na hora, no máximo
+            uma vez a cada 15 min (cada leitura custa US$ 0,02). O custo exige entrar como admin.`)}
         <div class="stat-grid" id="memoryCards"></div>
         ${panel({ title: 'Memória usada por função (máximo por balde)', icon: 'cpu', bodyId: 'memoryChart' })}
         <div class="stat-grid" id="costCards"></div>
         ${panel({ title: 'Custo estimado por dia', icon: 'dollar', bodyId: 'costEstimatedChart' })}
-        ${panel({ title: 'Custo real por dia (Cost Explorer)', icon: 'dollar', bodyId: 'costActualChart' })}
+        ${panel({
+            title: 'Custo real por dia (Cost Explorer)',
+            icon: 'dollar',
+            bodyId: 'costActualChart',
+            actions: `<button type="button" class="btn btn-secondary btn-sm" id="costRefreshNow">${icon('refresh', { size: 15 })}<span>Atualizar agora</span></button>`
+        })}
         ${panel({ title: 'Estimado × real por serviço', icon: 'list', bodyId: 'costTable', flush: true })}`,
 
     mount() {
         bindRefresh($('resourcesRefresh'), fetchResources);
         $('memoryHours').addEventListener('change', fetchMemory);
         $('costDays').addEventListener('change', fetchCost);
+        bindRefresh($('costRefreshNow'), refreshCostNow);
     },
 
     refresh: fetchResources
@@ -102,6 +111,28 @@ function topSeries(byService) {
     return top;
 }
 
+// "há 2 h": o custo real só muda a cada leitura, a hora exata importa pouco
+function ago(iso) {
+    const minutes = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    if (minutes < 1) return 'agora';
+    if (minutes < 60) return `há ${minutes} min`;
+    return `há ${Math.round(minutes / 60)} h`;
+}
+
+async function refreshCostNow() {
+    try {
+        await api('/metrics/cost/refresh', { method: 'POST' });
+        showToast('Custo real lido do Cost Explorer', 'success');
+    } catch (error) {
+        const message = error.status === 429 && error.retryAfter
+            ? `Cost Explorer lido há pouco; de novo às ${new Date(Date.now() + error.retryAfter * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+            : `Falhou: ${error.message}`;
+        showToast(message, 'error');
+        return;
+    }
+    await fetchCost();
+}
+
 async function fetchCost() {
     const cards = $('costCards');
     const panels = ['costEstimatedChart', 'costActualChart', 'costTable'].map($);
@@ -125,7 +156,7 @@ async function fetchCost() {
             value: actual ? usd(actual.total) : '—',
             icon: 'receipt',
             tone: 'info',
-            detail: actual ? `Cost Explorer · conta inteira · lido ${new Date(actual.fetchedAt).toLocaleTimeString('pt-BR')}` : actualReason
+            detail: actual ? `Cost Explorer · conta inteira · atualizado ${ago(actual.fetchedAt)}` : actualReason
         },
         {
             label: 'Mês até hoje',
