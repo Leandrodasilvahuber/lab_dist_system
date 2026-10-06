@@ -187,7 +187,9 @@ A aba 🧠 **Recursos** do dashboard mostra o custo de duas formas:
   `GET /metrics/cost` só lê esse item. O custo fica fixo em ~4 leituras por dia
   (~US$ 2,40/mês), qualquer que seja o tráfego. O botão *Atualizar agora* da aba
   Recursos (`POST /metrics/cost/refresh`) lê na hora, no máximo uma vez a cada
-  15 min (trava condicional no DynamoDB, valendo também para a regra agendada).
+  15 min (trava condicional no DynamoDB, valendo também para a regra agendada)
+  e até 5 vezes por dia (`DailyCostRefreshLimit`, zera às 12:00 de Brasília; a
+  regra agendada não conta), no máximo ~US$ 3/mês a mais.
   Logo depois do deploy ainda não há leitura: use o botão ou espere a regra. As
   duas rotas exigem a chave de admin; `?days=` aceita só 7, 14, 30 ou 90, para
   que trocar o período não fure o cache da estimativa. Numa conta nova, o Cost Explorer precisa ser ativado uma vez no console

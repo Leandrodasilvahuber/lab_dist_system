@@ -1,4 +1,4 @@
-import { DomainError, DependencyUnavailableError, ValidationError } from './errors.mjs';
+import { DailyLimitError, DomainError, DependencyUnavailableError, ValidationError } from './errors.mjs';
 import { log } from './logger.mjs';
 import { isTransientAwsError } from './aws-client.mjs';
 
@@ -35,6 +35,13 @@ export function successResponse(body, statusCode = 200) {
  */
 export function errorResponse(message, statusCode = 500, headers) {
   return jsonResponse(statusCode, { error: message }, headers);
+}
+
+// Limite diário atingido: o cliente só repete depois de zerar o contador
+export function dailyLimitResponse(error) {
+  const { message, name: code, limit, scope, resetsAt } = error;
+  return jsonResponse(429, { error: message, code, limit, ...(scope && { scope }), resetsAt },
+    { 'Retry-After': String(error.retryAfterSeconds) });
 }
 
 export function notFoundResponse(path, extra = {}) {
@@ -82,6 +89,9 @@ export function sdkErrorResponse(error, fallbackMessage, correlationId) {
         : { event: 'DEPENDENCY_UNAVAILABLE', correlationId, status: 'info', message });
     }
     return errorResponse(error.message, 503, { 'Retry-After': String(error.retryAfterSeconds) });
+  }
+  if (error instanceof DailyLimitError) {
+    return dailyLimitResponse(error);
   }
   if (error instanceof DomainError) {
     return errorResponse(error.message, error.statusCode);

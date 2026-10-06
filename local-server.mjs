@@ -91,6 +91,11 @@ process.env.FUNCTION_MEMORY_MB ||= String(templateMemoryMb());
 // (criado por npm run localstack:deploy; aba Caos e npm run chaos)
 process.env.CHAOS_PARAM ||= LOCAL_CHAOS_PARAM;
 process.env.CHAOS_ENABLED ||= 'true';
+// Limites diários de compras (PurchaseQuota): local não custa nada, e o npm
+// run chaos passaria do teto. Para testar: DAILY_PURCHASE_LIMIT=150
+// DAILY_PURCHASE_LIMIT_PER_CLIENT=20
+process.env.DAILY_PURCHASE_LIMIT ??= '0';
+process.env.DAILY_PURCHASE_LIMIT_PER_CLIENT ??= '0';
 
 const { TIMEOUT_SCALE } = await import('./src/common/aws-client.mjs');
 

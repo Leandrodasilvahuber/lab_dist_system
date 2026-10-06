@@ -2,7 +2,8 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import { SagaService, MAX_PURCHASE_QUANTITY, STUCK_START_MS, RECONCILE_MAX, finalStatus, parseLambdaError, sagaIdFromKey } from '../../../src/ecommerce/saga-orchestrator/src/services/SagaService.js';
 import { sagaDayShard } from '../../../src/common/saga-day-index.mjs';
-import { DependencyUnavailableError, IdempotencyConflictError, NotFoundError, ValidationError } from '../../../src/common/errors.mjs';
+import { DependencyUnavailableError, IdempotencyConflictError, NotFoundError, PurchaseLimitError, ValidationError } from '../../../src/common/errors.mjs';
+import { PurchaseQuota } from '../../../src/ecommerce/saga-orchestrator/src/services/PurchaseQuota.js';
 
 // Banco em memória com o subconjunto usado pelo SagaService
 class FakeDb {
@@ -38,6 +39,29 @@ class FakeDb {
     if (expression.includes('REMOVE #error')) delete item.error;
     if (expression.includes('startAttempts')) item.startAttempts = (item.startAttempts || 1) + 1;
     return structuredClone(item);
+  }
+  // Só a transação do SagaService.createSaga: Put da saga (se não existe) e o
+  // ADD condicional dos contadores do PurchaseQuota. `conflict`: outra
+  // transação no mesmo item
+  async transactWrite(operations) {
+    const reasons = operations.map(op => {
+      if (this.conflict) return { Code: 'TransactionConflict' };
+      if (op.Put) return { Code: this.tables[op.Put.table].has(op.Put.Item.id) ? 'ConditionalCheckFailed' : 'None' };
+      const { table, Key, ExpressionAttributeValues: v } = op.Update;
+      const purchases = this.tables[table].get(Key.id)?.purchases ?? 0;
+      return { Code: purchases >= v[':limit'] ? 'ConditionalCheckFailed' : 'None' };
+    });
+    if (reasons.some(r => r.Code !== 'None')) {
+      throw Object.assign(new Error('canceled'), { name: 'TransactionCanceledException', CancellationReasons: reasons });
+    }
+    for (const op of operations) {
+      if (op.Put) this.tables[op.Put.table].set(op.Put.Item.id, structuredClone(op.Put.Item));
+      else {
+        const { table, Key, ExpressionAttributeValues: v } = op.Update;
+        const purchases = (this.tables[table].get(Key.id)?.purchases ?? 0) + v[':one'];
+        this.tables[table].set(Key.id, { id: Key.id, purchases, expiresAt: v[':expiresAt'] });
+      }
+    }
   }
   // SagasByDayIndex: só o que a varredura usa (dayShard + createdAt >= :since)
   async queryItems(table, { ExpressionAttributeValues: v }) {
@@ -92,7 +116,9 @@ describe('SagaService', () => {
     db = new FakeDb();
     sfn = new FakeStepFunctions();
     productClient = new FakeProductClient({ apple: { id: 'apple', price: 5 } });
-    service = new SagaService({ db, stepFunctions: sfn, productClient });
+    // Sem limite diário: o contador ocuparia lugar nas páginas do listSagas
+    // (o limite tem teste próprio)
+    service = new SagaService({ db, stepFunctions: sfn, productClient, quota: new PurchaseQuota({ limit: 0, perClientLimit: 0 }) });
   });
 
   it('productId longo demais: 400 antes de consultar o Products', async () => {
@@ -120,6 +146,71 @@ describe('SagaService', () => {
     db.tables.sagas.set(id, { id, status: 'COMPLETED', productId: 'apple', quantity: MAX_PURCHASE_QUANTITY + 500, steps: {}, updatedAt: new Date().toISOString() });
     const { saga, created } = await service.startSaga({ productId: 'apple', quantity: MAX_PURCHASE_QUANTITY + 500, idempotencyKey: key });
     assert.deepStrictEqual([saga.id, saga.status, created], [id, 'COMPLETED', false]);
+  });
+
+  describe('limite diário de compras', () => {
+    const NOW_QUOTA = Date.parse('2026-10-06T14:59:00Z');
+    const withQuota = (limits) => new SagaService({ db, stepFunctions: sfn, productClient, quota: new PurchaseQuota({ now: () => NOW_QUOTA, ...limits }) });
+    const buy = (key, clientId = '203.0.113.1') => service.startSaga({ productId: 'apple', quantity: 1, idempotencyKey: key, clientId });
+
+    it('total: a compra além do teto é recusada sem gravar a saga, e retomar não gasta a cota', async () => {
+      service = withQuota({ limit: 2, perClientLimit: 0 });
+      await buy('k-quota-1', 'a');
+      await buy('k-quota-2', 'b');
+      // Mesma chave: devolve a saga existente sem contar de novo
+      assert.strictEqual((await buy('k-quota-2', 'b')).created, false);
+      assert.strictEqual(db.tables.sagas.get('quota_2026-10-05').purchases, 2);
+
+      const error = await buy('k-quota-3', 'c').catch(e => e);
+      assert.ok(error instanceof PurchaseLimitError);
+      assert.deepStrictEqual([error.statusCode, error.scope, error.resetsAt, error.retryAfterSeconds], [429, 'total', '2026-10-06T15:00:00.000Z', 60]);
+      assert.strictEqual(sfn.started.length, 2);
+      assert.strictEqual(db.tables.sagas.has(sagaIdFromKey('k-quota-3')), false);
+
+      // O contador não aparece como saga, e expira pelo TTL um dia depois de zerar
+      const { sagas } = await service.listSagas({}, { limit: 10 });
+      assert.strictEqual(sagas.length, 2);
+      await assert.rejects(service.getSaga('quota_2026-10-05'), NotFoundError);
+      assert.strictEqual(db.tables.sagas.get('quota_2026-10-05').expiresAt, Date.parse('2026-10-07T15:00:00Z') / 1000);
+    });
+
+    it('por cliente: um IP no teto não bloqueia os outros', async () => {
+      service = withQuota({ limit: 0, perClientLimit: 1 });
+      await buy('k-client-1', '203.0.113.1');
+      const error = await buy('k-client-2', '203.0.113.1').catch(e => e);
+      assert.ok(error instanceof PurchaseLimitError);
+      assert.strictEqual(error.scope, 'client');
+      assert.strictEqual((await buy('k-client-3', '198.51.100.7')).created, true);
+      // O IP não é gravado, só o hash
+      assert.ok([...db.tables.sagas.keys()].every(id => !id.includes('203.0.113.1')));
+    });
+
+    it('corrida com a mesma chave: a transação que perde devolve a saga existente e não conta', async () => {
+      service = withQuota({ limit: 5, perClientLimit: 5 });
+      const key = 'k-quota-race-0001';
+      const id = sagaIdFromKey(key);
+      // A outra requisição gravou a saga entre o getItem e a transação desta
+      const original = db.getItem.bind(db);
+      let first = true;
+      db.getItem = async (table, keyArg) => {
+        if (first && keyArg.id === id) {
+          first = false;
+          db.tables.sagas.set(id, { id, status: 'RUNNING', productId: 'apple', quantity: 1, steps: {}, executionArn: 'arn', updatedAt: new Date().toISOString() });
+          return undefined;
+        }
+        return original(table, keyArg);
+      };
+      assert.strictEqual((await buy(key)).created, false);
+      assert.strictEqual(db.tables.sagas.has('quota_2026-10-05'), false);
+    });
+
+    it('conflito de transação no contador: 503 para repetir com a mesma chave', async () => {
+      service = withQuota({ limit: 5, perClientLimit: 5 });
+      db.conflict = true;
+      const error = await buy('k-quota-conflict').catch(e => e);
+      assert.ok(error instanceof DependencyUnavailableError);
+      assert.strictEqual(error.retryAfterSeconds, 1);
+    });
   });
 
   it('getSaga com id longo demais: ValidationError, não erro do banco', async () => {

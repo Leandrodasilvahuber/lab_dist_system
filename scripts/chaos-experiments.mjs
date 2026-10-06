@@ -20,6 +20,9 @@
  *   npm run chaos -- --api https://xxx.execute-api.us-east-1.amazonaws.com --orders 6
  *   npm run chaos -- --product <id>               # produto usado nas compras
  * Chave de admin (PUT/DELETE /chaos, POST /products e POST /dlq/{id}/redrive): variável ADMIN_API_KEY.
+ * Na AWS cada compra gasta o limite diário (PurchaseQuota): faça o deploy com
+ * DailyPurchaseLimit=0 e DailyPurchaseLimitPerClient=0 antes; se o limite for
+ * atingido, a rodada para com aviso.
  */
 import { randomUUID } from 'node:crypto';
 import { CHAOS_PRESETS } from '../dashboard/js/services/chaos-presets.js';
@@ -109,6 +112,11 @@ async function purchase(productId, experiment) {
     headers: { 'Idempotency-Key': randomUUID(), 'X-Correlation-Id': correlationId },
     body: { productId, quantity: 1 }
   });
+  // Limite diário de compras (PurchaseQuota): não é a falha injetada, e as
+  // compras seguintes também seriam recusadas; interrompe a rodada
+  if (result.status === 429 && result.data.code === 'PurchaseLimitExceeded') {
+    throw Object.assign(new Error(result.data.error), { purchaseLimit: result.data });
+  }
   return { correlationId, ...result };
 }
 
@@ -260,6 +268,13 @@ for (const preset of presets) {
   try {
     result = preset.expect === 'DLQ' ? await runDlqExperiment(preset) : await runSagaExperiment(preset, productId);
   } catch (error) {
+    if (error.purchaseLimit) {
+      const { scope, limit, resetsAt } = error.purchaseLimit;
+      out(bad(`   Limite diário de compras atingido (${limit}${scope === 'client' ? ' por cliente' : ''}; zera em ${resetsAt}).`));
+      out(dim('   Os experimentos param aqui: na AWS, faça o deploy com DailyPurchaseLimit=0 e'));
+      out(dim('   DailyPurchaseLimitPerClient=0 antes de rodar o caos (cada compra gasta a cota do dia)'));
+      process.exit(1);
+    }
     result = { checks: [[`erro ao executar: ${error.message}`, false]], evidence: 0 };
   }
   for (const [label, passed] of result.checks) out(`   ${passed ? ok('✔') : bad('✘')} ${label}`);

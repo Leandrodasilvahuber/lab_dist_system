@@ -43,6 +43,28 @@ Parameters:
     MinValue: 128
     MaxValue: 10240
 
+  # Compras novas por dia (PurchaseQuota): acima disso POST /saga/execute
+  # responde 429 até as 12:00 (Brasília), quando o contador zera. 0 = sem limite
+  DailyPurchaseLimit:
+    Type: Number
+    Default: 150
+    MinValue: 0
+
+  # Compras novas por dia de um mesmo IP: sem ele, um script esgotaria o
+  # DailyPurchaseLimit de todos. 0 = sem limite por cliente
+  DailyPurchaseLimitPerClient:
+    Type: Number
+    Default: 20
+    MinValue: 0
+
+  # Leituras manuais do Cost Explorer por dia (botão Atualizar agora da aba
+  # Recursos, US$ 0,02 cada): acima disso POST /metrics/cost/refresh responde
+  # 429 até as 12:00 (Brasília). A leitura agendada não conta. 0 = sem limite
+  DailyCostRefreshLimit:
+    Type: Number
+    Default: 5
+    MinValue: 0
+
   # Teto mensal (US$) do AWS Budget: avisa no AlarmTopic com 80% gasto e
   # quando a previsão do mês passa de 100%. É o custo da conta inteira
   MonthlyBudgetUSD:
@@ -228,6 +250,7 @@ Resources:
           AUTHORIZER_MEMORY_MB: 128
           # Última leitura do Cost Explorer (CostClient.refreshActual)
           COST_SNAPSHOTS_TABLE: !Ref CostSnapshotsTable
+          COST_REFRESH_DAILY_LIMIT: !Ref DailyCostRefreshLimit
       Policies:
         - Statement:
             # GetMetricData/ListMetrics: aba Métricas (namespace Ecommerce/<env>, gravado via EMF)
@@ -606,7 +629,8 @@ Resources:
       # (SDK_MAX_ATTEMPTS: 1; cada chamada tem até 1s de conexão + 3s de
       # resposta, ver src/common/aws-client.mjs): getItem 4s + Products 6s
       # (+ até 4,6s de espera se a Lambda de produtos recusar por throttling,
-      # THROTTLE_DELAYS_MS em product-client.mjs) + putItem 4s + StartExecution
+      # THROTTLE_DELAYS_MS em product-client.mjs) + gravação da saga 4s (uma
+      # transação só com os contadores do limite diário, PurchaseQuota) + StartExecution
       # 4s + gravação do resultado 4s = 26,6s. O
       # reinício de uma saga que falhou ao iniciar é o caminho mais longo:
       # getItem 4s + updateItem 4s + StartExecution 4s + novo executionName 4s
@@ -623,6 +647,8 @@ Resources:
           SDK_MAX_ATTEMPTS: '1'
           SAGA_STATE_MACHINE_ARN: !Ref SagaStateMachine
           PRODUCT_FUNCTION_NAME: !Ref ProductFunction
+          DAILY_PURCHASE_LIMIT: !Ref DailyPurchaseLimit
+          DAILY_PURCHASE_LIMIT_PER_CLIENT: !Ref DailyPurchaseLimitPerClient
       Events:
         ExecuteSaga:
           Type: HttpApi
@@ -1678,6 +1704,10 @@ Resources:
     Properties:
       TableName: !Sub '${Environment}-Sagas'
       BillingMode: PAY_PER_REQUEST
+      # Só os contadores do limite diário (PurchaseQuota) gravam expiresAt
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
       DeletionProtectionEnabled: !If [IsProd, true, false]

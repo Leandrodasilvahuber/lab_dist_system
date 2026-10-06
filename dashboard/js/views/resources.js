@@ -26,7 +26,7 @@ export default {
             aproximação do <em>Max Memory Used</em> da Lambda; no local-server os handlers dividem um processo só.
             Custo: a estimativa multiplica as métricas de uso pela tabela de preços (sem free tier); o valor real vem do
             Cost Explorer (só na AWS, conta inteira), lido a cada 6 h; <em>Atualizar agora</em> lê na hora, no máximo
-            uma vez a cada 15 min (cada leitura custa US$ 0,02). O custo exige entrar como admin.`)}
+            uma vez a cada 15 min e 5 vezes por dia, zerando às 12:00 (cada leitura custa US$ 0,02). O custo exige entrar como admin.`)}
         <div class="stat-grid" id="memoryCards"></div>
         ${panel({ title: 'Memória usada por função (máximo por balde)', icon: 'cpu', bodyId: 'memoryChart' })}
         <div class="stat-grid" id="costCards"></div>
@@ -124,6 +124,10 @@ async function refreshCostNow() {
         await api('/metrics/cost/refresh', { method: 'POST' });
         showToast('Custo real lido do Cost Explorer', 'success');
     } catch (error) {
+        if (error.body?.code === 'CostRefreshLimitExceeded') {
+            alert(`Total de atualizações do dia excedido (${error.body.limit}). O limite zera às 12:00.`);
+            return;
+        }
         const message = error.status === 429 && error.retryAfter
             ? `Cost Explorer lido há pouco; de novo às ${new Date(Date.now() + error.retryAfter * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
             : `Falhou: ${error.message}`;

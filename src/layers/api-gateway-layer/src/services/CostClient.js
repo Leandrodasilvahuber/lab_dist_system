@@ -6,7 +6,8 @@ import { awsClientConfig, IS_LOCAL, QUERY_CLIENT_OPTIONS } from '../../../../com
 import { CloudWatchMetricsClient } from './CloudWatchMetricsClient.js';
 import { functionMemoryMb } from './MemoryMetricsClient.js';
 import { parseHours } from '../../../../common/validation.mjs';
-import { DomainError } from '../../../../common/errors.mjs';
+import { CostRefreshLimitError, DomainError } from '../../../../common/errors.mjs';
+import { limitFromEnv, quotaDay } from '../../../../common/daily-quota.mjs';
 import { docClient } from '../../../../common/database.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -21,6 +22,10 @@ export const COST_ESTIMATE_CACHE_TTL_MS = 5 * 60 * 1000;
 // lê de lá, então o custo não depende de quantos acessam a aba.
 // Entre duas leituras, no mínimo este intervalo (trava condicional no DynamoDB)
 export const COST_REFRESH_MIN_INTERVAL_MS = 15 * 60 * 1000;
+// Leituras manuais (botão Atualizar agora) por dia, padrão do
+// DailyCostRefreshLimit (template.yaml); o dia vira às 12:00 de Brasília.
+// A regra agendada não conta. 0 = sem limite
+export const DEFAULT_COST_REFRESH_DAILY_LIMIT = 5;
 const SNAPSHOT_ID = 'actual';
 // Janela fixa do Cost Explorer: qualquer período da aba sai da mesma leitura
 const ACTUAL_WINDOW_DAYS = 90;
@@ -305,14 +310,27 @@ export class CostClient {
    * minIntervalMs, entre todos os containers: a trava é uma escrita
    * condicional no DynamoDB, e quem não a pega recebe { refreshed: false,
    * retryAt } sem chamar o Cost Explorer.
+   * `manual` (POST /metrics/cost/refresh): a mesma escrita conta a leitura no
+   * dia; passou do limite, CostRefreshLimitError (429 até as 12:00).
    */
-  async refreshActual({ minIntervalMs = COST_REFRESH_MIN_INTERVAL_MS } = {}) {
+  async refreshActual({ minIntervalMs = COST_REFRESH_MIN_INTERVAL_MS, manual = false } = {}) {
     if (this.local) throw new DomainError('Cost Explorer não existe no LocalStack', 'CostExplorerUnavailable', 503);
     const now = this.now();
-    const lock = await this.store.tryLock(now, minIntervalMs);
+    const limit = manual ? limitFromEnv(this.env.COST_REFRESH_DAILY_LIMIT, DEFAULT_COST_REFRESH_DAILY_LIMIT) : 0;
+    const { day, resetsAtMs } = quotaDay(now);
+    const lock = await this.store.tryLock(now, minIntervalMs, limit ? { day, limit } : undefined);
+    if (lock.limitReached) {
+      throw new CostRefreshLimitError(limit, {
+        resetsAt: new Date(resetsAtMs).toISOString(),
+        retryAfterSeconds: Math.ceil((resetsAtMs - now) / 1000)
+      });
+    }
     if (!lock.acquired) return { refreshed: false, retryAt: new Date(lock.lockedAt + minIntervalMs).toISOString() };
     const data = await this.fetchCostExplorer();
-    await this.store.save({ ...data, refreshStartedAt: now });
+    // O save regrava o item inteiro: leva junto o contador do dia que a trava
+    // devolveu (ninguém o muda enquanto a trava vale)
+    const counter = lock.manualDay && { manualDay: lock.manualDay, manualCount: lock.manualCount };
+    await this.store.save({ ...data, refreshStartedAt: now, ...counter });
     this.snapshotCache = null;
     return { refreshed: true, fetchedAt: data.fetchedAt };
   }
@@ -372,7 +390,8 @@ export class CostClient {
 
 /**
  * Última leitura do Cost Explorer: um item só (id 'actual') na
- * CostSnapshotsTable. refreshStartedAt é a trava de refreshActual.
+ * CostSnapshotsTable. refreshStartedAt é a trava de refreshActual;
+ * manualDay/manualCount contam as leituras manuais do dia.
  */
 export function snapshotStore(TableName, client = docClient) {
   const Key = { id: SNAPSHOT_ID };
@@ -381,24 +400,48 @@ export function snapshotStore(TableName, client = docClient) {
       const { Item } = await client.send(new GetCommand({ TableName, Key }));
       return Item?.fetchedAt ? Item : null;
     },
-    // Pega a trava se a última leitura começou há mais de minIntervalMs
-    async tryLock(now, minIntervalMs) {
-      try {
-        await client.send(new UpdateCommand({
-          TableName,
-          Key,
-          UpdateExpression: 'SET refreshStartedAt = :now',
-          ConditionExpression: 'attribute_not_exists(refreshStartedAt) OR refreshStartedAt < :cutoff',
-          ExpressionAttributeValues: { ':now': now, ':cutoff': now - minIntervalMs },
-          ReturnValuesOnConditionCheckFailure: 'ALL_OLD'
-        }));
-        return { acquired: true };
-      } catch (error) {
-        if (error.name !== 'ConditionalCheckFailedException') throw error;
-        // O item da falha vem no formato do DynamoDB ({ N: '...' }), sem o unmarshall do DocumentClient
-        const lockedAt = error.Item?.refreshStartedAt;
-        return { acquired: false, lockedAt: Number(lockedAt?.N ?? lockedAt) || now };
+    // Pega a trava se a última leitura começou há mais de minIntervalMs.
+    // `quota` ({ day, limit }, leitura manual): a mesma escrita soma 1 em
+    // manualCount, só se o dia ainda não chegou ao limite. Uma escrita por
+    // caso (mesmo dia ou dia novo); a que falha devolve o item, que diz o motivo
+    async tryLock(now, minIntervalMs, quota) {
+      const unlocked = 'attribute_not_exists(refreshStartedAt) OR refreshStartedAt < :cutoff';
+      const values = { ':now': now, ':cutoff': now - minIntervalMs };
+      const attempts = quota
+        ? [
+          {
+            UpdateExpression: 'SET refreshStartedAt = :now, manualCount = manualCount + :one',
+            ConditionExpression: `(${unlocked}) AND manualDay = :day AND manualCount < :limit`,
+            ExpressionAttributeValues: { ...values, ':day': quota.day, ':one': 1, ':limit': quota.limit }
+          },
+          {
+            UpdateExpression: 'SET refreshStartedAt = :now, manualDay = :day, manualCount = :one',
+            ConditionExpression: `(${unlocked}) AND (attribute_not_exists(manualDay) OR manualDay <> :day)`,
+            ExpressionAttributeValues: { ...values, ':day': quota.day, ':one': 1 }
+          }
+        ]
+        : [{ UpdateExpression: 'SET refreshStartedAt = :now', ConditionExpression: unlocked, ExpressionAttributeValues: values }];
+
+      let old;
+      for (const attempt of attempts) {
+        try {
+          const { Attributes = {} } = await client.send(new UpdateCommand({
+            TableName, Key, ...attempt, ReturnValues: 'ALL_NEW', ReturnValuesOnConditionCheckFailure: 'ALL_OLD'
+          }));
+          const { manualDay, manualCount } = Attributes;
+          return { acquired: true, ...(manualDay && { manualDay, manualCount }) };
+        } catch (error) {
+          if (error.name !== 'ConditionalCheckFailedException') throw error;
+          // O item da falha vem no formato do DynamoDB ({ N: '...' }), sem o unmarshall do DocumentClient
+          old = error.Item || {};
+        }
+        const lockedAt = Number(old.refreshStartedAt?.N ?? old.refreshStartedAt);
+        if (lockedAt >= now - minIntervalMs) return { acquired: false, lockedAt };
+        // Destravado e no mesmo dia: a primeira escrita só falha por limite
+        if (quota && (old.manualDay?.S ?? old.manualDay) === quota.day) return { acquired: false, limitReached: true };
       }
+      // Corrida: outra leitura mudou o item entre as duas escritas (e travou)
+      return { acquired: false, lockedAt: now };
     },
     async save(snapshot) {
       await client.send(new PutCommand({ TableName, Item: { id: SNAPSHOT_ID, ...snapshot } }));

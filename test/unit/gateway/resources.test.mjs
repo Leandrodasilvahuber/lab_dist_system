@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { MemoryMetricsClient, memoryLimitFor } from '../../../src/layers/api-gateway-layer/src/services/MemoryMetricsClient.js';
 import { CostClient, parseCostQuery, snapshotStore, PRICES, SERVICES, TRANSITIONS_PER_SAGA } from '../../../src/layers/api-gateway-layer/src/services/CostClient.js';
+import { CostRefreshLimitError } from '../../../src/common/errors.mjs';
 import { createAPIHandler } from '../../../src/layers/api-gateway-layer/src/routes/apiRoutes.js';
 import { isAdminRoute } from '../../../src/common/auth.mjs';
 
@@ -101,11 +102,17 @@ function fakeStore(initial = null) {
   return {
     item: initial,
     async get() { return this.item?.fetchedAt ? this.item : null; },
-    async tryLock(now, minIntervalMs) {
+    async tryLock(now, minIntervalMs, quota) {
       const lockedAt = this.item?.refreshStartedAt;
       if (lockedAt !== undefined && lockedAt >= now - minIntervalMs) return { acquired: false, lockedAt };
+      if (quota) {
+        const count = this.item?.manualDay === quota.day ? this.item.manualCount : 0;
+        if (count >= quota.limit) return { acquired: false, limitReached: true };
+        this.item = { ...this.item, manualDay: quota.day, manualCount: count + 1 };
+      }
       this.item = { ...this.item, refreshStartedAt: now };
-      return { acquired: true };
+      const { manualDay, manualCount } = this.item;
+      return { acquired: true, ...(manualDay && { manualDay, manualCount }) };
     },
     async save(snapshot) { this.item = snapshot; }
   };
@@ -210,6 +217,46 @@ describe('CostClient', () => {
     now = NOW + 15 * 60 * 1000 + 1;
     assert.strictEqual((await cost.refreshActual()).refreshed, true);
     assert.strictEqual(costExplorer.sent.length, 4);
+  });
+
+  it('leitura manual: até o limite do dia, depois 429 até as 12:00; a agendada não conta', async () => {
+    let now = NOW;
+    const store = fakeStore();
+    const cost = new CostClient({ cloudwatch: fakeCloudWatch({}), costExplorer: fakeCostExplorer(), store, local: false, now: () => now, env: { COST_REFRESH_DAILY_LIMIT: '2' } });
+    const next = () => { now += 15 * 60 * 1000 + 1; };
+    await cost.refreshActual({ manual: true });
+    next();
+    await cost.refreshActual({ manual: true });
+    next();
+    const error = await cost.refreshActual({ manual: true }).catch(e => e);
+    assert.ok(error instanceof CostRefreshLimitError);
+    // NOW é 09:00 em Brasília: o dia de cota zera às 12:00 (15:00 UTC)
+    assert.strictEqual(error.resetsAt, '2026-10-04T15:00:00.000Z');
+    assert.strictEqual(error.retryAfterSeconds, Math.ceil((Date.parse('2026-10-04T15:00:00Z') - now) / 1000));
+    // A regra agendada continua lendo
+    assert.strictEqual((await cost.refreshActual()).refreshed, true);
+    now = Date.parse('2026-10-04T15:00:00Z');
+    assert.strictEqual((await cost.refreshActual({ manual: true })).refreshed, true);
+    assert.deepStrictEqual([store.item.manualDay, store.item.manualCount], ['2026-10-04', 1]);
+  });
+
+  it('snapshotStore: leitura manual conta no dia na mesma escrita da trava', async () => {
+    const quota = { day: '2026-10-04', limit: 5 };
+    const failWith = Item => Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException', Item });
+    // Mesmo dia, limite atingido: uma escrita só
+    let sent = [];
+    let client = { async send(command) { sent.push(command); throw failWith({ refreshStartedAt: { N: '1' }, manualDay: { S: quota.day }, manualCount: { N: '5' } }); } };
+    assert.deepStrictEqual(await snapshotStore('t', client).tryLock(NOW, 1000, quota), { acquired: false, limitReached: true });
+    assert.strictEqual(sent.length, 1);
+    assert.match(sent[0].input.ConditionExpression, /manualCount < :limit/);
+    // Dia novo: a segunda escrita recomeça o contador
+    sent = [];
+    client = { async send(command) { sent.push(command); if (sent.length === 1) throw failWith({ manualDay: { S: '2026-10-03' }, manualCount: { N: '5' } }); return {}; } };
+    assert.deepStrictEqual(await snapshotStore('t', client).tryLock(NOW, 1000, quota), { acquired: true });
+    assert.match(sent[1].input.UpdateExpression, /manualDay = :day, manualCount = :one/);
+    // Travado (leitura há menos de minIntervalMs): 429 de 15 min, não o do dia
+    client = { async send() { throw failWith({ refreshStartedAt: { N: String(NOW) }, manualDay: { S: quota.day }, manualCount: { N: '5' } }); } };
+    assert.deepStrictEqual(await snapshotStore('t', client).tryLock(NOW + 10, 1000, quota), { acquired: false, lockedAt: NOW });
   });
 
   it('local: não há Cost Explorer para atualizar (503)', async () => {
@@ -330,6 +377,19 @@ describe('GET /metrics/memory e /metrics/cost', () => {
     assert.ok(Number(locked.headers['Retry-After']) >= 89);
     const failing = createAPIHandler({ cost: { async refreshActual() { throw new Error('AccessDenied'); } } });
     assert.strictEqual((await failing(post)).statusCode, 503);
+  });
+
+  it('POST /metrics/cost/refresh: leitura manual e 429 com code quando passa do limite do dia', async () => {
+    const calls = [];
+    const limited = new CostRefreshLimitError(5, { resetsAt: '2026-10-04T15:00:00.000Z', retryAfterSeconds: 600 });
+    const handler = createAPIHandler({ cost: { async refreshActual(options) { calls.push(options); throw limited; } } });
+    const response = await handler({ requestContext: { http: { method: 'POST' } }, rawPath: '/metrics/cost/refresh', headers: {} });
+    assert.deepStrictEqual(calls, [{ manual: true }]);
+    assert.strictEqual(response.statusCode, 429);
+    assert.strictEqual(response.headers['Retry-After'], '600');
+    assert.deepStrictEqual(JSON.parse(response.body), {
+      error: limited.message, code: 'CostRefreshLimitExceeded', limit: 5, resetsAt: '2026-10-04T15:00:00.000Z'
+    });
   });
 
   it('a regra agendada lê o Cost Explorer', async () => {

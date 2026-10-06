@@ -185,7 +185,7 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/metrics/slo?hours=24` | `hours`: 1, 24 ou 168. SLOs da janela: p95 das compras concluídas, % de sagas Completed/Compensated e mensagens na DLQ há mais de 24 h (aba SLOs) |
 | GET | `/metrics/memory?hours=3` | `hours` como em `/metrics/errors`. Memória máxima e média por Lambda (`MemoryUsedMB`) e o limite configurado (aba Recursos) |
 | GET | `/metrics/cost?days=14` 🔑 | `days`: 7, 14, 30 ou 90. Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pela última leitura do Cost Explorer (aba Recursos; é o gasto da conta inteira). Não chama o Cost Explorer: ele é lido a cada 6 h por uma regra agendada |
-| POST | `/metrics/cost/refresh` 🔑 | Lê o Cost Explorer agora (US$ 0,02), no máximo uma vez a cada 15 min; antes disso responde 429 com `Retry-After`. 503 no LocalStack |
+| POST | `/metrics/cost/refresh` 🔑 | Lê o Cost Explorer agora (US$ 0,02), no máximo uma vez a cada 15 min; antes disso responde 429 com `Retry-After`. Até 5 por dia (`DailyCostRefreshLimit`; zera às 12:00 de Brasília; a leitura agendada não conta): depois, 429 com `code: CostRefreshLimitExceeded`. 503 no LocalStack |
 | GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) |
 | POST | `/dlq/{messageId}/redrive` 🔑 | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
 | POST | `/dlq/{messageId}/discard` 🔑 | Apaga o evento da DLQ |
@@ -201,7 +201,7 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/stock` | Estoque dos produtos, paginado (`?productId=&stockMin=&stockMax=&limit=&nextToken=`; `reserved: null` e `degraded: true` se as reservas não puderem ser lidas) |
 | GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento; com o índice de reservas fora do ar, `reserved`/`activeReservations` vêm `null` e `degraded: true`) |
 | POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir; não é idempotente: depois de um 503, confira o estoque antes de repetir) |
-| **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` (`quantity` de 1 a 1000) + header `Idempotency-Key` (obrigatório, 400 sem ele) → 202; `503` + `Retry-After`: repita com a mesma chave |
+| **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` (`quantity` de 1 a 1000) + header `Idempotency-Key` (obrigatório, 400 sem ele) → 202; `503` + `Retry-After`: repita com a mesma chave; `429` (`code: PurchaseLimitExceeded`, `scope: total` ou `client`): passou do limite diário de compras novas (`DailyPurchaseLimit`, padrão 150, e `DailyPurchaseLimitPerClient`, padrão 20 por IP; zera às 12:00 de Brasília; desligados no local-server; para o `npm run chaos` na AWS, faça o deploy com os dois em 0) |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
 | GET | `/sagas` | Lista as compras, paginado (`?status=&limit=&nextToken=`); `?recent=N` (1 a 50) devolve as N mais recentes das últimas 24 h, pelo índice por dia (tela Comprar) |
 

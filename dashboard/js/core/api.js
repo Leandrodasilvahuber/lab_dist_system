@@ -15,10 +15,11 @@ export async function api(path, options = {}) {
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-        // 429: limite por rota do API Gateway (RouteSettings no template.yaml)
+        // 429 sem code: limite por rota do API Gateway (RouteSettings no template.yaml);
+        // com code (limite diário de compras), vale a mensagem do corpo
         const message = isAuthError(response)
             ? 'entre como admin (botão no canto superior direito)'
-            : response.status === 429
+            : response.status === 429 && !body.code
                 ? 'muitas requisições no momento, tente de novo em instantes'
                 : body.error || body.message || `HTTP ${response.status}`;
         const error = new Error(message);

@@ -38,6 +38,35 @@ export class IdempotencyConflictError extends DomainError {
 }
 
 /**
+ * Limite diário atingido (daily-quota.mjs). 429 com Retry-After até a hora em
+ * que o contador zera; `code`, `limit` e `resetsAt` vão no corpo da resposta.
+ */
+export class DailyLimitError extends DomainError {
+  constructor(message, name, limit, { resetsAt, retryAfterSeconds, scope }) {
+    super(message, name, 429);
+    this.limit = limit;
+    this.scope = scope;
+    this.resetsAt = resetsAt;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+// Compras novas do dia (PurchaseQuota); scope 'total' (todas) ou 'client' (um IP)
+export class PurchaseLimitError extends DailyLimitError {
+  constructor(limit, reset) {
+    const who = reset.scope === 'client' ? ' per client' : '';
+    super(`Daily purchase limit of ${limit}${who} reached; it resets at 12:00 (Brasília)`, 'PurchaseLimitExceeded', limit, reset);
+  }
+}
+
+// Leituras manuais do Cost Explorer no dia (CostClient.refreshActual)
+export class CostRefreshLimitError extends DailyLimitError {
+  constructor(limit, reset) {
+    super(`Daily limit of ${limit} manual cost refreshes reached; it resets at 12:00 (Brasília)`, 'CostRefreshLimitExceeded', limit, reset);
+  }
+}
+
+/**
  * Dependência indisponível (timeout, erro de infraestrutura, circuit breaker
  * aberto). Não é erro de negócio: vale tentar de novo depois de
  * `retryAfterSeconds` (vira o header Retry-After do 503).

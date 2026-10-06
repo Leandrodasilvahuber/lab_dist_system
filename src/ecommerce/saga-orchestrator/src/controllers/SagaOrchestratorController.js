@@ -46,7 +46,9 @@ export class SagaOrchestratorController {
         productId,
         quantity,
         correlationId,
-        idempotencyKey
+        idempotencyKey,
+        // Limite diário por cliente (PurchaseQuota)
+        clientId: event.requestContext?.http?.sourceIp
       });
 
       log({

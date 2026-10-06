@@ -14,15 +14,24 @@ function isClientMiss(method, statusCode) {
   return statusCode === 404 && (method === 'GET' || method === 'HEAD');
 }
 
+// Recusa por limite diário (DailyLimitError, sempre com code): é o
+// comportamento configurado, não falha; como warn, um dia esgotado
+// dispararia business-errors
+function isExpectedLimit(statusCode, response) {
+  return statusCode === 429 && Boolean(errorCode(response));
+}
+
 const CLIENT_MISS_METRICS = {
   metrics: { ClientErrors: { value: 1 } },
   dimensions: { ErrorType: 'HTTP_404' },
   dimensionSets: [[], ['ErrorType']]
 };
 
-function logRejection(event, correlationId, statusCode, message, extra) {
+function logRejection(event, correlationId, statusCode, message, extra, response) {
   const base = { event: 'API_REJECTED', correlationId, message: `${event.method} ${event.path} -> ${statusCode}: ${message}`, ...extra };
-  if (isClientMiss(event.method, statusCode)) {
+  if (isExpectedLimit(statusCode, response)) {
+    log({ ...base, status: 'info' });
+  } else if (isClientMiss(event.method, statusCode)) {
     log({ ...base, status: 'info', error: null, metrics: CLIENT_MISS_METRICS });
   } else {
     log({ ...base, status: 'warn' });
@@ -34,6 +43,14 @@ function errorMessage(response) {
     return JSON.parse(response.body).error ?? '';
   } catch {
     return '';
+  }
+}
+
+function errorCode(response) {
+  try {
+    return JSON.parse(response?.body).code;
+  } catch {
+    return undefined;
   }
 }
 
@@ -73,7 +90,7 @@ export function createServiceHandler({ service, setupRoutes, actions = {}, event
       const { statusCode } = response;
       const data = { method: event.method, path: event.path, statusCode, durationMs: Date.now() - started };
       if (statusCode >= 400 && statusCode < 500) {
-        logRejection(event, correlationId, statusCode, errorMessage(response), { data });
+        logRejection(event, correlationId, statusCode, errorMessage(response), { data }, response);
       } else {
         log({ event: 'API_RESPONSE', correlationId, status: 'info', message: `${event.method} ${event.path} -> ${statusCode}`, data });
       }

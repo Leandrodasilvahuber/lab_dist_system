@@ -1,5 +1,5 @@
-import { successResponse, errorResponse, notFoundResponse } from '../../../../common/response.mjs';
-import { DomainError } from '../../../../common/errors.mjs';
+import { successResponse, errorResponse, notFoundResponse, dailyLimitResponse } from '../../../../common/response.mjs';
+import { DailyLimitError, DomainError } from '../../../../common/errors.mjs';
 import { normalizeHttpEvent } from '../../../../common/http-event.mjs';
 import { log } from '../../../../common/logger.mjs';
 import { withRuntimeMetrics } from '../../../../common/runtime-metrics.mjs';
@@ -150,14 +150,19 @@ export function createAPIHandler({
       }
     }
 
-    // admin: lê o Cost Explorer agora, no máximo uma vez a cada 15 min
+    // admin: lê o Cost Explorer agora, no máximo uma vez a cada 15 min e
+    // COST_REFRESH_DAILY_LIMIT vezes por dia (zera às 12:00)
     if (event.method === 'POST' && event.path === '/metrics/cost/refresh') {
       try {
-        const result = await cost.refreshActual();
+        const result = await cost.refreshActual({ manual: true });
         if (result.refreshed) return successResponse(result);
         const seconds = Math.max(1, Math.ceil((Date.parse(result.retryAt) - Date.now()) / 1000));
         return errorResponse('Cost Explorer read recently', 429, { 'Retry-After': String(seconds) });
       } catch (error) {
+        if (error instanceof DailyLimitError) {
+          log({ event: 'COST_REFRESH_LIMITED', correlationId: event.headers.correlationId, status: 'info', message: error.message });
+          return dailyLimitResponse(error);
+        }
         if (error instanceof DomainError) return errorResponse(error.message, error.statusCode);
         log({ event: 'COST_REFRESH_FAILED', correlationId: event.headers.correlationId, status: 'error', message: 'Could not read Cost Explorer', error });
         return errorResponse('Cost Explorer unavailable', 503);

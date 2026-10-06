@@ -109,6 +109,11 @@ async function startPurchase(event) {
         if (retryable) {
             const wait = error.retryAfter ? ` em ${error.retryAfter}s` : '';
             showToast(`Compra não iniciada: ${error.message}. Tente de novo${wait} (a mesma compra será retomada)`, 'error');
+        } else if (error.body?.code === 'PurchaseLimitExceeded') {
+            // Limite diário (PurchaseQuota): a compra não começou; depois das 12:00 é uma compra nova
+            pendingPurchase = null;
+            const who = error.body.scope === 'client' ? ' para este cliente' : '';
+            alert(`Total de compras do dia excedido${who} (${error.body.limit}). O limite zera às 12:00.`);
         } else {
             pendingPurchase = null;
             showToast(`Compra recusada: ${error.message}`, 'error');

@@ -6,6 +6,7 @@ import { encodeToken } from '../../../../common/pagination.mjs';
 import { SAGAS_BY_DAY_INDEX, dayShardsInWindow, sagaDayShard } from '../../../../common/saga-day-index.mjs';
 import { STUCK_AFTER_MS } from '../../../../common/saga-timing.mjs';
 import { StepFunctionsClient } from './StepFunctionsClient.js';
+import { PurchaseQuota, isQuotaItem } from './PurchaseQuota.js';
 import { requireId } from '../../../../common/validation.mjs';
 import { ProductClient } from '../../../../common/product-client.mjs';
 import { SagaStatus, finalStatus } from '../../../../common/saga-status.mjs';
@@ -54,8 +55,9 @@ const CONSISTENT = { consistentRead: true };
  * (workflow/saga-workflow.asl.json), que também atualiza o registro da saga.
  */
 export class SagaService {
-  constructor({ db = new Database(), stepFunctions = new StepFunctionsClient(), productClient = new ProductClient(), now = Date.now } = {}) {
+  constructor({ db = new Database(), stepFunctions = new StepFunctionsClient(), productClient = new ProductClient(), now = Date.now, quota } = {}) {
     this.db = db;
+    this.quota = quota || new PurchaseQuota({ now });
     this.stepFunctions = stepFunctions;
     this.productClient = productClient;
     this.now = now;
@@ -67,7 +69,7 @@ export class SagaService {
    * em vez de criar outra; com um pedido diferente, responde 409. Se a saga
    * existente falhou ao iniciar, ela é iniciada de novo.
    */
-  async startSaga({ productId, quantity, correlationId, idempotencyKey }) {
+  async startSaga({ productId, quantity, correlationId, idempotencyKey, clientId }) {
     if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
       throw new ValidationError('productId and a positive integer quantity are required');
     }
@@ -114,7 +116,7 @@ export class SagaService {
       dayShard: sagaDayShard(sagaId, now)
     };
 
-    const created = await this.db.putItemIfNotExists('sagas', saga);
+    const created = await this.createSaga(saga, clientId);
     if (!created) {
       // Requisição concorrente com a mesma idempotencyKey
       return this.resume(await this.db.getItem('sagas', { id: sagaId }, CONSISTENT), { productId, quantity });
@@ -122,6 +124,37 @@ export class SagaService {
 
     await this.launch(saga);
     return { saga, created: true };
+  }
+
+  /**
+   * Grava a saga nova; false se a chave já existia (requisição concorrente).
+   * Com limite diário (PurchaseQuota), os contadores sobem na mesma transação:
+   * nenhuma chamada a mais no POST /saga/execute (Timeout no template.yaml),
+   * e a compra que perde a corrida para a mesma chave não conta. A transação
+   * também só roda depois do produto: 404 não gasta a cota.
+   */
+  async createSaga(saga, clientId) {
+    const counters = this.quota.counters(clientId);
+    if (!counters.length) return this.db.putItemIfNotExists('sagas', saga);
+    try {
+      await this.db.transactWrite([
+        { Put: { table: 'sagas', Item: saga, ConditionExpression: 'attribute_not_exists(id)' } },
+        ...counters.map(({ update }) => ({ Update: update }))
+      ]);
+      return true;
+    } catch (error) {
+      if (error.name !== 'TransactionCanceledException') throw error;
+      // Um motivo por escrita, na ordem da transação
+      const reasons = (error.CancellationReasons || []).map(r => r?.Code);
+      if (reasons[0] === 'ConditionalCheckFailed') return false;
+      const full = counters.find((_, i) => reasons[i + 1] === 'ConditionalCheckFailed');
+      if (full) throw this.quota.limitError(full);
+      // Outra compra mexendo no mesmo contador: o cliente repete com a mesma chave
+      if (reasons.includes('TransactionConflict')) {
+        throw new DependencyUnavailableError('Too many purchases at the same time, retry', { retryAfterSeconds: 1 });
+      }
+      throw error;
+    }
   }
 
   /**
@@ -265,7 +298,7 @@ export class SagaService {
   async getSaga(sagaId) {
     requireId(sagaId, 'sagaId');
     const saga = await this.db.getItem('sagas', { id: sagaId }, CONSISTENT);
-    if (!saga) {
+    if (!saga || isQuotaItem(saga)) {
       throw new NotFoundError('Saga not found');
     }
     return withProgress(await this.reconcile(saga));
@@ -471,6 +504,7 @@ export class SagaService {
   async listSagas(filters = {}, { limit, startKey } = {}) {
     const { items, lastKey } = await this.db.scanPage('sagas', { limit, startKey });
     const sagas = items
+      .filter(saga => !isQuotaItem(saga))
       .filter(saga => !filters.status || saga.status === filters.status)
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
       .map(withProgress);
