@@ -13,6 +13,7 @@ import { navLink } from './components/layout.js';
 import { loadChaos } from './services/chaos.js';
 import { runMonitors } from './views/monitoring.js';
 import { openTrace } from './views/trace.js';
+import { openSagaFlow } from './components/saga-modal.js';
 
 // ---------- Casca: ícones fixos e endpoint ----------
 $('brandMark').innerHTML = icon('bag', { size: 19 });
@@ -30,8 +31,13 @@ function toggleSidebar(open = !app.classList.contains('nav-open')) {
 $('menuBtn').addEventListener('click', () => toggleSidebar());
 $('scrim').addEventListener('click', () => toggleSidebar(false));
 
-// ---------- Navegação: links do menu, atalhos e lupas em qualquer tela ----------
+// ---------- Navegação: links do menu, atalhos, lupas e fluxo da saga em qualquer tela ----------
 document.addEventListener('click', event => {
+    const flow = event.target.closest('[data-flow]');
+    if (flow) {
+        openSagaFlow(flow.dataset.flow);
+        return;
+    }
     const trace = event.target.closest('[data-trace]');
     if (trace) {
         openTrace(trace.dataset.trace);
@@ -109,9 +115,10 @@ function renderAdminForm() {
     adminUserInput.hidden = !cognito;
     adminKeyInput.placeholder = cognito ? 'Senha' : 'Chave de admin';
     adminKeyInput.autocomplete = cognito ? 'current-password' : 'off';
-    $('adminHint').textContent = cognito
-        ? `Login de admin para criar produtos e ver logs, métricas e custo. A sessão vale até fechar a aba.${otherApiWarning()}`
-        : 'Chave (X-Api-Key) para criar produtos e ver alarmes, métricas e DLQ. Fica só nesta aba.';
+    // Sem explicação: só o aviso de que a senha iria para o login de outra API
+    const warning = cognito ? otherApiWarning() : '';
+    $('adminHint').textContent = warning;
+    $('adminHint').hidden = !warning;
 }
 
 // Com ?api=, é essa API que diz qual client do Cognito recebe a senha: um link
@@ -121,7 +128,7 @@ function otherApiWarning() {
     if (API_BASE === location.origin) return '';
     let host = API_BASE;
     try { host = new URL(API_BASE).host; } catch { /* mostra o texto como veio */ }
-    return ` Atenção: a senha vai para o login indicado por ${host}. Só entre se esta for a sua API.`;
+    return `Atenção: a senha vai para o login indicado por ${host}. Só entre se esta for a sua API.`;
 }
 
 // Relê a config (a leitura que falhou não fica guardada) e ajusta o formulário

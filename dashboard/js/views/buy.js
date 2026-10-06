@@ -19,8 +19,8 @@ let pollTimer = null;
 let lastStatuses = {};
 // Sagas exibidas, por id. O polling atualiza só as que estão em andamento
 let sagaCache = new Map();
-// Saga mostrada no diagrama: a compra recém-iniciada ou a clicada na lista.
-// Sem escolha (ou se ela sumir da lista), vale a mais recente
+// Saga do diagrama embaixo do formulário: a compra recém-feita (ao vivo, pelo
+// polling da lista) ou a clicada. Sem escolha (ou se ela sumir), a mais recente
 let selectedId = null;
 
 export default {
@@ -28,9 +28,8 @@ export default {
     label: 'Comprar',
     icon: 'cart',
     template: () => `
-        <div class="stack">
-        ${panel({ title: 'Fluxo da compra', icon: 'workflow', body: `<div id="sagaFlow">${sagaDiagram(null)}</div>` })}
-        <div class="split">
+        <div class="split split-even">
+            <div class="stack">
             ${panel({
                 title: 'Nova compra',
                 icon: 'bag',
@@ -47,8 +46,9 @@ export default {
                         <button type="submit" class="btn btn-success btn-block" id="buyButton">${icon('cart', { size: 16 })}<span>Comprar</span></button>
                     </form>`
             })}
+            ${panel({ title: 'Fluxo da compra', icon: 'workflow', flush: true, body: `<div id="sagaFlow">${sagaDiagram(null)}</div>` })}
+            </div>
             ${panel({ title: 'Compras', icon: 'list', body: `<div id="sagaList" class="saga-list">${loading()}</div>` })}
-        </div>
         </div>`,
 
     mount() {
@@ -118,9 +118,9 @@ async function startPurchase(event) {
     const productId = $('buyProduct').value;
     const quantity = Number($('buyQuantity').value);
 
-    let started = false;
     purchasing = true;
     button.disabled = true;
+    let started = false;
     // Até o POST responder, o diagrama mostra a compra nova começando, não a anterior
     $('sagaFlow').innerHTML = sagaDiagram({ status: 'RUNNING', steps: {} });
     // Uma chave por compra: enquanto a resposta não for definitiva (503,
@@ -140,7 +140,7 @@ async function startPurchase(event) {
         pendingPurchase = null;
         started = true;
         selectedId = result.sagaId;
-        showToast('Compra iniciada! Acompanhe o fluxo acima.', 'info');
+        showToast('Compra iniciada!', 'info');
         $('buyQuantity').value = 1;
         await fetchSagas();
         $(`saga-${result.sagaId}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -224,7 +224,7 @@ function render(sagas = sortedSagas()) {
     const selected = shown.find(s => s.id === selectedId) || shown[0] || null;
     const names = productNames();
     $('sagaList').innerHTML = shown.length
-        ? shown.map(s => sagaCard(s, names, { selected: s === selected })).join('')
+        ? shown.map(s => sagaCard(s, names, { selectable: true, selected: s === selected })).join('')
         : emptyState('Nenhuma compra nas últimas 24 h.', { icon: 'cart' });
     $('sagaFlow').innerHTML = sagaDiagram(selected);
 }

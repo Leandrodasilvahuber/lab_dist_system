@@ -68,6 +68,11 @@
     --observe-nav: #60a5fa;
     --ops-nav: #fbbf24;
 
+    /* Cores dos serviços AWS no diagrama da saga (iguais nos dois temas) */
+    --svc-lambda: #ed7100;
+    --svc-api: #8c4fff;
+    --svc-sfn: #e7157b;
+
     --code-bg: #121626;
     --code-text: #dfe3ee;
 

@@ -140,46 +140,105 @@ export function duration(ms) {
     return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
 }
 
-const NODE_ICON = {
-    pending: '',
-    running: '',
+// Serviço (Lambda) que executa cada passo: scripts/generate-saga-workflow.py
+const SERVICE = {
+    createOrder: 'orders',
+    reserveStock: 'stock',
+    processPayment: 'payments',
+    commitReservation: 'stock',
+    confirmOrder: 'orders',
+    refundPayment: 'payments',
+    releaseStock: 'stock',
+    cancelOrder: 'orders'
+};
+
+// Coluna de cada compensação: embaixo do passo que ela desfaz
+const COMPENSATION_COLUMN = { cancelOrder: 0, releaseStock: 1, refundPayment: 2 };
+
+const STATE_ICON = {
+    running: 'clock',
     done: 'check',
     failed: 'x',
     compensated: 'undo',
-    'compensation-failed': 'x',
-    skipped: ''
+    'compensation-failed': 'x'
 };
 
-const NODE_NOTE = {
+const STATE_NOTE = {
     pending: 'aguardando',
     running: 'executando',
     skipped: 'não executado'
 };
 
-function nodeHtml({ label, state, ms, error }, { skippedNote = NODE_NOTE.skipped } = {}) {
-    const glyph = NODE_ICON[state] ? icon(NODE_ICON[state], { size: 14 }) : '';
-    const note = ms !== null && ms !== undefined ? duration(ms) : state === 'skipped' ? skippedNote : NODE_NOTE[state] || '';
+// Seta acesa quando o nó de destino já foi alcançado
+const reached = state => !['idle', 'pending', 'skipped'].includes(state);
+
+// Conector no vão à esquerda do elemento; `to`: para onde a seta aponta
+const link = (on, { to = 'right', dashed = false, head = true } = {}) =>
+    `<i class="fx-link to-${to}${on ? ' on' : ''}${dashed ? ' dashed' : ''}${head ? '' : ' no-head'}" aria-hidden="true"></i>`;
+
+function card({ tile, glyph, name, sub, service, state, note, error }) {
+    const stateIcon = STATE_ICON[state] ? icon(STATE_ICON[state], { size: 12 }) : '';
     return `
-        <li class="flow-node is-${state}"${error ? ` title="${escapeHtml(error)}"` : ''}>
-            <span class="flow-dot">${glyph}</span>
-            <span class="flow-label">${escapeHtml(label)}</span>
-            <span class="flow-note">${escapeHtml(note)}</span>
-        </li>`;
+        <div class="fx-card is-${state}"${error ? ` title="${escapeHtml(error)}"` : ''}>
+            <span class="fx-tile tile-${tile}">${icon(glyph, { size: 15 })}</span>
+            ${service ? `<span class="fx-service">${escapeHtml(service)}</span>` : ''}
+            <span class="fx-text">
+                <span class="fx-name">${escapeHtml(name)}</span>
+                <span class="fx-sub">${escapeHtml(sub)}</span>
+            </span>
+            ${note || stateIcon ? `<span class="fx-state">${stateIcon}<span>${escapeHtml(note)}</span></span>` : ''}
+        </div>`;
 }
 
-const link = state => `<li class="flow-link is-${state}" aria-hidden="true">${icon('arrowRight', { size: 14 })}</li>`;
+function stepCard(n, skippedNote = STATE_NOTE.skipped) {
+    const note = n.ms !== null && n.ms !== undefined ? duration(n.ms)
+        : n.state === 'skipped' ? skippedNote : STATE_NOTE[n.state] || '';
+    return card({ tile: 'lambda', glyph: 'lambda', name: n.label, sub: n.name, service: SERVICE[n.name], state: n.state, note, error: n.error });
+}
 
-// Seta acesa quando o nó seguinte já foi alcançado
-const reached = state => !['pending', 'skipped'].includes(state);
+const RESULT = {
+    idle: ['idle', 'Resultado', ''],
+    'not-started': ['failed', 'Não iniciada', 'sem execução'],
+    running: ['running', 'Em andamento', 'executando'],
+    compensating: ['running', 'Desfazendo', 'compensando'],
+    completed: ['done', 'Concluída', 'pedido confirmado'],
+    compensated: ['compensated', 'Desfeita', 'tudo devolvido'],
+    'compensation-failed': ['compensation-failed', 'Compensação falhou', 'requer atenção'],
+    failed: ['failed', 'Falhou', 'pedido cancelado']
+};
 
-function lane(nodes, end, endLabel, options) {
-    return nodes.map((n, i) => (i ? link(reached(n.state) ? 'on' : 'off') : '') + nodeHtml(n, options)).join('')
-        + link(reached(end) ? 'on' : 'off')
-        + `<li class="flow-node flow-end is-${end}">
-                <span class="flow-dot">${end === 'done' ? icon('check', { size: 14 }) : end === 'compensated' ? icon('undo', { size: 14 }) : end === 'compensation-failed' ? icon('x', { size: 14 }) : ''}</span>
-                <span class="flow-label">${escapeHtml(endLabel)}</span>
-                <span class="flow-note"></span>
-            </li>`;
+// Ida: cinco Lambdas lado a lado, ligadas da esquerda para a direita
+function forwardRow(flow) {
+    return flow.forward.map((n, i) => `
+        <div class="fx-cell">${i ? link(reached(n.state)) : ''}${stepCard(n)}</div>`).join('');
+}
+
+// Descida do passo que falhou até a faixa de compensação
+function dropRow(failedColumn) {
+    const cells = FORWARD.map((_, i) => `<div class="fx-cell">${i === failedColumn
+        ? `<i class="fx-drop on${failedColumn > COMPENSATION_COLUMN.refundPayment ? ' no-head' : ''}" aria-hidden="true"></i>` : ''}</div>`).join('');
+    return `<div class="fx-row fx-drops"><span class="fx-lane-label">${icon('undo', { size: 12 })}Compensação</span>${cells}</div>`;
+}
+
+// Compensação: cada uma embaixo do passo que desfaz, executando da direita
+// para a esquerda. Falha depois do Pagamento entra pela direita (cotovelo)
+function compensationRow(flow, failedColumn) {
+    const byColumn = {};
+    for (const n of flow.compensation.nodes) byColumn[COMPENSATION_COLUMN[n.name]] = n;
+    const last = COMPENSATION_COLUMN.refundPayment;
+    return FORWARD.map((_, i) => {
+        const n = byColumn[i];
+        if (n) {
+            // Conector à esquerda deste cartão, apontando para o cartão anterior
+            const left = i > 0 ? link(reached(byColumn[i - 1].state), { to: 'left', dashed: true }) : '';
+            return `<div class="fx-cell">${left}${stepCard(n, 'não precisou')}</div>`;
+        }
+        if (failedColumn > last && i <= failedColumn) {
+            const into = link(true, { to: 'left', dashed: true, head: i === last + 1 });
+            return `<div class="fx-cell fx-path">${into}<i class="fx-${i === failedColumn ? 'elbow' : 'pass'}" aria-hidden="true"></i></div>`;
+        }
+        return '<div class="fx-cell fx-empty"></div>';
+    }).join('');
 }
 
 function summary(flow) {
@@ -206,21 +265,46 @@ function summary(flow) {
     }
 }
 
-/** Diagrama da saga: ida, compensação e o resumo do que aconteceu. */
+/** Diagrama da saga no estilo da visão geral do console da Lambda: trigger, a state machine com as Lambdas da ida e da compensação, e o resultado. */
 export function sagaDiagram(saga) {
-    const flow = flowState(saga);
+    const flow = withoutStatus(flowState(saga));
     const [tone, text] = summary(flow);
     const compensation = flow.compensation;
+    const started = !['idle', 'not-started'].includes(flow.outcome);
+    const finished = TERMINAL_OUTCOMES.includes(flow.outcome);
+    const failedColumn = compensation.active ? FORWARD.indexOf(flow.failedStep) : -1;
+    const [resultState, resultName, resultNote] = RESULT[flow.outcome] || RESULT.running;
     return `
-        <div class="flow" data-outcome="${flow.outcome}">
-            <div class="flow-lane">
-                <span class="flow-lane-title">Ida</span>
-                <ol class="flow-track">${lane(flow.forward, flow.end, 'Concluída')}</ol>
+        <div class="fx" data-outcome="${flow.outcome}">
+            <div class="fx-canvas">
+                <div class="fx-node fx-trigger">
+                    ${card({ tile: 'api', glyph: 'braces', name: 'API Gateway', sub: 'POST /saga/execute', state: started || finished ? 'done' : 'idle', note: started || finished ? 'recebida' : '' })}
+                </div>
+                <div class="fx-node fx-frame${compensation.active ? ' is-compensating' : ''}">
+                    ${link(started)}
+                    <div class="fx-frame-head">
+                        <span class="fx-tile tile-sfn">${icon('workflow', { size: 14 })}</span>
+                        <span class="fx-name">purchase-saga</span>
+                        <span class="fx-sub">Step Functions</span>
+                    </div>
+                    <div class="fx-row fx-forward">${forwardRow(flow)}</div>
+                    ${dropRow(failedColumn)}
+                    <div class="fx-row fx-back${compensation.active ? ' is-active' : ''}">${compensationRow(flow, failedColumn)}</div>
+                </div>
+                <div class="fx-node fx-result">
+                    ${link(finished)}
+                    ${card({ tile: `result-${resultState}`, glyph: STATE_ICON[resultState] || 'target', name: resultName, sub: 'resultado', state: resultState, note: resultNote })}
+                </div>
             </div>
-            <div class="flow-lane flow-back${compensation.active ? ' is-active' : ''}">
-                <span class="flow-lane-title">${icon('undo', { size: 13 })} Compensação</span>
-                <ol class="flow-track">${lane(compensation.nodes, compensation.end, 'Desfeita', { skippedNote: 'não precisou' })}</ol>
-            </div>
-            <p class="flow-summary tone-${tone}">${escapeHtml(text)}</p>
+            ${flow.outcome === 'idle' ? '' : `<p class="fx-summary tone-${tone}">${escapeHtml(text)}</p>`}
         </div>`;
 }
+
+// Nenhuma compra escolhida: o diagrama mostra só o caminho, sem estado nos cartões
+function withoutStatus(flow) {
+    if (flow.outcome !== 'idle') return flow;
+    const idle = nodes => nodes.map(n => ({ ...n, state: 'idle' }));
+    return { ...flow, forward: idle(flow.forward), compensation: { ...flow.compensation, nodes: idle(flow.compensation.nodes) } };
+}
+
+const TERMINAL_OUTCOMES = ['completed', 'compensated', 'compensation-failed', 'failed', 'not-started'];

@@ -11,11 +11,12 @@ const base = { id: 'saga_1', productId: 'apple', quantity: 1, createdAt: T0 };
 const states = nodes => nodes.map(n => n.state);
 
 describe('dashboard: fluxo da saga', () => {
-  it('sem saga: diagrama neutro', () => {
+  it('sem saga: diagrama sem status', () => {
     const flow = flowState(null);
     assert.strictEqual(flow.outcome, 'idle');
     assert.ok(flow.forward.every(n => n.state === 'pending'));
-    assert.match(sagaDiagram(null), /escolha uma na lista/);
+    const html = sagaDiagram(null);
+    assert.doesNotMatch(html, /fx-state|fx-summary|is-pending/);
   });
 
   it('concluída: todos os passos feitos, compensação não precisou, tempos por passo', () => {
@@ -118,6 +119,21 @@ describe('dashboard: fluxo da saga', () => {
     assert.strictEqual(duration(320), '320 ms');
     assert.strictEqual(duration(4210), '4,2 s');
     assert.strictEqual(duration(null), '');
+  });
+
+  it('desenha a descida até a compensação a partir do passo que falhou', () => {
+    const count = (html, re) => (html.match(re) || []).length;
+    // Falha na Confirmação (coluna 5): desce e vem pela direita até o Reembolso
+    const late = sagaDiagram({ ...base, status: 'COMPENSATING', failedStep: 'confirmOrder', error: { message: 'x' }, steps: {} });
+    assert.strictEqual(count(late, /class="fx-drop on no-head"/g), 1);
+    assert.strictEqual(count(late, /class="fx-elbow"/g), 1);
+    assert.strictEqual(count(late, /class="fx-pass"/g), 1);
+    // Falha no Estoque: desce direto na Libera estoque, sem cotovelo
+    const early = sagaDiagram({ ...base, status: 'COMPENSATING', failedStep: 'reserveStock', error: { message: 'x' }, steps: {} });
+    assert.strictEqual(count(early, /class="fx-drop on"/g), 1);
+    assert.doesNotMatch(early, /fx-elbow|fx-pass/);
+    // Sem compensação: nenhuma descida
+    assert.doesNotMatch(sagaDiagram({ ...base, status: 'COMPLETED', steps: {} }), /class="fx-drop[ "]/);
   });
 
   it('escapa a mensagem de erro no HTML', () => {

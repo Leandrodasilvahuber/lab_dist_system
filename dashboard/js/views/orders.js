@@ -2,10 +2,12 @@ import { apiAll } from '../core/api.js';
 import { $ } from '../core/dom.js';
 import { dateTime, escapeHtml, money } from '../core/format.js';
 import { loadProducts, productNames, products } from '../services/catalog.js';
+import { sagaIdFrom } from '../services/sagas.js';
 import { ORDER_STATUS, statusBadge } from '../components/badge.js';
 import { dataTable } from '../components/data-table.js';
 import { emptyState, errorState, loading } from '../components/empty.js';
 import { panel } from '../components/layout.js';
+import { flowButton } from '../components/saga-card.js';
 
 export default {
     id: 'orders',
@@ -22,7 +24,7 @@ async function fetchOrders() {
         const names = productNames();
         orders.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
         list.innerHTML = orders.length ? dataTable(
-            ['Produto', 'Status', { label: 'Total', className: 'num' }, 'Criado em', 'Pedido'],
+            ['Produto', 'Status', { label: 'Total', className: 'num' }, 'Criado em', 'Pedido', ''],
             orders.map(order => `
                 <tr>
                     <td><strong>${escapeHtml(names[order.productId] || order.productId)}</strong> × ${escapeHtml(order.quantity)}</td>
@@ -30,9 +32,16 @@ async function fetchOrders() {
                     <td class="num">${money(order.total)}</td>
                     <td class="nowrap">${dateTime(order.createdAt)}</td>
                     <td class="mono muted">${escapeHtml(order.id)}</td>
+                    <td class="row-actions">${orderFlowButton(order.id)}</td>
                 </tr>`)
         ) : emptyState('Nenhum pedido ainda.', { icon: 'receipt' });
     } catch (error) {
         list.innerHTML = errorState('Erro ao carregar pedidos', error);
     }
+}
+
+// order_<sagaId>: pedido criado por uma saga tem o diagrama da transação
+function orderFlowButton(orderId) {
+    const sagaId = sagaIdFrom(orderId);
+    return sagaId !== orderId ? flowButton(sagaId) : '';
 }
