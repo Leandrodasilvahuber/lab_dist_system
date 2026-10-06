@@ -900,6 +900,29 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
 
+  # Limite diário de compras atingido (DailyPurchaseLimit, PurchaseQuota): as
+  # vendas param até as 12:00 (Brasília). Métrica via EMF a cada compra recusada
+  # (PurchaseLimitHit, dimensão Scope). Período de 1 h: com o limite esgotado,
+  # no máximo um aviso por hora, não um por tentativa. Sem OKActions: voltar ao
+  # normal (nenhuma tentativa na hora) não é notícia
+  PurchaseLimitAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      AlarmName: !Sub '${Environment}-ecommerce-purchase-limit'
+      AlarmDescription: !Sub 'Limite diário de ${DailyPurchaseLimit} compras atingido: POST /saga/execute responde 429 até as 12:00 (Brasília). Suba DailyPurchaseLimit se for demanda real'
+      Namespace: !Sub 'Ecommerce/${Environment}'
+      MetricName: PurchaseLimitHit
+      Dimensions:
+        - Name: Scope
+          Value: total
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
   # Circuit breaker aberto (src/common/circuit-breaker.mjs): a saga parou de
   # chamar o serviço de Products e as compras recebem 503 com Retry-After.
   # Métrica gravada via EMF na abertura (CircuitOpened, dimensão Circuit).
@@ -1549,7 +1572,8 @@ Resources:
                 "${CircuitBreakerOpenAlarm.Arn}",
                 "${ClientErrorsAlarm.Arn}",
                 "${SagasStuckAlarm.Arn}",
-                "${LambdaThrottlesAlarm.Arn}"
+                "${LambdaThrottlesAlarm.Arn}",
+                "${PurchaseLimitAlarm.Arn}"
               ]
             } },
             { "type": "metric", "x": 0, "y": 32, "width": 24, "height": 6, "properties": {

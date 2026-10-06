@@ -146,6 +146,7 @@ IAM nas Lambdas. Namespace `Ecommerce/<ambiente>`:
 | `ClientErrors` | total, `ErrorType` | leitura (`GET`/`HEAD`) que respondeu 404: linha `info`, fora dos alarmes. Um cliente consultando o que não existe (id antigo, robô) aparece na aba Métricas sem disparar o `business-errors` |
 | `UnhandledErrors` | total, `ErrorType` | toda linha `error` (alarme `unhandled-errors`) |
 | `ActionCount`, `ActionDuration` (ms) | `Action`+`Outcome` (`ok`/`rejected`/`failed`) | cada ação da saga e evento de domínio (`src/common/actions.mjs`) |
+| `PurchaseLimitHit` | `Scope` (`total`/`client`) | compra recusada pelo limite diário (`PurchaseQuota`): linha `info`, fora do `business-errors`. Com `Scope=total`, alarme `purchase-limit` (as vendas pararam até as 12:00) |
 | `MemoryUsedMB` | `FunctionName` | toda invocação (`src/common/runtime-metrics.mjs`): RSS do processo ao fim da invocação, aproximação do *Max Memory Used* |
 | `InvocationDurationMs` | `FunctionName` | só no perfil local: base da estimativa de custo, já que o LocalStack não publica `AWS/Lambda Duration` |
 

@@ -204,6 +204,40 @@ describe('SagaService', () => {
       assert.strictEqual(db.tables.sagas.has('quota_2026-10-05'), false);
     });
 
+    it('throttling dentro da transação: 503 com Retry-After, não 500', async () => {
+      service = withQuota({ limit: 5, perClientLimit: 5 });
+      db.transactWrite = async () => {
+        throw Object.assign(new Error('canceled'), {
+          name: 'TransactionCanceledException',
+          CancellationReasons: [{ Code: 'None' }, { Code: 'ThrottlingError' }, { Code: 'None' }]
+        });
+      };
+      const error = await buy('k-quota-throttled').catch(e => e);
+      assert.ok(error instanceof DependencyUnavailableError);
+      assert.strictEqual(error.cause.name, 'TransactionCanceledException');
+      assert.strictEqual(sfn.started.length, 0);
+    });
+
+    it('limite total atingido: linha info com a métrica PurchaseLimitHit (alarme purchase-limit)', async () => {
+      service = withQuota({ limit: 1, perClientLimit: 0 });
+      await buy('k-quota-metric-1');
+      const lines = [];
+      const original = console.log;
+      console.log = line => lines.push(line);
+      try {
+        await assert.rejects(buy('k-quota-metric-2'), PurchaseLimitError);
+      } finally {
+        console.log = original;
+      }
+      const entry = lines.map(l => { try { return JSON.parse(l); } catch { return null; } })
+        .find(l => l?.event === 'PURCHASE_LIMIT_REACHED');
+      assert.ok(entry, 'PURCHASE_LIMIT_REACHED registrado');
+      assert.strictEqual(entry.level ?? entry.status, 'info');
+      assert.strictEqual(entry.PurchaseLimitHit, 1);
+      assert.strictEqual(entry.Scope, 'total');
+      assert.deepStrictEqual(entry._aws.CloudWatchMetrics[0].Dimensions, [['Scope']]);
+    });
+
     it('conflito de transação no contador: 503 para repetir com a mesma chave', async () => {
       service = withQuota({ limit: 5, perClientLimit: 5 });
       db.conflict = true;

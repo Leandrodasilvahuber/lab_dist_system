@@ -148,10 +148,19 @@ export class SagaService {
       const reasons = (error.CancellationReasons || []).map(r => r?.Code);
       if (reasons[0] === 'ConditionalCheckFailed') return false;
       const full = counters.find((_, i) => reasons[i + 1] === 'ConditionalCheckFailed');
-      if (full) throw this.quota.limitError(full);
+      if (full) {
+        logLimitReached(saga, full);
+        throw this.quota.limitError(full);
+      }
       // Outra compra mexendo no mesmo contador: o cliente repete com a mesma chave
       if (reasons.includes('TransactionConflict')) {
         throw new DependencyUnavailableError('Too many purchases at the same time, retry', { retryAfterSeconds: 1 });
+      }
+      // Throttling dentro da transação não vem como ThrottlingException (que
+      // isTransientAwsError reconhece), e sim como motivo do cancelamento:
+      // mesma resposta de antes da transação, 503 com Retry-After
+      if (reasons.some(code => THROTTLING_REASONS.has(code))) {
+        throw new DependencyUnavailableError(undefined, { cause: error });
       }
       throw error;
     }
@@ -510,6 +519,25 @@ export class SagaService {
       .map(withProgress);
     return { sagas, nextToken: encodeToken(lastKey) };
   }
+}
+
+// Motivos de cancelamento de transação que são throttling do DynamoDB
+const THROTTLING_REASONS = new Set(['ThrottlingError', 'ProvisionedThroughputExceeded', 'RequestLimitExceeded']);
+
+/**
+ * Compra recusada pelo limite diário: info (a recusa é o comportamento
+ * configurado), com a métrica PurchaseLimitHit por Scope. Com Scope=total o
+ * alarme purchase-limit avisa que as vendas pararam até as 12:00
+ */
+function logLimitReached(saga, { scope, limit }) {
+  log({
+    event: 'PURCHASE_LIMIT_REACHED',
+    correlationId: saga.correlationId,
+    status: 'info',
+    message: `Daily purchase limit reached (${scope}: ${limit})`,
+    data: { scope, limit },
+    metrics: { metrics: { PurchaseLimitHit: { value: 1 } }, dimensions: { Scope: scope }, dimensionSets: [['Scope']] }
+  });
 }
 
 /**
