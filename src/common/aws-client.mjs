@@ -26,8 +26,9 @@
  * endpoint). Na AWS nenhuma delas existe e a escala é 1 (valores de produção).
  * `TIMEOUT_SCALE` sobrescreve (1 desliga o perfil local).
  */
+export const isLocalStack = (env = process.env) => Boolean(env.AWS_ENDPOINT || env.LOCALSTACK_HOSTNAME);
 export function timeoutScale(env = process.env) {
-  return Number(env.TIMEOUT_SCALE) || (env.AWS_ENDPOINT || env.LOCALSTACK_HOSTNAME ? 3 : 1);
+  return Number(env.TIMEOUT_SCALE) || (isLocalStack(env) ? 3 : 1);
 }
 export const TIMEOUT_SCALE = timeoutScale();
 export const IS_LOCAL = TIMEOUT_SCALE !== 1;

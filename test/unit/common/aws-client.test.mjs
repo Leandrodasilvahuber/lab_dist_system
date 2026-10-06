@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
-import { DEFAULT_TIMEOUTS, QUERY_CLIENT_OPTIONS, TIMEOUT_SCALE, awsClientConfig, timeoutScale } from '../../../src/common/aws-client.mjs';
+import { DEFAULT_TIMEOUTS, QUERY_CLIENT_OPTIONS, TIMEOUT_SCALE, awsClientConfig, isLocalStack, timeoutScale } from '../../../src/common/aws-client.mjs';
 import { MAX_SOCKETS, SCAN_TIMEOUT_MS } from '../../../src/common/database.mjs';
 import { MAX_PAGE_SIZE } from '../../../src/common/pagination.mjs';
 
@@ -79,5 +79,11 @@ describe('timeoutScale (perfil local)', () => {
   it('TIMEOUT_SCALE sobrescreve a detecção (1 desliga o perfil local)', () => {
     assert.strictEqual(timeoutScale({ AWS_ENDPOINT: 'http://localhost:4566', TIMEOUT_SCALE: '1' }), 1);
     assert.strictEqual(timeoutScale({ TIMEOUT_SCALE: '2' }), 2);
+  });
+
+  it('isLocalStack não depende do TIMEOUT_SCALE (a fila do dashboard continua)', () => {
+    assert.strictEqual(isLocalStack({ AWS_ENDPOINT: 'http://localhost:4566', TIMEOUT_SCALE: '1' }), true);
+    assert.strictEqual(isLocalStack({ LOCALSTACK_HOSTNAME: 'localhost.localstack.cloud' }), true);
+    assert.strictEqual(isLocalStack({ AWS_ENDPOINT_URL: 'https://vpce.example' }), false);
   });
 });

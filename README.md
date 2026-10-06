@@ -183,14 +183,14 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 
 | Método | Rota | Descrição |
 |---|---|---|
-| GET | `/health` | Health check |
+| GET | `/health` | Health check; `environment` (`aws` ou `localstack`) diz ao dashboard se enfileira as leituras do CloudWatch |
 | GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) |
 | GET | `/logs?level=warn\|error&hours=24` 🔑 | Linhas de log warn/error, mais recentes primeiro (aba Logs); `hours` vira 1, 24, 168 ou 336 |
 | GET | `/trace/{correlationId}` 🔑 | Todas as linhas de log de uma compra, em ordem (aba Rastreio) |
 | GET | `/metrics/errors?hours=24` 🔑 | `hours`: 1, 3, 24, 168 ou 336 (outro valor vai para o mais próximo). Séries de erros de negócio/não tratados por tipo e chamadas/duração por ação, gravadas via EMF (aba Métricas) |
 | GET | `/metrics/sagas` | Tempo por passo das últimas 10 compras, do histórico do Step Functions (aba Desempenho) |
 | GET | `/metrics/slo?hours=24` | `hours`: 1, 24 ou 168. SLOs da janela: p95 das compras concluídas, % de sagas Completed/Compensated e mensagens na DLQ há mais de 24 h (aba SLOs) |
-| GET | `/metrics/memory?hours=3` 🔑 | `hours` como em `/metrics/errors`. Memória máxima e média por Lambda (`MemoryUsedMB`) e o limite configurado (aba Recursos) |
+| GET | `/metrics/memory?hours=3` 🔑 | `hours` como em `/metrics/errors`. Memória máxima por Lambda (`MemoryUsedMB`) e o limite configurado (aba Recursos) |
 | GET | `/metrics/cost?days=14` 🔑 | `days`: 7, 14, 30 ou 90. Custo por serviço e por dia: estimado (métricas × preços) e, na AWS, o real e a previsão do mês pela última leitura do Cost Explorer (aba Recursos; é o gasto da conta inteira). Não chama o Cost Explorer: ele é lido a cada 6 h por uma regra agendada |
 | POST | `/metrics/cost/refresh` 🔑 | Lê o Cost Explorer agora (US$ 0,02), no máximo uma vez a cada 15 min; antes disso responde 429 com `Retry-After`. Até 5 por dia (`DailyCostRefreshLimit`; zera às 12:00 de Brasília; a leitura agendada não conta): depois, 429 com `code: CostRefreshLimitExceeded`. 503 no LocalStack |
 | GET | `/dlq` | Eventos na `ProductEventsDlq` (aba DLQ) |

@@ -57,9 +57,10 @@ document.addEventListener('click', event => {
 // que o sistema está saudável
 on('health', ({ healthy, firing = 0 }) => {
     const alerting = healthy && firing > 0;
+    const plural = firing > 1 ? 's' : '';
     $('connectionDot').className = `connection-dot ${!healthy ? 'disconnected' : alerting ? 'alerting' : 'connected'}`;
-    $('connectionStatus').textContent = healthy ? 'Conectado' : 'Desconectado';
-    $('statusLink').title = `${!healthy ? 'API indisponível' : alerting ? `${firing} alarme(s) disparado(s)` : 'API respondendo, sem alarmes'} · ver monitoramento`;
+    $('connectionStatus').textContent = !healthy ? 'Desconectado' : alerting ? `Conectado · ${firing} alarme${plural}` : 'Conectado';
+    $('statusLink').title = `${!healthy ? 'API indisponível' : alerting ? `${firing} alarme${plural} disparado${plural}` : 'API respondendo, sem alarmes'} · ver monitoramento`;
 });
 
 // ---------- Faixa de caos: falha injetada não deve parecer bug ----------

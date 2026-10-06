@@ -17,8 +17,10 @@ export function memoryLimitFor(functionName, env = process.env) {
 
 /**
  * Memória usada por função (MemoryUsedMB, gravada via EMF por
- * src/common/runtime-metrics.mjs) para a aba Recursos: máximo e média por
- * balde de tempo, mais o pico da janela. Reaproveita a descoberta de
+ * src/common/runtime-metrics.mjs) para a aba Recursos: máximo por balde de
+ * tempo, mais o pico da janela. Só o máximo: no LocalStack cada série do
+ * GetMetricData custa ~1,4 s, e com a média junto a leitura estourava o
+ * QUERY_TIMEOUT_MS (o gráfico nunca usou a média). Reaproveita a descoberta de
  * dimensões e o GetMetricData do CloudWatchMetricsClient.
  */
 export class MemoryMetricsClient {
@@ -52,34 +54,32 @@ export class MemoryMetricsClient {
     for (let t = start; t < end; t += period * 1000) buckets.push(t);
 
     const names = await this.metrics.dimensionValues('MemoryUsedMB', ['FunctionName']);
-    const query = (Id, Stat, FunctionName) => ({
+    const query = (Id, FunctionName) => ({
       Id,
       ReturnData: true,
       MetricStat: {
         Metric: { Namespace: this.namespace, MetricName: 'MemoryUsedMB', Dimensions: [{ Name: 'FunctionName', Value: FunctionName }] },
         Period: period,
-        Stat
+        Stat: 'Maximum'
       }
     });
     const results = await this.metrics.getMetricData(
-      names.flatMap((name, i) => [query(`max_${i}`, 'Maximum', name), query(`avg_${i}`, 'Average', name)]),
+      names.map((name, i) => query(`max_${i}`, name)),
       start, end
     );
 
     // Sem dado no balde = null (lacuna na linha), não 0 MB. O período da
     // consulta é o do balde, então em geral há um ponto por balde; se vierem
-    // mais, `combine` junta (máximo dos máximos, média das médias)
-    const series = (id, combine) => {
+    // mais, fica o maior
+    const series = id => {
       const groups = buckets.map(() => []);
       const result = results.get(id);
       result?.timestamps.forEach((t, k) => {
         const index = Math.floor((t - start) / (period * 1000));
         if (index >= 0 && index < groups.length) groups[index].push(result.values[k]);
       });
-      return groups.map(group => group.length ? combine(group) : null);
+      return groups.map(group => group.length ? Math.max(...group) : null);
     };
-    const maxOf = group => Math.max(...group);
-    const meanOf = group => group.reduce((a, b) => a + b, 0) / group.length;
     const round = v => v === null ? null : Math.round(v * 10) / 10;
 
     return {
@@ -88,10 +88,9 @@ export class MemoryMetricsClient {
       buckets: buckets.map(t => new Date(t).toISOString()),
       functions: names
         .map((name, i) => {
-          const max = series(`max_${i}`, maxOf).map(round);
-          const avg = series(`avg_${i}`, meanOf).map(round);
+          const max = series(`max_${i}`).map(round);
           const points = max.filter(v => v !== null);
-          return { name, limitMb: memoryLimitFor(name, this.env), max, avg, peak: points.length ? Math.max(...points) : null };
+          return { name, limitMb: memoryLimitFor(name, this.env), max, peak: points.length ? Math.max(...points) : null };
         })
         .filter(f => f.peak !== null)
         .sort((a, b) => a.name.localeCompare(b.name))

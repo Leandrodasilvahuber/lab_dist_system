@@ -3,6 +3,7 @@ import { DailyLimitError, DomainError } from '../../../../common/errors.mjs';
 import { normalizeHttpEvent } from '../../../../common/http-event.mjs';
 import { log } from '../../../../common/logger.mjs';
 import { withRuntimeMetrics } from '../../../../common/runtime-metrics.mjs';
+import { isLocalStack } from '../../../../common/aws-client.mjs';
 import { AlarmsClient } from '../services/AlarmsClient.js';
 import { LogsClient } from '../services/LogsClient.js';
 import { DlqClient } from '../services/DlqClient.js';
@@ -83,8 +84,11 @@ export function createAPIHandler({
 
     const event = normalizeHttpEvent(rawEvent);
 
+    // `environment`: o dashboard enfileira as leituras do CloudWatch no
+    // LocalStack, que atende o GetMetricData uma consulta por vez (não vem do
+    // TIMEOUT_SCALE: TIMEOUT_SCALE=1 desliga o perfil local, mas a fila continua)
     if (event.method === 'GET' && event.path === '/health') {
-      return successResponse({ status: 'healthy', timestamp: new Date().toISOString() });
+      return successResponse({ status: 'healthy', environment: isLocalStack() ? 'localstack' : 'aws', timestamp: new Date().toISOString() });
     }
 
     // Onde o dashboard faz o login de admin: Cognito na AWS, chave X-Api-Key

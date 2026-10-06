@@ -38,18 +38,49 @@ export default {
 
     mount() {
         bindRefresh($('resourcesRefresh'), fetchResources);
-        $('memoryHours').addEventListener('change', fetchMemory);
-        $('costDays').addEventListener('change', fetchCost);
+        $('memoryHours').addEventListener('change', loadMemory);
+        $('costDays').addEventListener('change', loadCost);
         bindRefresh($('costRefreshNow'), refreshCostNow);
     },
 
     refresh: fetchResources
 };
 
+// O LocalStack atende o GetMetricData uma consulta por vez: lá as leituras
+// (inclusive as dos selects) entram numa fila, senão uma gastava o timeout da
+// outra esperando. Na AWS vão em paralelo. O ambiente vem do GET /health; sem
+// resposta, fila (mais lento, mas nunca estoura) e pergunta de novo depois
+let environment;
+function isLocalStack() {
+    environment ??= api('/health')
+        .then(body => body.environment !== 'aws')
+        .catch(() => {
+            environment = undefined;
+            return true;
+        });
+    return environment;
+}
+
+let queue = Promise.resolve();
+async function queued(load) {
+    if (!(await isLocalStack())) return load();
+    // Uma leitura que falhou não trava as seguintes
+    const run = queue.then(load, load);
+    queue = run.catch(() => {});
+    return run;
+}
+
+const loadMemory = () => queued(fetchMemory);
+const loadCost = () => queued(fetchCost);
+
 async function fetchResources() {
     $('resourcesUpdated').textContent = 'Carregando...';
-    await Promise.all([fetchMemory(), fetchCost()]);
+    // allSettled: um erro inesperado numa leitura não impede a outra nem
+    // deixa o "Carregando..." preso; o erro continua chegando a quem chamou
+    const results = await Promise.allSettled([loadMemory(), loadCost()]);
     $('resourcesUpdated').textContent = `às ${nowTime()}`;
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed) throw failed.reason;
 }
 
 // distributed-ecommerce-system-OrderFunction-AbC123 → OrderFunction
@@ -131,7 +162,7 @@ async function refreshCostNow() {
         showToast(message, 'error');
         return;
     }
-    await fetchCost();
+    await loadCost();
 }
 
 async function fetchCost() {
@@ -142,8 +173,9 @@ async function fetchCost() {
         data = await api(`/metrics/cost?days=${$('costDays').value}`);
     } catch (error) {
         cards.innerHTML = '';
-        panels.forEach(el => { el.innerHTML = ''; });
+        // Os três painéis vêm da mesma resposta: vazios sem aviso pareciam "sem custo"
         panels[0].innerHTML = errorState('Não foi possível calcular o custo', error);
+        panels[1].innerHTML = panels[2].innerHTML = emptyState('Sem dados: a leitura do custo falhou.', { icon: 'alert', tone: 'bad' });
         return;
     }
     const { buckets, estimated, estimatedError, actual, actualReason, forecast, budgetUsd, days } = data;

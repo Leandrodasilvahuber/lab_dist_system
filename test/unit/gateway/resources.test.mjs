@@ -39,7 +39,7 @@ describe('MemoryMetricsClient', () => {
     const client = fakeCloudWatch({
       // Nomes vêm ordenados do ListMetrics: max_<índice na ordem alfabética>
       functions: ['dev-OrderFunction', 'dev-ZIdle', 'local-server'],
-      data: { max_0: [[minute(30), 90], [minute(10), 120.04]], avg_0: [[minute(30), 80]], max_2: [[minute(5), 300]] }
+      data: { max_0: [[minute(30), 90], [minute(10), 120.04]], max_2: [[minute(5), 300]] }
     });
     const memory = new MemoryMetricsClient({ client, now: () => NOW, env: { FUNCTION_MEMORY_MB: '256' } });
     const result = await memory.memoryMetrics({ hours: 1 });
@@ -51,16 +51,18 @@ describe('MemoryMetricsClient', () => {
     const order = result.functions[0];
     assert.strictEqual(order.max.filter(v => v !== null).length, 2);
     assert.strictEqual(order.max[0], null);
-    assert.strictEqual(order.avg.filter(v => v !== null)[0], 80);
+    // Só o máximo: uma série por função no GetMetricData
+    const queries = client.sent.find(c => c.name === 'GetMetricDataCommand').input.MetricDataQueries;
+    assert.deepStrictEqual(queries.map(q => [q.Id, q.MetricStat.Stat]), [['max_0', 'Maximum'], ['max_1', 'Maximum'], ['max_2', 'Maximum']]);
+    assert.strictEqual('avg' in order, false);
   });
 
-  it('mais de um ponto no balde: máximo dos máximos e média das médias', async () => {
+  it('mais de um ponto no balde: fica o maior', async () => {
     const t = minute(30);
-    const client = fakeCloudWatch({ functions: ['fn'], data: { max_0: [[t, 90], [t, 110]], avg_0: [[t, 60], [t, 80]] } });
+    const client = fakeCloudWatch({ functions: ['fn'], data: { max_0: [[t, 90], [t, 110]] } });
     const result = await new MemoryMetricsClient({ client, now: () => NOW }).memoryMetrics({ hours: 1 });
     const index = result.functions[0].max.findIndex(v => v !== null);
     assert.strictEqual(result.functions[0].max[index], 110);
-    assert.strictEqual(result.functions[0].avg[index], 70);
   });
 
   it('limite: MemorySize do template; o local-server não tem', () => {

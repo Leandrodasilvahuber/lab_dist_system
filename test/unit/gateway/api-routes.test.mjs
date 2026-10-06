@@ -209,6 +209,23 @@ describe('GET /health', () => {
     assert.strictEqual((await handler(req('GET'))).statusCode, 200);
     assert.strictEqual((await handler(req('POST'))).statusCode, 404);
   });
+
+  it('informa o ambiente (o dashboard enfileira as leituras no LocalStack)', async () => {
+    const handler = createAPIHandler({ alarms: {}, logs: {}, dlq: {} });
+    const saved = { AWS_ENDPOINT: process.env.AWS_ENDPOINT, LOCALSTACK_HOSTNAME: process.env.LOCALSTACK_HOSTNAME };
+    try {
+      delete process.env.AWS_ENDPOINT;
+      delete process.env.LOCALSTACK_HOSTNAME;
+      assert.strictEqual(JSON.parse((await handler(req('GET'))).body).environment, 'aws');
+      process.env.AWS_ENDPOINT = 'http://localhost:4566';
+      assert.strictEqual(JSON.parse((await handler(req('GET'))).body).environment, 'localstack');
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
 });
 
 describe('GET /auth/config', () => {

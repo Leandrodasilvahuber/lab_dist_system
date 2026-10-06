@@ -397,8 +397,10 @@
     background: var(--surface);
 }
 
-.product-grid.compact .product-card { flex-direction: row; align-items: center; padding: 12px 14px; background: var(--surface-2); }
-.product-grid.compact .product-meta { margin-left: auto; }
+.product-grid.compact .product-card { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 12px 14px; background: var(--surface-2); }
+/* Coluna estreita: selo e Remover descem de linha em vez de espremer o nome */
+.product-grid.compact .product-top { flex: 1 1 160px; }
+.product-grid.compact .product-meta { margin-left: auto; flex-shrink: 0; }
 
 .product-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
 
@@ -413,7 +415,8 @@
     background: var(--store-soft);
 }
 
-.product-name { font-weight: 700; font-size: 14.5px; overflow-wrap: anywhere; }
+/* min-width: 0 deixa o break-word quebrar uma palavra longa em vez de estourar o card */
+.product-name { font-weight: 700; font-size: 14.5px; overflow-wrap: break-word; min-width: 0; }
 .product-price { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .product-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .product-card .btn { margin-top: auto; }
