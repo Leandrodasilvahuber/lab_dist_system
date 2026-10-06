@@ -11,6 +11,9 @@ export const actions = {
   confirmOrder: ({ orderId, correlationId }) =>
     orderSDK.confirmOrder(orderId, correlationId),
 
-  cancelOrder: ({ orderId, correlationId }) =>
-    orderSDK.cancelOrder(orderId, correlationId)
+  // compensation: SKIPPED quando o pedido nunca existiu (registro anulado)
+  cancelOrder: async ({ orderId, correlationId }) => {
+    const order = await orderSDK.cancelOrder(orderId, correlationId);
+    return { ...order, compensation: order.status === 'voided' ? 'SKIPPED' : 'COMPENSATED' };
+  }
 };

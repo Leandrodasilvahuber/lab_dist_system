@@ -13,6 +13,9 @@ A compensação começa no passo que falhou porque uma falha vista pelo Step
 Functions (timeout, erro de rede) não garante que o passo não gravou nada.
 As compensações são idempotentes e tratam "nunca foi gravado" como nada a
 desfazer (gravando um registro anulado para barrar uma escrita atrasada).
+Cada uma devolve `compensation`: COMPENSATED (desfez algo) ou SKIPPED (nada a
+desfazer, ex.: reembolso de um pagamento recusado), e o passo é registrado
+com esse status: steps.<nome> não mostra como desfeito o que nunca aconteceu.
 
 Uma compensação que falha (mesmo após as tentativas) é registrada e a cadeia
 segue para as próximas: cada uma desfaz um serviço diferente, então um
@@ -219,11 +222,27 @@ for i, (state, service, action, payload) in enumerate(COMPENSATIONS):
     record = f'Record{state}'
     record_failed = f'Record{state}Failed'
     next_comp = COMPENSATIONS[i + 1][0] if i + 1 < len(COMPENSATIONS) else 'CheckCompensations'
-    task = lambda_task(service, action, payload, record, 5, record_failed)
+    check = f'Check{state}'
+    task = lambda_task(service, action, payload, check, 5, record_failed)
     task['Catch'][0]['ResultPath'] = '$.compensationError'
-    task['ResultPath'] = None
+    task['ResultSelector'] = {'Payload.$': '$.Payload'}
+    task['ResultPath'] = '$.compensation'
     states[state] = task
+    # Estado próprio para o SKIPPED: o histórico da execução (tela Desempenho,
+    # sem os dados) também distingue "desfez" de "nada a desfazer"
+    states[check] = {
+        'Type': 'Choice',
+        'Choices': [{
+            'And': [
+                {'Variable': '$.compensation.Payload.compensation', 'IsPresent': True},
+                {'Variable': '$.compensation.Payload.compensation', 'StringEquals': 'SKIPPED'}
+            ],
+            'Next': f'{record}Skipped'
+        }],
+        'Default': record
+    }
     states[record] = record_step(camel(state), 'COMPENSATED', next_comp)
+    states[f'{record}Skipped'] = record_step(camel(state), 'SKIPPED', next_comp)
     states[record_failed] = record_step(camel(state), 'COMPENSATION_FAILED', next_comp, error_path='$.compensationError')
 
 states['CheckCompensations'] = {

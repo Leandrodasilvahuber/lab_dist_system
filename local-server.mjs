@@ -311,8 +311,14 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { 'Content-Type': STATIC_TYPES[path.extname(staticFile)], 'Cache-Control': 'no-store' }, body);
   }
 
-  if (ADMIN_AUTH_ENABLED && isAdminRoute(req.method, url.pathname) && !(await isAuthorizedAdmin(req.headers))) {
+  // Confere a chave de admin sem ler nada (dashboard, ao entrar e ao recarregar):
+  // o selo "Admin ativo" só aparece com uma chave que o servidor aceita
+  const authCheck = req.method === 'GET' && url.pathname === '/auth/check';
+  if (ADMIN_AUTH_ENABLED && (authCheck || isAdminRoute(req.method, url.pathname)) && !(await isAuthorizedAdmin(req.headers))) {
     return send(res, 401, { 'Content-Type': 'application/json' }, JSON.stringify({ error: 'Unauthorized: X-Api-Key inválida ou ausente' }));
+  }
+  if (authCheck) {
+    return send(res, 200, { 'Content-Type': 'application/json' }, JSON.stringify({ ok: true }));
   }
 
   if (req.method === 'GET' && url.pathname === '/logs') {

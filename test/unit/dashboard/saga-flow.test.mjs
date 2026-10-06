@@ -61,6 +61,23 @@ describe('dashboard: fluxo da saga', () => {
       /Falhou em Estoque \(Insufficient stock\)\. Desfeito: Libera estoque/);
   });
 
+  it('pagamento recusado: reembolso sem nada a desfazer (SKIPPED) não aparece como desfeito', () => {
+    const saga = {
+      ...base,
+      status: 'COMPENSATED',
+      failedStep: 'processPayment',
+      error: { message: 'Payment declined' },
+      steps: {
+        processPayment: { status: 'FAILED', at: at(3), error: { message: 'Payment declined' } },
+        refundPayment: { status: 'SKIPPED', at: at(4) },
+        releaseStock: { status: 'COMPENSATED', at: at(5) },
+        cancelOrder: { status: 'COMPENSATED', at: at(6) }
+      }
+    };
+    assert.deepStrictEqual(states(flowState(saga).compensation.nodes), ['skipped', 'compensated', 'compensated']);
+    assert.match(sagaDiagram(saga), /Desfeito: Libera estoque, Cancela pedido/);
+  });
+
   it('compensando: o próximo passo da cadeia aparece em execução', () => {
     const flow = flowState({
       ...base,

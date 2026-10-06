@@ -29,7 +29,9 @@ export function productGrid({ products, error, empty, buy = false, remove = fals
                 </div>
             </div>
             <div class="product-meta">${stockBadge(p.stock)}</div>
-            ${buy ? `<button type="button" class="btn btn-primary btn-sm" data-buy-id="${escapeHtml(p.id)}">${icon('cart', { size: 15 })}<span>Comprar</span></button>` : ''}
+            ${buy ? (p.stock === 0
+                ? `<button type="button" class="btn btn-primary btn-sm" disabled title="Produto sem estoque">${icon('cart', { size: 15 })}<span>Esgotado</span></button>`
+                : `<button type="button" class="btn btn-primary btn-sm" data-buy-id="${escapeHtml(p.id)}">${icon('cart', { size: 15 })}<span>Comprar</span></button>`) : ''}
             ${remove ? `<button type="button" class="btn btn-danger btn-sm" data-remove-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}">${icon('trash', { size: 14 })}<span>Remover</span></button>` : ''}
         </article>`).join('')}
     </div>`;

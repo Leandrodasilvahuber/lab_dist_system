@@ -111,7 +111,13 @@ export function stepsFromHistory(events) {
     const entered = event.stateEnteredEventDetails?.name;
     const exited = event.stateExitedEventDetails?.name;
 
-    if (event.type === 'TaskStateEntered' && TRACKED.has(entered)) {
+    // Record<Compensação>Skipped (generate-saga-workflow.py): a compensação
+    // rodou, mas não havia nada a desfazer (ex.: reembolso de pagamento recusado)
+    const skipped = event.type === 'TaskStateEntered' && /^Record(\w+)Skipped$/.exec(entered ?? '')?.[1];
+    if (skipped) {
+      const step = steps.findLast(s => s.name === skipped);
+      if (step) step.skipped = true;
+    } else if (event.type === 'TaskStateEntered' && TRACKED.has(entered)) {
       open = { name: entered, enteredAt: event.timestamp, attempts: 0, ok: false, error: null };
     } else if (open && event.type === 'TaskScheduled') {
       open.attempts++;
@@ -141,6 +147,7 @@ function toStep({ name, enteredAt, attempts, ok, error }, exitedAt) {
     durationMs: exitedAt ? exitedAt - enteredAt : null,
     attempts,
     ok: exitedAt ? ok : null,
+    skipped: false,
     error
   };
 }
@@ -187,6 +194,7 @@ function aggregateSteps(sagas) {
         compensation: COMPENSATIONS.includes(name),
         count: runs.length,
         failed: runs.filter(step => step.ok === false).length,
+        skipped: runs.filter(step => step.skipped).length,
         retries: runs.reduce((sum, step) => sum + Math.max(step.attempts - 1, 0), 0),
         avgMs: average(durations),
         maxMs: max(durations)

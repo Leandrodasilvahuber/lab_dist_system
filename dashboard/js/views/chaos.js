@@ -29,7 +29,7 @@ export default {
     requiresAdmin: true,
     template: () => `
         ${toolbar(status('chaosSummary'), spacer,
-            `<button type="button" class="btn btn-danger btn-sm" id="chaosClear">${icon('trash', { size: 15 })}<span>Desligar tudo</span></button>`,
+            `<button type="button" class="btn btn-danger btn-sm" id="chaosClear" disabled>${icon('trash', { size: 15 })}<span>Desligar tudo</span></button>`,
             refreshButton('chaosRefresh'))}
         <div class="split">
             ${panel({

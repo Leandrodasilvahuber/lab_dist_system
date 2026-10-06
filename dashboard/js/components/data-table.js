@@ -1,10 +1,10 @@
 import { escapeHtml } from '../core/format.js';
 
-// headers: rótulos (string) ou { label, className, style }; rows: HTML de cada <tr>
+// headers: rótulos (string) ou { label, className, style, title }; rows: HTML de cada <tr>
 export function dataTable(headers, rows) {
     const th = h => typeof h === 'string'
         ? `<th>${escapeHtml(h)}</th>`
-        : `<th${h.className ? ` class="${h.className}"` : ''}${h.style ? ` style="${h.style}"` : ''}>${escapeHtml(h.label)}</th>`;
+        : `<th${h.className ? ` class="${h.className}"` : ''}${h.style ? ` style="${h.style}"` : ''}${h.title ? ` title="${escapeHtml(h.title)}"` : ''}>${escapeHtml(h.label)}</th>`;
     const head = headers ? `<thead><tr>${headers.map(th).join('')}</tr></thead>` : '';
     return `<div class="table-wrap"><table class="data-table">${head}<tbody>${rows.join('')}</tbody></table></div>`;
 }

@@ -11,28 +11,48 @@ const states = definition.States;
  * Segue o fluxo a partir de um estado, simulando falha nas ações de `failAt`
  * (uma ação ou uma lista), e devolve as ações de Lambda executadas em ordem.
  */
-function simulate(failAt) {
+// Valor no caminho JSON ($.a.b) dos dados simulados
+const at = (data, path) => path.slice(2).split('.').reduce((v, key) => v?.[key], data);
+
+function matches(rule, data) {
+  if (rule.And) return rule.And.every(r => matches(r, data));
+  const value = at(data, rule.Variable);
+  if ('IsPresent' in rule) return (value !== undefined) === rule.IsPresent;
+  return value === rule.StringEquals;
+}
+
+/**
+ * `skipped`: compensações que respondem SKIPPED (nada a desfazer).
+ * Devolve também os registros gravados por passo (steps.<nome>).
+ */
+function simulate(failAt, { skipped = [] } = {}) {
   const failing = [].concat(failAt ?? []);
   const actions = [];
+  const recorded = {};
   const data = {};
   let name = definition.StartAt;
   for (let i = 0; i < 100 && name; i++) {
     const state = states[name];
-    if (state.Type === 'Succeed' || state.Type === 'Fail') return { actions, end: name };
+    if (state.Type === 'Succeed' || state.Type === 'Fail') return { actions, end: name, recorded };
 
     if (state.Type === 'Choice') {
-      const match = state.Choices.find(c => (c.Variable.slice(2) in data) === c.IsPresent);
+      const match = state.Choices.find(c => matches(c, data));
       name = match ? match.Next : state.Default;
       continue;
     }
 
     const action = state.Parameters?.Payload?.action;
     if (action) actions.push(action);
+    const step = state.Parameters?.ExpressionAttributeNames?.['#step'];
+    if (step) recorded[step] = state.Parameters.ExpressionAttributeValues[':step'].M.status.S;
 
     if (action && failing.includes(action)) {
       data[state.Catch[0].ResultPath.slice(2)] = { Error: 'Simulated' };
       name = state.Catch[0].Next;
     } else {
+      if (action && state.ResultPath) {
+        data[state.ResultPath.slice(2)] = { Payload: { compensation: skipped.includes(action) ? 'SKIPPED' : 'COMPENSATED' } };
+      }
       name = state.Next;
     }
   }
@@ -73,6 +93,16 @@ describe('saga-workflow.asl.json', () => {
       assert.strictEqual(states[end].Type, 'Fail');
     });
   }
+
+  // Pagamento recusado: o reembolso roda (pode haver escrita atrasada), mas
+  // sem cobrança a desfazer fica SKIPPED, não COMPENSATED
+  it('compensação sem nada a desfazer é registrada como SKIPPED e a saga termina compensada', () => {
+    const { recorded, end } = simulate('processPayment', { skipped: ['refundPayment'] });
+    assert.deepStrictEqual(
+      { refundPayment: recorded.refundPayment, releaseStock: recorded.releaseStock, cancelOrder: recorded.cancelOrder },
+      { refundPayment: 'SKIPPED', releaseStock: 'COMPENSATED', cancelOrder: 'COMPENSATED' });
+    assert.strictEqual(end, 'SagaCompensated');
+  });
 
   it('falha no primeiro passo limpa o pedido e termina em FAILED (não COMPENSATED)', () => {
     const { end } = simulate('createOrder');

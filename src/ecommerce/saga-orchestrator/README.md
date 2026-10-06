@@ -61,6 +61,10 @@ um `createOrder`/`processPayment`/`reserveStock` atrasado com o mesmo id
 (`InvalidState`). Se o produto foi excluído durante a compra, `releaseStock`
 libera a reserva sem devolver estoque (`inventoryMissing: true`).
 
+Cada compensação devolve se desfez algo, e o passo é registrado conforme:
+`COMPENSATED` (desfez) ou `SKIPPED` (nada a desfazer, ex.: reembolso de um
+pagamento recusado, liberação de uma reserva que falhou por falta de estoque).
+
 Se uma compensação falhar mesmo após as tentativas, ela é registrada como
 `COMPENSATION_FAILED` em `steps.<nome>` e as próximas rodam mesmo assim (cada uma
 desfaz um serviço diferente). No fim, a saga termina em `COMPENSATION_FAILED` e
@@ -132,7 +136,7 @@ DynamoDB, sem Lambda extra):
     "createOrder":    { "status": "COMPLETED",   "at": "..." },
     "reserveStock":   { "status": "COMPLETED",   "at": "..." },
     "processPayment": { "status": "FAILED",      "at": "...", "error": { "type": "PaymentDeclined", "message": "..." } },
-    "refundPayment":  { "status": "COMPENSATED", "at": "..." },
+    "refundPayment":  { "status": "SKIPPED",     "at": "..." },
     "releaseStock":   { "status": "COMPENSATED", "at": "..." },
     "cancelOrder":    { "status": "COMPENSATED", "at": "..." }
   },

@@ -11,8 +11,11 @@ export const actions = {
   commitReservation: ({ reservationId, correlationId }) =>
     stockSDK.commitReservation({ reservationId, correlationId }),
 
-  releaseStock: ({ reservationId, correlationId }) =>
-    stockSDK.releaseStock({ reservationId, correlationId })
+  // compensation: SKIPPED quando a reserva nunca existiu (registro anulado, quantidade 0)
+  releaseStock: async ({ reservationId, correlationId }) => {
+    const reservation = await stockSDK.releaseStock({ reservationId, correlationId });
+    return { ...reservation, compensation: reservation.quantity > 0 ? 'COMPENSATED' : 'SKIPPED' };
+  }
 };
 
 // Eventos de domínio recebidos do EventBridge (chave: <source>/<detail-type>)

@@ -21,7 +21,9 @@ const STEP_STATE = {
     COMPLETED: 'done',
     FAILED: 'failed',
     COMPENSATED: 'compensated',
-    COMPENSATION_FAILED: 'compensation-failed'
+    COMPENSATION_FAILED: 'compensation-failed',
+    // Compensação que rodou sem nada a desfazer (ex.: reembolso de pagamento recusado)
+    SKIPPED: 'skipped'
 };
 
 /**
@@ -191,8 +193,8 @@ function card({ tile, glyph, name, sub, service, state, note, error }) {
 }
 
 function stepCard(n, skippedNote = STATE_NOTE.skipped) {
-    const note = n.ms !== null && n.ms !== undefined ? duration(n.ms)
-        : n.state === 'skipped' ? skippedNote : STATE_NOTE[n.state] || '';
+    const note = n.state === 'skipped' ? skippedNote
+        : n.ms !== null && n.ms !== undefined ? duration(n.ms) : STATE_NOTE[n.state] || '';
     return card({ tile: 'lambda', glyph: 'lambda', name: n.label, sub: n.name, service: SERVICE[n.name], state: n.state, note, error: n.error });
 }
 
@@ -296,7 +298,7 @@ export function sagaDiagram(saga) {
                     ${card({ tile: `result-${resultState}`, glyph: STATE_ICON[resultState] || 'target', name: resultName, sub: 'resultado', state: resultState, note: resultNote })}
                 </div>
             </div>
-            ${flow.outcome === 'idle' ? '' : `<p class="fx-summary tone-${tone}">${escapeHtml(text)}</p>`}
+            ${flow.outcome === 'idle' ? '' : `<p class="fx-summary tone-${tone}" title="${escapeHtml(TIME_CRITERIA)}">${escapeHtml(text)}</p>`}
         </div>`;
 }
 
@@ -306,5 +308,9 @@ function withoutStatus(flow) {
     const idle = nodes => nodes.map(n => ({ ...n, state: 'idle' }));
     return { ...flow, forward: idle(flow.forward), compensation: { ...flow.compensation, nodes: idle(flow.compensation.nodes) } };
 }
+
+// Critério dos tempos do diagrama (a tela Desempenho usa o histórico do Step Functions)
+const TIME_CRITERIA = 'Tempos pelos registros da saga: o total vai da criação da compra ao último passo gravado; '
+    + 'cada passo, do registro anterior até o dele (inclui espera, tentativas e a gravação)';
 
 const TERMINAL_OUTCOMES = ['completed', 'compensated', 'compensation-failed', 'failed', 'not-started'];

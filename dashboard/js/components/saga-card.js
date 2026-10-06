@@ -52,7 +52,8 @@ export function sagaCard(saga, productNames, { selectable = false, selected = fa
     const compensations = COMPENSATIONS.filter(name => steps[name]);
     const compensationHtml = compensations.length || saga.status === 'COMPENSATING'
         ? `<span class="segs-sep" title="Compensação">${icon('undo', { size: 11 })}</span>` + compensations
-            .map(name => segment(name, steps[name].status, steps[name].error?.message)).join('')
+            .map(name => segment(name, steps[name].status,
+                steps[name].error?.message || (steps[name].status === 'SKIPPED' ? 'nada a desfazer' : ''))).join('')
         : '';
 
     // StartExecutionFailed (string, sem passo): a execução nem começou

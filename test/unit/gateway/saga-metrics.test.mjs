@@ -44,10 +44,20 @@ describe('stepsFromHistory', () => {
     assert.strictEqual(steps[0].durationMs, 100);
     assert.deepStrictEqual(
       { ...steps[2], startedAt: undefined },
-      { name: 'ProcessPayment', compensation: false, startedAt: undefined, durationMs: 2000, attempts: 2, ok: false, error: 'PaymentDeclined' }
+      { name: 'ProcessPayment', compensation: false, startedAt: undefined, durationMs: 2000, attempts: 2, ok: false, skipped: false, error: 'PaymentDeclined' }
     );
     assert.strictEqual(steps[3].compensation, true);
     assert.strictEqual(steps[3].ok, true);
+  });
+
+  it('compensação seguida de Record<nome>Skipped não tinha nada a desfazer', () => {
+    const steps = stepsFromHistory([
+      entered('RefundPayment', 0), scheduled(0), succeeded(0.1), exited('RefundPayment', 0.1),
+      entered('RecordRefundPaymentSkipped', 0.2), exited('RecordRefundPaymentSkipped', 0.3),
+      entered('ReleaseStock', 0.4), scheduled(0.4), succeeded(0.5), exited('ReleaseStock', 0.5),
+      entered('RecordReleaseStock', 0.6), exited('RecordReleaseStock', 0.7)
+    ]);
+    assert.deepStrictEqual(steps.map(s => [s.name, s.skipped]), [['RefundPayment', true], ['ReleaseStock', false]]);
   });
 
   it('passo ainda aberto (execução em andamento) entra sem duração', () => {
@@ -76,7 +86,7 @@ describe('SagaMetricsClient', () => {
     assert.deepStrictEqual(summary, { total: 2, completed: 0, compensated: 0, failed: 1, running: 1, avgMs: 3000, maxMs: 3000 });
 
     const createOrder = steps.find(s => s.name === 'CreateOrder');
-    assert.deepStrictEqual(createOrder, { name: 'CreateOrder', compensation: false, count: 2, failed: 0, retries: 0, avgMs: 100, maxMs: 100 });
+    assert.deepStrictEqual(createOrder, { name: 'CreateOrder', compensation: false, count: 2, failed: 0, skipped: 0, retries: 0, avgMs: 100, maxMs: 100 });
     assert.strictEqual(steps.find(s => s.name === 'ProcessPayment').retries, 1);
     // Ordem do fluxo: passos antes das compensações, sem os que não rodaram
     assert.deepStrictEqual(steps.map(s => s.name), ['CreateOrder', 'ReserveStock', 'ProcessPayment', 'ReleaseStock']);

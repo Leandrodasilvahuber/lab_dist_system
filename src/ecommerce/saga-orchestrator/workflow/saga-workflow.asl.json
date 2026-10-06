@@ -1221,8 +1221,30 @@
           "Next": "RecordRefundPaymentFailed"
         }
       ],
-      "Next": "RecordRefundPayment",
-      "ResultPath": null
+      "Next": "CheckRefundPayment",
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.compensation"
+    },
+    "CheckRefundPayment": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.compensation.Payload.compensation",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.compensation.Payload.compensation",
+              "StringEquals": "SKIPPED"
+            }
+          ],
+          "Next": "RecordRefundPaymentSkipped"
+        }
+      ],
+      "Default": "RecordRefundPayment"
     },
     "RecordRefundPayment": {
       "Type": "Task",
@@ -1246,6 +1268,60 @@
             "M": {
               "status": {
                 "S": "COMPENSATED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "ReleaseStock"
+        }
+      ],
+      "Next": "ReleaseStock"
+    },
+    "RecordRefundPaymentSkipped": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "refundPayment"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "SKIPPED"
               },
               "at": {
                 "S.$": "$$.State.EnteredTime"
@@ -1394,8 +1470,30 @@
           "Next": "RecordReleaseStockFailed"
         }
       ],
-      "Next": "RecordReleaseStock",
-      "ResultPath": null
+      "Next": "CheckReleaseStock",
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.compensation"
+    },
+    "CheckReleaseStock": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.compensation.Payload.compensation",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.compensation.Payload.compensation",
+              "StringEquals": "SKIPPED"
+            }
+          ],
+          "Next": "RecordReleaseStockSkipped"
+        }
+      ],
+      "Default": "RecordReleaseStock"
     },
     "RecordReleaseStock": {
       "Type": "Task",
@@ -1419,6 +1517,60 @@
             "M": {
               "status": {
                 "S": "COMPENSATED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "CancelOrder"
+        }
+      ],
+      "Next": "CancelOrder"
+    },
+    "RecordReleaseStockSkipped": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "releaseStock"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "SKIPPED"
               },
               "at": {
                 "S.$": "$$.State.EnteredTime"
@@ -1567,8 +1719,30 @@
           "Next": "RecordCancelOrderFailed"
         }
       ],
-      "Next": "RecordCancelOrder",
-      "ResultPath": null
+      "Next": "CheckCancelOrder",
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.compensation"
+    },
+    "CheckCancelOrder": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.compensation.Payload.compensation",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.compensation.Payload.compensation",
+              "StringEquals": "SKIPPED"
+            }
+          ],
+          "Next": "RecordCancelOrderSkipped"
+        }
+      ],
+      "Default": "RecordCancelOrder"
     },
     "RecordCancelOrder": {
       "Type": "Task",
@@ -1592,6 +1766,60 @@
             "M": {
               "status": {
                 "S": "COMPENSATED"
+              },
+              "at": {
+                "S.$": "$$.State.EnteredTime"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 1,
+          "BackoffRate": 2,
+          "MaxDelaySeconds": 10,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.recordError",
+          "Next": "CheckCompensations"
+        }
+      ],
+      "Next": "CheckCompensations"
+    },
+    "RecordCancelOrderSkipped": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${SagasTableName}",
+        "Key": {
+          "id": {
+            "S.$": "$.sagaId"
+          }
+        },
+        "UpdateExpression": "SET steps.#step = :step, updatedAt = :now",
+        "ExpressionAttributeNames": {
+          "#step": "cancelOrder"
+        },
+        "ExpressionAttributeValues": {
+          ":now": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":step": {
+            "M": {
+              "status": {
+                "S": "SKIPPED"
               },
               "at": {
                 "S.$": "$$.State.EnteredTime"

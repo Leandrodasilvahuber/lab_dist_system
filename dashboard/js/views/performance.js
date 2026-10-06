@@ -12,8 +12,15 @@ const LEGEND = `
         <span><i class="ok"></i>passo ok</span>
         <span><i class="failed"></i>passo falhou</span>
         <span><i class="compensation"></i>compensação</span>
+        <span><i class="skipped"></i>nada a desfazer</span>
         <span><i class="running"></i>em andamento</span>
     </div>`;
+
+// Tempos do histórico do Step Functions. A tela Comprar mede pelos registros
+// da tabela de sagas (da criação da saga até cada passo gravado), então os
+// números das duas não batem: os títulos dizem o critério de cada uma
+const STEP_TIME = 'Tempo dentro do estado da Lambda no Step Functions, com as tentativas (sem o registro do passo na tabela de sagas)';
+const TOTAL_TIME = 'Do início ao fim da execução no Step Functions (inclui os registros na tabela de sagas)';
 
 export default {
     id: 'performance',
@@ -39,8 +46,10 @@ function timelineBars(saga) {
     return saga.steps.map(step => {
         const offset = Math.max(Date.parse(step.startedAt) - start, 0);
         const width = step.durationMs ?? Math.max(start + total - Date.parse(step.startedAt), 0);
-        const kind = step.ok === null ? 'running' : step.ok === false ? 'failed' : step.compensation ? 'compensation' : '';
+        const kind = step.ok === null ? 'running' : step.ok === false ? 'failed'
+            : step.skipped ? 'skipped' : step.compensation ? 'compensation' : '';
         const title = `${step.name}: ${ms(step.durationMs)}` +
+            (step.skipped ? ' · nada a desfazer' : '') +
             (step.attempts > 1 ? ` · ${step.attempts} tentativas` : '') +
             (step.error ? ` · ${step.error}` : '');
         return `<div class="bar ${kind}" title="${escapeHtml(title)}"
@@ -83,10 +92,10 @@ async function fetchPerformance() {
     }
 
     stepsEl.innerHTML = dataTable(
-        ['Passo', ...['Execuções', 'Média', 'Máximo', 'Falhas', 'Retries'].map(label => ({ label, className: 'num' }))],
+        ['Passo', ...['Execuções', 'Média', 'Máximo', 'Falhas', 'Retries'].map(label => ({ label, className: 'num', title: STEP_TIME }))],
         steps.map(step => `
             <tr class="${step.failed ? 'row-alert' : ''}">
-                <td><strong>${escapeHtml(step.name)}</strong>${step.compensation ? ' <span class="muted">(compensação)</span>' : ''}</td>
+                <td><strong>${escapeHtml(step.name)}</strong>${step.compensation ? ` <span class="muted">(compensação${step.skipped ? ` · ${step.skipped} sem nada a desfazer` : ''})</span>` : ''}</td>
                 <td class="num">${escapeHtml(step.count)}</td>
                 <td class="num">${escapeHtml(ms(step.avgMs))}</td>
                 <td class="num">${escapeHtml(ms(step.maxMs))}</td>
@@ -96,7 +105,7 @@ async function fetchPerformance() {
     );
 
     sagasEl.innerHTML = dataTable(
-        ['Início', 'Saga', 'Status', { label: 'Duração', className: 'num' }, { label: 'Passos', style: 'width:45%' }],
+        ['Início', 'Saga', 'Status', { label: 'Duração', className: 'num', title: TOTAL_TIME }, { label: 'Passos', style: 'width:45%' }],
         sagas.map(saga => `
             <tr>
                 <td class="nowrap" title="${escapeHtml(saga.startedAt)}">${escapeHtml(time(saga.startedAt))}</td>

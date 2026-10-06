@@ -97,9 +97,13 @@ function limitQuantity() {
     const soldOut = available <= 0;
     $('buyQuantity').max = Math.max(1, Math.min(available, MAX_QUANTITY));
     const button = $('buyButton');
-    // Também durante a compra: o catálogo recarregado não religa o botão no meio dela
+    // Também enquanto o POST /saga/execute não responde: o catálogo recarregado
+    // não religa o botão no meio dele. Depois a saga segue sozinha e outra
+    // compra pode começar (cada uma aparece na lista)
     button.disabled = purchasing || soldOut;
     button.title = soldOut ? 'Produto sem estoque' : '';
+    // Sem estoque o motivo fica no próprio botão, não só na dica do mouse
+    button.querySelector('span').textContent = soldOut ? 'Sem estoque' : 'Comprar';
 }
 
 // Botão Comprar da aba Produtos: chega aqui com o produto já escolhido

@@ -49,7 +49,7 @@ async function fetchDlq() {
         container.innerHTML = allClear('DLQ vazia');
         return;
     }
-    container.innerHTML = dataTable(['Enviado em', 'Evento', 'Produto', 'Erro', { label: 'Tentativas', className: 'num' }, 'Ações'], dlqMessages.map((m, index) => `
+    container.innerHTML = dataTable(['Enviado em', 'Evento', 'Produto', { label: 'Erro', style: 'min-width:240px' }, { label: 'Tentativas', className: 'num' }, 'Ações'], dlqMessages.map((m, index) => `
         <tr class="row-expandable level-error" data-index="${index}">
             <td class="nowrap">${dateTime(m.sentAt)}</td>
             <td><strong>${escapeHtml(m.detailType || 'mensagem inválida')}</strong></td>

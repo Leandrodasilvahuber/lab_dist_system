@@ -1,5 +1,6 @@
 import { API_BASE } from './config.js';
-import { authHeaders, getCredential } from './session.js';
+import { emit } from './events.js';
+import { authHeaders, getCredential, setCredential } from './session.js';
 
 export const isAuthError = error => error.status === 401 || error.status === 403;
 
@@ -21,6 +22,12 @@ export async function api(path, options = {}) {
     // do serviço. Só com Cognito: no local-server o 401 da chave vem do próprio
     // serviço, e repetir não mudaria nada
     if (response.status === 401 && getCredential()?.type === 'cognito') response = await request(path, options, true);
+    // Chave de admin recusada (trocada no .env, servidor reiniciado): sai do
+    // modo admin em vez de manter o selo "Admin ativo" com uma chave inválida
+    if (response.status === 401 && getCredential()?.type === 'key') {
+        setCredential(null);
+        emit('admin-rejected');
+    }
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
         // 429 sem code: limite por rota do API Gateway (RouteSettings no template.yaml);
@@ -38,6 +45,20 @@ export async function api(path, options = {}) {
         throw error;
     }
     return body;
+}
+
+/**
+ * Confere uma chave de admin no local-server (GET /auth/check, sem ler dados).
+ * true: aceita; false: recusada (401); null: não deu para conferir (rede).
+ */
+export async function checkAdminKey(value) {
+    try {
+        const response = await fetch(`${API_BASE}/auth/check`, { headers: { 'X-Api-Key': value } });
+        if (response.status === 401 || response.status === 403) return false;
+        return response.ok ? true : null;
+    } catch {
+        return null;
+    }
 }
 
 // Listagens paginadas (GET /products, /stock, /orders, /sagas): segue o nextToken até o fim

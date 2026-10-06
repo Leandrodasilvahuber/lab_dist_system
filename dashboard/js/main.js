@@ -6,6 +6,7 @@ import { navigate } from './core/nav.js';
 import { currentView, initRouter, refreshCurrent, show, syncAdminViews } from './core/router.js';
 import { loadAuthConfig, login, revoke } from './core/cognito.js';
 import { getCredential, isAdmin, setCredential } from './core/session.js';
+import { checkAdminKey } from './core/api.js';
 import { storage } from './core/storage.js';
 import { icon } from './components/icons.js';
 import { showToast } from './components/toast.js';
@@ -165,6 +166,8 @@ on('admin', () => {
     else refreshCurrent();
 });
 
+on('admin-rejected', () => showToast('A chave de admin foi recusada pelo servidor. Entre de novo.', 'error'));
+
 adminBtn.addEventListener('click', event => {
     event.stopPropagation();
     toggleAdminPopover();
@@ -178,8 +181,16 @@ $('adminForm').addEventListener('submit', async event => {
     if ((await syncAuthConfig()).mode !== mode) return showToast('Formulário de login atualizado: preencha de novo.', 'info');
     if (authConfig.mode !== 'cognito') {
         const value = secret.trim();
-        setCredential(value ? { type: 'key', value } : null);
-        showToast(value ? 'Chave de admin ativa.' : 'Chave de admin removida.', 'info');
+        if (!value) {
+            setCredential(null);
+            return showToast('Chave de admin removida.', 'info');
+        }
+        // Só guarda a chave que o servidor aceita: o selo "Admin ativo" não
+        // aparece com uma chave que as telas de admin vão recusar
+        const valid = await checkAdminKey(value);
+        if (valid === false) return showToast('Chave de admin recusada pelo servidor.', 'error');
+        setCredential({ type: 'key', value });
+        showToast(valid ? 'Chave de admin ativa.' : 'Chave guardada, mas não deu para conferir no servidor agora.', 'info');
         return;
     }
     const username = adminUserInput.value.trim();
@@ -219,6 +230,16 @@ renderThemeButton();
 renderAdminButton();
 renderAdminForm();
 syncAuthConfig();
+// Chave guardada nesta aba (sessionStorage) pode ter sido trocada no servidor
+// desde então: confere antes de manter o selo "Admin ativo"
+if (getCredential()?.type === 'key') {
+    const stored = getCredential();
+    checkAdminKey(stored.value).then(valid => {
+        if (valid !== false || getCredential() !== stored) return;
+        setCredential(null);
+        showToast('A chave de admin guardada foi recusada pelo servidor. Entre de novo.', 'error');
+    });
+}
 initRouter();
 // O indicador do topo vale em qualquer tela; no Monitoramento o refresh já roda
 if (currentView() !== 'monitoring') runMonitors();
