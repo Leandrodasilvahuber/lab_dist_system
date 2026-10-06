@@ -9,7 +9,7 @@ Description: Role de deploy do GitHub Actions (OIDC) para o distributed-ecommerc
 Parameters:
   GithubRepo:
     Type: String
-    Default: Leandrodasilvahuber/lab_dist_system
+    Default: Leandrodasilvahuber@45015902/lab_dist_system@1407947570
     Description: 'Repositório (dono/nome) autorizado a assumir a role'
 
   # Só o job com esse environment assume a role. O environment fica restrito à
