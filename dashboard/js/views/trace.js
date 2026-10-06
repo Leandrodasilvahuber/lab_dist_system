@@ -2,6 +2,7 @@ import { api } from '../core/api.js';
 import { $ } from '../core/dom.js';
 import { escapeHtml, ms, time } from '../core/format.js';
 import { navigate } from '../core/nav.js';
+import { getAdminKey } from '../core/session.js';
 import { productNames } from '../services/catalog.js';
 import { getSaga, sagaIdFrom } from '../services/sagas.js';
 import { LOG_LEVELS, statusBadge } from '../components/badge.js';
@@ -10,6 +11,7 @@ import { emptyState, errorState, loading } from '../components/empty.js';
 import { icon } from '../components/icons.js';
 import { hint, panel } from '../components/layout.js';
 import { sagaCard } from '../components/saga-card.js';
+import { showToast } from '../components/toast.js';
 
 let traceEntries = [];
 
@@ -17,6 +19,8 @@ export default {
     id: 'trace',
     label: 'Rastreio',
     icon: 'search',
+    // GET /trace é de admin (linhas internas das Lambdas)
+    requiresAdmin: true,
     template: () => `
         <form class="trace-form" id="traceForm">
             <input type="text" id="traceId" class="input input-mono" placeholder="sagaId, orderId ou correlationId" autocomplete="off" spellcheck="false" required aria-label="Id para rastrear">
@@ -47,6 +51,11 @@ export default {
 
 // Lupa em qualquer tela (compras, logs, desempenho) abre o rastreio daquele id
 export function openTrace(id) {
+    // Sem a chave, avisa e fica na tela atual (o router voltaria para a inicial)
+    if (!getAdminKey()) {
+        showToast('Rastreio exige a chave de admin (botão no canto superior direito).', 'info');
+        return;
+    }
     $('traceId').value = id;
     navigate('trace');
 }

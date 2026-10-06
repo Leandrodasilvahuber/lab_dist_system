@@ -137,7 +137,12 @@ async function waitFinal(sagaId) {
 async function injectedCount(correlationIds) {
   let count = 0;
   for (const id of correlationIds) {
-    const { data } = await request(`/trace/${encodeURIComponent(id)}`);
+    let { status, data } = await request(`/trace/${encodeURIComponent(id)}`);
+    // GET /trace tem limite de 2 req/s (template.yaml): espera e tenta de novo
+    for (let attempt = 0; status === 429 && attempt < 5; attempt++) {
+      await sleep(1000);
+      ({ status, data } = await request(`/trace/${encodeURIComponent(id)}`));
+    }
     count += (data.logs || []).filter(line => line.event === 'CHAOS_INJECTED').length;
   }
   return count;

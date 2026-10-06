@@ -114,23 +114,50 @@ Globals:
 Resources:
   # API Gateway Centralizado (HttpApi)
   # Rotas específicas vão para cada serviço; o resto cai na GatewayFunction ({proxy+}).
-  # Escritas de admin (produto, estoque, caos, ações da DLQ) e o custo usam o authorizer AdminApiKey (mesma lista de src/common/auth.mjs).
+  # Escritas de admin (produto, estoque, caos, ações da DLQ), o custo, os logs e o rastreio usam o authorizer AdminApiKey (mesma lista de src/common/auth.mjs).
   ApiGateway:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: !Ref Environment
       Description: "API Gateway centralizado para todos os endpoints"
+      # O padrão vale para CADA rota sem limite próprio (não é um teto do stage
+      # inteiro): com 100 req/s, um script batendo em várias rotas públicas
+      # somaria mais de 1000 req/s, todas cobradas (HttpApi, Lambda, log).
+      # 20 req/s por rota cabe com folga no uso do dashboard e nos testes de
+      # caos (concorrência 4 na AWS). POST /saga/execute fica com o padrão
       DefaultRouteSettings:
-        ThrottlingBurstLimit: 50
-        ThrottlingRateLimit: 100
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 20
       # Bulkhead na entrada: leituras caras (Scan, uma Query por produto,
       # consultas ao CloudWatch) têm limite menor que o padrão, para que um pico
       # nelas não consuma a concorrência das Lambdas que também executam os
       # passos da saga (Stock, Products) nem a capacidade do DynamoDB.
-      # POST /saga/execute fica com o padrão.
-      # Catálogo e estoque: 20-30 req/s; listagens admin: 10; observabilidade: 5.
+      # Catálogo e estoque: 20-30 req/s; listagens admin: 10; observabilidade: 5;
+      # escritas de admin: 2 (cada X-Api-Key diferente invoca o authorizer).
       # Burst nunca abaixo da taxa: o balde comporta ao menos 1s de requisições
       RouteSettings:
+        # Fallback (rota inexistente): só devolve a lista de endpoints
+        'ANY /{proxy+}':
+          ThrottlingBurstLimit: 2
+          ThrottlingRateLimit: 2
+        'GET /health':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 5
+        'POST /products':
+          ThrottlingBurstLimit: 2
+          ThrottlingRateLimit: 2
+        'DELETE /products/{id}':
+          ThrottlingBurstLimit: 2
+          ThrottlingRateLimit: 2
+        'POST /stock/{productId}/adjust':
+          ThrottlingBurstLimit: 2
+          ThrottlingRateLimit: 2
+        'PUT /chaos':
+          ThrottlingBurstLimit: 2
+          ThrottlingRateLimit: 2
+        'DELETE /chaos':
+          ThrottlingBurstLimit: 2
+          ThrottlingRateLimit: 2
         'GET /products':
           ThrottlingBurstLimit: 30
           ThrottlingRateLimit: 30
@@ -149,9 +176,11 @@ Resources:
         'GET /saga/{sagaId}':
           ThrottlingBurstLimit: 20
           ThrottlingRateLimit: 20
+        # Admin. Cada leitura pode levar segundos de Lambda (até 10 páginas do
+        # FilterLogEvents); o LogsClient ainda reaproveita a leitura por 20 s
         'GET /logs':
-          ThrottlingBurstLimit: 5
-          ThrottlingRateLimit: 5
+          ThrottlingBurstLimit: 2
+          ThrottlingRateLimit: 2
         # Públicas e com cache de 20 s (AlarmsClient, DlqClient), mas sem
         # limite próprio ficariam com os 100 req/s do stage na GatewayFunction
         'GET /alarms':
@@ -164,9 +193,10 @@ Resources:
         'POST /dlq/{messageId}/{action}':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
+        # Como GET /logs; o id vem do cliente, então o cache ajuda pouco
         'GET /trace/{correlationId}':
-          ThrottlingBurstLimit: 5
-          ThrottlingRateLimit: 5
+          ThrottlingBurstLimit: 2
+          ThrottlingRateLimit: 2
         'GET /metrics/sagas':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 5
@@ -324,6 +354,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /logs
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         SagaMetrics:
           Type: HttpApi
           Properties:
@@ -379,6 +411,8 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /trace/{correlationId}
             Method: GET
+            Auth:
+              Authorizer: AdminApiKey
         ListDlq:
           Type: HttpApi
           Properties:
@@ -1340,6 +1374,121 @@ Resources:
           Subscribers:
             - SubscriptionType: SNS
               Address: !Ref AlarmTopic
+
+  # Gasto real passou do teto: bloqueia a API (CostKillSwitchFunction). Budget
+  # próprio, e não mais uma notificação no MonthlyBudget: no CloudFormation,
+  # mudar as notificações de um Budget exige substituí-lo, e com BudgetName fixo
+  # a substituição falha (nome já existe). O Budgets aceita um só tópico SNS por
+  # notificação; o e-mail vem da assinatura do próprio CostKillSwitchTopic
+  CostKillSwitchBudget:
+    Type: AWS::Budgets::Budget
+    DependsOn: CostKillSwitchTopicPolicy
+    Properties:
+      Budget:
+        BudgetName: !Sub '${Environment}-ecommerce-kill-switch'
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUSD
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref CostKillSwitchTopic
+
+  # Interruptor de custo: o MonthlyBudget só avisa, e um script contra as rotas
+  # públicas continuaria gerando cobrança depois do aviso. Quando o gasto real
+  # passa de MonthlyBudgetUSD (CostKillSwitchBudget), a função zera o
+  # throttling do stage (toda requisição recebe 429 do API Gateway, sem chegar
+  # às Lambdas). O Budget é
+  # atualizado algumas vezes por dia, então o bloqueio chega com atraso: os
+  # limites por rota (ApiGateway) seguram o gasto até lá. Religar: ver
+  # src/layers/api-gateway-layer/src/ops/costKillSwitch.js
+  CostKillSwitchTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${Environment}-ecommerce-cost-kill-switch'
+      DisplayName: !Sub 'E-commerce ${Environment}: API bloqueada por custo'
+
+  CostKillSwitchEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref CostKillSwitchTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # Mesma ideia da AlarmTopicPolicy (substitui a política padrão do tópico)
+  CostKillSwitchTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref CostKillSwitchTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountOwner
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action:
+              - sns:Publish
+              - sns:Subscribe
+              - sns:GetTopicAttributes
+              - sns:SetTopicAttributes
+              - sns:ListSubscriptionsByTopic
+            Resource: !Ref CostKillSwitchTopic
+          - Sid: AllowBudgetsPublish
+            Effect: Allow
+            Principal:
+              Service: budgets.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref CostKillSwitchTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  CostKillSwitchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: costKillSwitch.handler
+      MemorySize: 128
+      Timeout: 30
+      Environment:
+        Variables:
+          API_ID: !Ref ApiGateway
+          STAGE_NAME: !Ref Environment
+          THROTTLE_BACKUP_PARAM: !Sub '/${Environment}/ecommerce/throttle-backup'
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - apigateway:GET
+                - apigateway:PATCH
+              Resource: !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${ApiGateway}/stages/${Environment}'
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:PutParameter
+              Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Environment}/ecommerce/throttle-backup'
+      Events:
+        BudgetExceeded:
+          Type: SNS
+          Properties:
+            Topic: !Ref CostKillSwitchTopic
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: ['.js=.mjs']
+        Target: es2022
+        EntryPoints: [src/layers/api-gateway-layer/src/ops/costKillSwitch.js]
+        External: ['@aws-sdk/*']
 
   # Cliente consultando em loop o que não existe (ex.: aba esquecida acompanhando
   # sagas apagadas): leituras com 404 (ClientErrors, http-handler.mjs), que ficam

@@ -102,6 +102,44 @@ describe('CloudWatchMetricsClient', () => {
     assert.strictEqual(byId.calls_0_ok.Period, 3600);
   });
 
+  it('summary: só os totais e os tipos de erro de negócio, sem as consultas por ação', async () => {
+    const client = fakeCloudWatch({
+      metrics: [
+        { MetricName: 'BusinessErrors', Dimensions: dims(['ErrorType', 'PaymentDeclined']) },
+        { MetricName: 'ActionCount', Dimensions: dims(['Action', 'processPayment'], ['Outcome', 'ok']) }
+      ],
+      data: { business: [[minute(30), 1]], business_0: [[minute(30), 1]] }
+    });
+    const result = await new CloudWatchMetricsClient({ client, now: () => NOW }).errorMetrics({ hours: 1, summary: true });
+    assert.strictEqual(result.summary, true);
+    assert.strictEqual(result.business.total, 1);
+    assert.deepStrictEqual(result.business.byType.map(t => t.errorType), ['PaymentDeclined']);
+    assert.deepStrictEqual(result.actions, []);
+    const listed = client.sent.filter(c => c.name === 'ListMetricsCommand').map(c => c.input.MetricName);
+    assert.deepStrictEqual(listed, ['BusinessErrors']);
+    const queries = client.sent.filter(c => c.name === 'GetMetricDataCommand').flatMap(c => c.input.MetricDataQueries.map(q => q.Id));
+    assert.deepStrictEqual(queries.sort(), ['business', 'business_0', 'client', 'unhandled']);
+  });
+
+  it('parseMetricsQuery só marca summary com summary=1', () => {
+    assert.deepStrictEqual(parseMetricsQuery({ hours: '1', summary: '1' }), { hours: 1, summary: true });
+    assert.deepStrictEqual(parseMetricsQuery({ hours: '1', summary: 'yes' }), { hours: 1 });
+  });
+
+  it('janelas de 24 h ou mais ficam 5 min no cache', async () => {
+    const client = fakeCloudWatch({ metrics: [], data: {} });
+    let now = NOW;
+    const metrics = new CloudWatchMetricsClient({ client, now: () => now });
+    const reads = () => client.sent.filter(c => c.name === 'GetMetricDataCommand').length;
+    await metrics.errorMetrics({ hours: 24 });
+    now += 2 * 60 * 1000;
+    await metrics.errorMetrics({ hours: 24 });
+    assert.strictEqual(reads(), 1);
+    now += 4 * 60 * 1000;
+    await metrics.errorMetrics({ hours: 24 });
+    assert.strictEqual(reads(), 2);
+  });
+
   it('reaproveita a leitura por alguns segundos, por período', async () => {
     const client = fakeCloudWatch({ metrics: [], data: {} });
     let now = NOW;
@@ -161,7 +199,7 @@ describe('GET /trace/{correlationId}', () => {
     assert.strictEqual(called, false);
   });
 
-  it('devolve { correlationId, logs }; erro do CloudWatch vira 503; rota é pública', async () => {
+  it('devolve { correlationId, logs }; erro do CloudWatch vira 503; rota é de admin', async () => {
     const ok = createAPIHandler({ logs: { trace: async id => [{ event: 'A', correlationId: id }] } });
     const response = await ok(req('saga_1'));
     assert.strictEqual(response.statusCode, 200);
@@ -169,6 +207,8 @@ describe('GET /trace/{correlationId}', () => {
 
     const failing = createAPIHandler({ logs: { trace: async () => { throw new Error('AccessDenied'); } } });
     assert.strictEqual((await failing(req('saga_1'))).statusCode, 503);
-    assert.ok(!isAdminRoute('GET', '/trace/saga_1'));
+    assert.ok(isAdminRoute('GET', '/trace/saga_1'));
+    assert.ok(isAdminRoute('GET', '/logs'));
+    assert.ok(!isAdminRoute('GET', '/metrics/errors'));
   });
 });

@@ -3,8 +3,13 @@ import { metricNamespace } from '../../../../common/emf.mjs';
 import { awsClientConfig, QUERY_CLIENT_OPTIONS } from '../../../../common/aws-client.mjs';
 import { parseHours } from '../../../../common/validation.mjs';
 
-// Mesma ideia do SagaMetricsClient: aba aberta em vários navegadores não multiplica as leituras
-export const ERROR_METRICS_CACHE_TTL_MS = 20 * 1000;
+// Mesma ideia do SagaMetricsClient: aba aberta em vários navegadores não
+// multiplica as leituras. O GetMetricData é cobrado por métrica pedida (a aba
+// Métricas pede ~100) e a rota é pública: janelas de 24 h ou mais, em que um
+// minuto a mais quase não muda o gráfico, ficam mais tempo no cache
+export const ERROR_METRICS_CACHE_TTL_MS = 60 * 1000;
+export const LONG_WINDOW_CACHE_TTL_MS = 5 * 60 * 1000;
+export const cacheTtlFor = (hours, ttlMs) => hours >= 24 ? Math.max(ttlMs, LONG_WINDOW_CACHE_TTL_MS) : ttlMs;
 
 // Resolução do gráfico conforme o período (até ~180 barras; o CloudWatch guarda 1 min por 15 dias)
 export function periodFor(hours) {
@@ -17,8 +22,13 @@ export function periodFor(hours) {
 // CloudWatch: 15 dias). Também vale para /metrics/memory (MemoryMetricsClient)
 export const METRICS_HOURS = [1, 3, 24, 24 * 7, 24 * 14];
 
+// summary=1 (indicador do Monitoramento): só os totais e os tipos de erro de
+// negócio, sem as ~90 consultas por ação da aba Métricas
 export function parseMetricsQuery(query = {}) {
-  return { hours: parseHours(query.hours, { allowed: METRICS_HOURS }) };
+  return {
+    hours: parseHours(query.hours, { allowed: METRICS_HOURS }),
+    ...(query.summary === '1' && { summary: true })
+  };
 }
 
 const OUTCOMES = ['ok', 'rejected', 'failed'];
@@ -39,16 +49,17 @@ export class CloudWatchMetricsClient {
     this.client = client || new CloudWatchClient(awsClientConfig('CLOUDWATCH_ENDPOINT', QUERY_CLIENT_OPTIONS));
   }
 
-  errorMetrics({ hours }) {
-    const cached = this.cache.get(hours);
+  errorMetrics({ hours, summary = false }) {
+    const key = `${hours}:${summary ? 'summary' : 'full'}`;
+    const cached = this.cache.get(key);
     if (cached && cached.expiresAt > this.now()) return cached.value;
-    const value = this.readMetrics(hours);
-    this.cache.set(hours, { value, expiresAt: this.now() + this.cacheTtlMs });
-    value.catch(() => { if (this.cache.get(hours)?.value === value) this.cache.delete(hours); });
+    const value = this.readMetrics(hours, { summary });
+    this.cache.set(key, { value, expiresAt: this.now() + cacheTtlFor(hours, this.cacheTtlMs) });
+    value.catch(() => { if (this.cache.get(key)?.value === value) this.cache.delete(key); });
     return value;
   }
 
-  async readMetrics(hours) {
+  async readMetrics(hours, { summary = false } = {}) {
     const period = periodFor(hours);
     const end = Math.ceil(this.now() / (period * 1000)) * period * 1000;
     const start = end - Math.ceil(hours * 3600 / period) * period * 1000;
@@ -57,8 +68,8 @@ export class CloudWatchMetricsClient {
 
     const [businessTypes, unhandledTypes, actions] = await Promise.all([
       this.dimensionValues('BusinessErrors', ['ErrorType']),
-      this.dimensionValues('UnhandledErrors', ['ErrorType']),
-      this.dimensionValues('ActionCount', ['Action', 'Outcome'])
+      summary ? [] : this.dimensionValues('UnhandledErrors', ['ErrorType']),
+      summary ? [] : this.dimensionValues('ActionCount', ['Action', 'Outcome'])
     ]);
 
     const metricQuery = (Id, MetricName, Stat, dims, Period) => ({
@@ -107,6 +118,8 @@ export class CloudWatchMetricsClient {
 
     return {
       hours,
+      // Resumo: sem tipos de erro não tratado nem ações (vazios, não zerados)
+      ...(summary && { summary: true }),
       periodSeconds: period,
       buckets: buckets.map(t => new Date(t).toISOString()),
       business: { total: sum('business'), values: series('business'), byType: byType('business', businessTypes) },

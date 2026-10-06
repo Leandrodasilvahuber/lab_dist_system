@@ -33,8 +33,9 @@ Exigem o header `X-Api-Key` com essa chave as escritas: cadastrar e remover
 produto (`POST /products`, `DELETE /products/{id}`), ajustar estoque
 (`POST /stock/{id}/adjust`), ligar e desligar o caos (`PUT`/`DELETE /chaos`) e
 reprocessar ou descartar eventos da DLQ (`POST /dlq/{id}/redrive|discard`),
-além do custo da conta (`GET /metrics/cost` e `POST /metrics/cost/refresh`). O resto é aberto, inclusive
-pedidos e compras (`/orders`, `/sagas`), logs, rastreio, métricas e a lista da
+além do custo da conta (`GET /metrics/cost` e `POST /metrics/cost/refresh`), dos logs
+(`GET /logs`) e do rastreio (`GET /trace/{id}`). O resto é aberto, inclusive
+pedidos e compras (`/orders`, `/sagas`), métricas e a lista da
 DLQ: serve ao laboratório, mas expõe as compras de todos. Para restringir o CORS a uma origem, passe
 também `AllowedOrigin=https://...` em `--parameter-overrides`.
 
@@ -75,7 +76,7 @@ estoque aos valores do seed, use `npm run seed -- --stage dev --reset`.
 | `ProductFunction`, `OrderFunction`, `StockFunction` | Serviços (HTTP + ações/eventos internos) |
 | `PaymentFunction` | Só ações da saga (sem rota HTTP) |
 | `SagaOrchestratorFunction` | `/saga/execute`, `/saga/{id}`, `/sagas` |
-| `AdminAuthorizerFunction` | Authorizer das rotas de admin (`X-Api-Key`): só `POST /products`, `DELETE /products/{id}` e `POST /stock/{productId}/adjust` |
+| `AdminAuthorizerFunction` | Authorizer das rotas de admin (`X-Api-Key`): escritas de produto, estoque, caos e DLQ, custo, logs e rastreio (lista em `src/common/auth.mjs`) |
 | `SagaStateMachine` (`dev-purchase-saga`) | Saga de compra (Step Functions Standard) |
 | `GatewayFunction` | `/health`, `/alarms` (alarmes `dev-ecommerce-*`), `/logs` (linhas warn/error do `ServicesLogGroup`), `/trace/{correlationId}` (linhas de uma compra), `/metrics/errors` (métricas EMF), `/metrics/sagas`, `/metrics/slo` (SLOs da tabela de sagas e da DLQ), `/dlq` (lista, reprocessa e descarta eventos da `ProductEventsDlq`) e 404 com a lista de endpoints |
 | Tabelas `dev-Products`, `dev-Orders`, `dev-Payments`, `dev-Inventory`, `dev-StockReservations`, `dev-Sagas` | DynamoDB on-demand, uma ou mais por serviço |
@@ -203,11 +204,43 @@ avisa no tópico dos alarmes (e no `AlertEmail`) com 80% do teto gasto e quando
 a previsão do mês passa de 100%. Para mudar o teto:
 `sam deploy --parameter-overrides MonthlyBudgetUSD=10 ...`.
 
+**Interruptor de custo.** Quando o gasto real passa de 100% do teto, um segundo
+Budget (`dev-ecommerce-kill-switch`, mesmo `MonthlyBudgetUSD`) publica no tópico `dev-ecommerce-cost-kill-switch` e a `CostKillSwitchFunction`
+zera o throttling do stage. A partir daí toda requisição recebe 429 do API
+Gateway, sem chegar às Lambdas. Os limites anteriores ficam no parâmetro
+`/dev/ecommerce/throttle-backup` do SSM. O `AlertEmail` também assina esse
+tópico. A função só age com o alerta de teto estourado do Budget; qualquer
+outra mensagem no tópico é ignorada (e registrada no log). O Budget é
+atualizado algumas vezes por dia, então o bloqueio chega com horas de atraso;
+até lá, quem segura o gasto são os limites por rota. Para religar a API (um
+novo deploy não desfaz o bloqueio, porque o CloudFormation não corrige
+mudanças feitas fora dele):
+
+```bash
+FN=$(aws cloudformation describe-stack-resource --stack-name distributed-ecommerce-system \
+  --logical-resource-id CostKillSwitchFunction --query StackResourceDetail.PhysicalResourceId --output text)
+aws lambda invoke --function-name "$FN" --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"restore"}' /dev/stdout
+```
+
+Para testar o bloqueio sem esperar o Budget, invoque a mesma função com
+`--payload '{"action":"trip"}'` e depois religue com o `restore`.
+
+Cuidados:
+- Um deploy que **mude** os limites por rota durante o bloqueio reaplica os
+  limites do template e a API volta a responder. Nesse caso não rode o
+  `restore`: o backup guarda os limites de antes do deploy.
+- O Budget avisa uma vez por mês. Depois de um `restore`, um novo gasto acima
+  do teto no mesmo mês não bloqueia de novo; só os limites por rota seguram.
+
 Cada requisição custa API Gateway + Lambda + DynamoDB: um cliente com bug em
-loop (como abas esquecidas consultando sagas apagadas) vira custo. O throttling
-do template é por rota, somando todos os clientes; se a API ficar pública,
-acrescente um AWS WAF no stage com uma regra por IP (rate-based rule), para que
-um único cliente não consuma o limite de todos.
+loop (como abas esquecidas consultando sagas apagadas) ou um script de propósito
+vira custo. O throttling do template é **por rota**, somando todos os clientes:
+o padrão (20 req/s) vale para cada rota sem limite próprio. As rotas que leem
+o CloudWatch têm limites menores e reaproveitam a leitura por alguns segundos:
+as métricas, públicas, e os logs e o rastreio, que são de admin. O AWS WAF não se associa a um
+HttpApi; para limitar por IP, coloque um CloudFront com WAF (rate-based rule)
+na frente da API.
 
 ## Removendo tudo
 

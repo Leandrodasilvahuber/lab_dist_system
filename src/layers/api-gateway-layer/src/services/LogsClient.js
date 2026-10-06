@@ -20,6 +20,15 @@ const PAGE_WORST_CASE_MS = DEFAULT_TIMEOUTS.connectionTimeout + QUERY_TIMEOUT_MS
 // Rastreio olha todo o período de retenção do log group (RetentionInDays: 14)
 export const TRACE_HOURS = 24 * 14;
 
+// Cada leitura pode levar segundos de Lambda (até MAX_PAGES chamadas ao
+// FilterLogEvents): abas abertas e recarregamentos dividem a mesma leitura por
+// este tempo (as rotas são de admin, mas uma chave vazada não vira custo sem teto). O rastreio usa um
+// tempo menor (uma compra em andamento ainda ganha linhas) e guarda no máximo
+// TRACE_CACHE_SIZE ids, já que o id vem do cliente
+export const LOGS_CACHE_TTL_MS = 20 * 1000;
+export const TRACE_CACHE_TTL_MS = 10 * 1000;
+export const TRACE_CACHE_SIZE = 50;
+
 /**
  * Lê o log group das Lambdas (ServicesLogGroup): linhas warn/error para a aba
  * Logs e todas as linhas de um correlationId para a aba Rastreio.
@@ -29,6 +38,22 @@ export class LogsClient {
     this.logGroupName = logGroupName;
     this.clock = clock;
     this.client = client || new CloudWatchLogsClient(awsClientConfig('CLOUDWATCH_LOGS_ENDPOINT', QUERY_CLIENT_OPTIONS));
+    this.logsCache = new Map();
+    this.traceCache = new Map();
+  }
+
+  // Mesma ideia do SagaMetricsClient: guarda a promessa, falha não fica no cache
+  cached(cache, key, ttlMs, read, maxSize = Infinity) {
+    const now = this.clock();
+    const hit = cache.get(key);
+    if (hit && hit.expiresAt > now) return hit.value;
+    cache.delete(key);
+    // Map mantém a ordem de inserção: a primeira chave é a mais antiga
+    while (cache.size >= maxSize) cache.delete(cache.keys().next().value);
+    const value = read();
+    cache.set(key, { value, expiresAt: now + ttlMs });
+    value.catch(() => { if (cache.get(key)?.value === value) cache.delete(key); });
+    return value;
   }
 
   /**
@@ -39,7 +64,11 @@ export class LogsClient {
    * janela é lida até o fim, e as mais antigas só se faltarem linhas. Se o
    * orçamento acabar no meio de uma janela, a resposta sai com o que já foi lido.
    */
-  async listLogs({ levels, hours }, now = Date.now()) {
+  listLogs({ levels, hours }, now = Date.now()) {
+    return this.cached(this.logsCache, `${levels.join(',')}:${hours}`, LOGS_CACHE_TTL_MS, () => this.readLogs({ levels, hours }, now));
+  }
+
+  async readLogs({ levels, hours }, now) {
     const filterPattern = `{ ${levels.map(level => `($.status = "${level}")`).join(' || ')} }`;
     const since = now - hours * 3600 * 1000;
     const budget = this.budget();
@@ -56,9 +85,13 @@ export class LogsClient {
     return selectLogs(entries, { levels, hours }, now);
   }
 
-  async trace(correlationId, now = Date.now()) {
+  trace(correlationId, now = Date.now()) {
     // O id entra no filter pattern: só caracteres de id (a rota já valida)
-    if (!isTraceId(correlationId)) throw new Error('Invalid correlationId');
+    if (!isTraceId(correlationId)) return Promise.reject(new Error('Invalid correlationId'));
+    return this.cached(this.traceCache, correlationId, TRACE_CACHE_TTL_MS, () => this.readTrace(correlationId, now), TRACE_CACHE_SIZE);
+  }
+
+  async readTrace(correlationId, now) {
     // Aqui a ordem crescente é a desejada: o rastreio começa no início da compra
     const { entries } = await this.filter(`{ $.correlationId = "${correlationId}" }`, now - TRACE_HOURS * 3600 * 1000, now, this.budget(), MAX_TRACE_ENTRIES);
     return selectTrace(entries, correlationId);

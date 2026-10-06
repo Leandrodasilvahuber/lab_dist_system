@@ -6,10 +6,13 @@ const line = (status, timestamp, event = 'X', extra = {}) => JSON.stringify({ ti
 const NOW = Date.parse('2026-10-04T12:00:00Z');
 
 describe('log-query', () => {
-  it('parseLogQuery: level=error filtra só error; padrão 24 h, máximo 14 dias', () => {
+  it('parseLogQuery: level=error filtra só error; padrão 24 h, períodos fixos até 14 dias', () => {
     assert.deepStrictEqual(parseLogQuery({}), { levels: ['warn', 'error'], hours: 24 });
     assert.deepStrictEqual(parseLogQuery({ level: 'error', hours: '1' }), { levels: ['error'], hours: 1 });
     assert.strictEqual(parseLogQuery({ hours: '99999' }).hours, 336);
+    // Só os períodos da lista (chave do cache do LogsClient)
+    assert.strictEqual(parseLogQuery({ hours: '5' }).hours, 1);
+    assert.strictEqual(parseLogQuery({ hours: '30' }).hours, 24);
   });
 
   it('parseLogLine ignora o que não é linha do logger', () => {

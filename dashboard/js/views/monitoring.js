@@ -64,7 +64,7 @@ const MONITORS = [
         icon: 'alert',
         async check() {
             try {
-                const { business, unhandled } = await api('/metrics/errors?hours=1');
+                const { business, unhandled } = await api('/metrics/errors?hours=1&summary=1');
                 return {
                     value: `${business.total} negócio · ${unhandled.total} não tratados`,
                     ok: unhandled.total === 0,

@@ -59,11 +59,14 @@ export function refreshCurrent() {
     return current?.refresh?.();
 }
 
-// Telas de admin só aparecem no menu com a chave ativa
+// Telas de admin só aparecem no menu (e nos atalhos de outras telas, como o
+// "Logs de erro" do Monitoramento) com a chave ativa
 export function syncAdminViews() {
     const hasKey = Boolean(getAdminKey());
     for (const view of views.values()) {
-        if (view.requiresAdmin) document.querySelector(`.nav-list [data-view="${view.id}"]`).hidden = !hasKey;
+        if (!view.requiresAdmin) continue;
+        document.querySelector(`.nav-list [data-view="${view.id}"]`).hidden = !hasKey;
+        document.querySelectorAll(`.link-btn[data-nav="${view.id}"]`).forEach(link => { link.hidden = !hasKey; });
     }
 }
 

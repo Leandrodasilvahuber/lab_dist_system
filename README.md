@@ -179,8 +179,8 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 |---|---|---|
 | GET | `/health` | Health check |
 | GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) |
-| GET | `/logs?level=warn\|error&hours=24` | Linhas de log warn/error, mais recentes primeiro (aba Logs) |
-| GET | `/trace/{correlationId}` | Todas as linhas de log de uma compra, em ordem (aba Rastreio) |
+| GET | `/logs?level=warn\|error&hours=24` 🔑 | Linhas de log warn/error, mais recentes primeiro (aba Logs); `hours` vira 1, 24, 168 ou 336 |
+| GET | `/trace/{correlationId}` 🔑 | Todas as linhas de log de uma compra, em ordem (aba Rastreio) |
 | GET | `/metrics/errors?hours=24` | `hours`: 1, 3, 24, 168 ou 336 (outro valor vai para o mais próximo). Séries de erros de negócio/não tratados por tipo e chamadas/duração por ação, gravadas via EMF (aba Métricas) |
 | GET | `/metrics/sagas` | Tempo por passo das últimas 10 compras, do histórico do Step Functions (aba Desempenho) |
 | GET | `/metrics/slo?hours=24` | `hours`: 1, 24 ou 168. SLOs da janela: p95 das compras concluídas, % de sagas Completed/Compensated e mensagens na DLQ há mais de 24 h (aba SLOs) |
@@ -211,12 +211,12 @@ no SSM Parameter Store (`/<Environment>/ecommerce/admin-api-key`, SecureString) 
 conferida por um authorizer Lambda do HttpApi. São de admin as escritas: cadastrar
 e remover produto, ajustar estoque, ligar e desligar o caos e reprocessar ou
 descartar eventos da DLQ (descartar perde o evento de vez). O custo também, por
-ser o gasto da conta AWS inteira. As demais rotas são públicas, inclusive
-pedidos, compras, logs, rastreio e a lista da DLQ, o que serve ao laboratório
-mas expõe as compras de todos e mensagens internas. O
-stage tem throttling (100 req/s, rajada de 50), e as leituras caras têm limite
-próprio (`RouteSettings` no template; `GET /saga/{id}`, o polling do dashboard,
-20 req/s). O limite é da rota, somando todos os clientes.
+ser o gasto da conta AWS inteira, e os logs e o rastreio, que mostram as linhas
+internas das Lambdas e são a leitura mais cara da observabilidade. As demais
+rotas são públicas, inclusive pedidos, compras e a lista da DLQ, o que serve ao
+laboratório mas expõe as compras de todos. Cada rota tem throttling (padrão de
+20 req/s por rota), e as leituras caras e as escritas de admin têm limite
+próprio (`RouteSettings` no template). O limite é da rota, somando todos os clientes.
 
 **Paginação:** `GET /products`, `GET /stock`, `GET /orders` e `GET /sagas` devolvem até `limit` itens (padrão
 50, máximo 100) e um `nextToken` quando há mais; repita a chamada com
@@ -235,8 +235,8 @@ dentro da página. Filtro numérico inválido (`priceMin=abc`) responde `400`.
 - **O dashboard usa só** `/health`, `/alarms`, `/logs`, `/trace/{id}`, `/metrics/*`,
   `/dlq` (e `POST /dlq/{id}/redrive|discard`), `GET/POST /products`, `DELETE /products/{id}`, `GET /stock`,
   `GET /orders`, `POST /saga/execute`, `GET /saga/{id}` e `GET /sagas`. A
-  chave de admin (botão no topo da página) é pedida nas abas Admin e Caos, nas
-  ações da DLQ e no custo da aba Recursos.
+  chave de admin (botão no topo da página) é pedida nas abas Admin, Caos, Logs e
+  Rastreio, nas ações da DLQ e no custo da aba Recursos.
 - **Confirmar/cancelar pedido, pagar/reembolsar e reservar/liberar estoque não têm
   rota HTTP**: só a saga executa essas operações, por dentro. Payments não tem
   nenhuma rota pública.

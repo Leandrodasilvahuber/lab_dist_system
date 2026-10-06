@@ -13,6 +13,8 @@ export default {
     id: 'logs',
     label: 'Logs',
     icon: 'file',
+    // GET /logs é de admin (linhas internas das Lambdas)
+    requiresAdmin: true,
     template: () => `
         ${toolbar(
             select('logLevel', 'Nível', [['warn', 'warn + error'], ['error', 'só error (não tratados)']], 'warn'),

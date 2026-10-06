@@ -3,6 +3,8 @@
  * as linhas de uma compra) do dashboard.
  * Mesmo formato na AWS (CloudWatch Logs) e no local-server (buffer em memória).
  */
+import { parseHours } from './validation.mjs';
+
 export const MAX_LOG_ENTRIES = 200;
 export const MAX_TRACE_ENTRIES = 500;
 
@@ -14,12 +16,16 @@ export function isTraceId(id) {
   return typeof id === 'string' && TRACE_ID.test(id);
 }
 
+// Períodos da aba Logs (PERIODS.short do dashboard) e 14 dias (retenção do
+// log group). Fixos porque `level:hours` é a chave do cache do LogsClient:
+// um `hours` diferente a cada requisição furaria o cache
+export const LOG_HOURS = [1, 24, 24 * 7, 24 * 14];
+
 // level=error: só erros não tratados; qualquer outro valor: warn + error
 export function parseLogQuery(query = {}) {
-  const hours = Number(query.hours);
   return {
     levels: query.level === 'error' ? ['error'] : ['warn', 'error'],
-    hours: Number.isFinite(hours) && hours > 0 ? Math.min(hours, 24 * 14) : 24
+    hours: parseHours(query.hours, { allowed: LOG_HOURS })
   };
 }
 

@@ -1,7 +1,7 @@
 import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import { metricNamespace } from '../../../../common/emf.mjs';
 import { awsClientConfig, QUERY_CLIENT_OPTIONS } from '../../../../common/aws-client.mjs';
-import { CloudWatchMetricsClient, periodFor, ERROR_METRICS_CACHE_TTL_MS } from './CloudWatchMetricsClient.js';
+import { CloudWatchMetricsClient, periodFor, cacheTtlFor, ERROR_METRICS_CACHE_TTL_MS } from './CloudWatchMetricsClient.js';
 
 // MemorySize das Lambdas (template.yaml, parâmetro FunctionMemoryMB)
 export const functionMemoryMb = (env = process.env) => Number(env.FUNCTION_MEMORY_MB) || 256;
@@ -39,7 +39,7 @@ export class MemoryMetricsClient {
     const cached = this.cache.get(hours);
     if (cached && cached.expiresAt > this.now()) return cached.value;
     const value = this.readMemory(hours);
-    this.cache.set(hours, { value, expiresAt: this.now() + this.cacheTtlMs });
+    this.cache.set(hours, { value, expiresAt: this.now() + cacheTtlFor(hours, this.cacheTtlMs) });
     value.catch(() => { if (this.cache.get(hours)?.value === value) this.cache.delete(hours); });
     return value;
   }

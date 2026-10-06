@@ -149,6 +149,43 @@ describe('GET /logs', () => {
     assert.strictEqual(calls, 10);
   });
 
+  it('LogsClient reaproveita a leitura por alguns segundos, por level e hours', async () => {
+    let clock = 0;
+    const client = fakeLogs([]);
+    const logs = new LogsClient({ logGroupName: 'g', client, clock: () => clock });
+    await logs.listLogs({ levels: ['error'], hours: 1 });
+    await logs.listLogs({ levels: ['error'], hours: 1 });
+    assert.strictEqual(client.sent.length, 1);
+    await logs.listLogs({ levels: ['warn', 'error'], hours: 1 });
+    assert.strictEqual(client.sent.length, 2);
+    clock += 20 * 1000;
+    await logs.listLogs({ levels: ['error'], hours: 1 });
+    assert.strictEqual(client.sent.length, 3);
+  });
+
+  it('LogsClient.trace reaproveita a leitura e guarda no máximo 50 ids', async () => {
+    let clock = 0;
+    const client = fakeLogs([]);
+    const logs = new LogsClient({ logGroupName: 'g', client, clock: () => clock });
+    await logs.trace('saga_1');
+    await logs.trace('saga_1');
+    assert.strictEqual(client.sent.length, 1);
+    for (let i = 0; i < 60; i++) await logs.trace(`saga_x${i}`);
+    assert.strictEqual(logs.traceCache.size, 50);
+    // saga_1 saiu do cache (o mais antigo) e é lido de novo
+    await logs.trace('saga_1');
+    assert.strictEqual(client.sent.length, 62);
+  });
+
+  it('hours fora da lista cai no período mais próximo (chave do cache)', async () => {
+    let received;
+    const handler = createAPIHandler({ logs: { listLogs: async query => { received = query; return []; } } });
+    await handler(getLogs({ hours: '5' }));
+    assert.strictEqual(received.hours, 1);
+    await handler(getLogs({ hours: '100' }));
+    assert.strictEqual(received.hours, 168);
+  });
+
   it('repassa level e hours da query', async () => {
     let received;
     const handler = createAPIHandler({ logs: { listLogs: async query => { received = query; return []; } } });

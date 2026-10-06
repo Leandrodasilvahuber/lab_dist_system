@@ -8,8 +8,8 @@ import { promisify } from 'node:util';
  */
 export const ADMIN_ROUTES = [
   // Escritas da aba Admin: cadastrar e remover produto, e o ajuste de
-  // estoque (cria inventário). As leituras (pedidos, compras, logs, rastreio,
-  // métricas, a lista da DLQ) são abertas, como pede o laboratório
+  // estoque (cria inventário). As leituras (pedidos, compras, métricas, a
+  // lista da DLQ) são abertas, como pede o laboratório
   ['POST', /^\/products$/],
   ['DELETE', /^\/products\/[^/]+$/],
   ['POST', /^\/stock\/[^/]+\/adjust$/],
@@ -22,7 +22,12 @@ export const ADMIN_ROUTES = [
   // Gasto da conta AWS inteira (Cost Explorer), não só desta stack, e a
   // leitura sob demanda dele (cada uma custa US$ 0,02)
   ['GET', /^\/metrics\/cost$/],
-  ['POST', /^\/metrics\/cost\/refresh$/]
+  ['POST', /^\/metrics\/cost\/refresh$/],
+  // Logs e rastreio: as linhas internas das Lambdas (erros, ids, dados das
+  // compras) e a leitura mais cara da observabilidade (segundos de Lambda
+  // por consulta ao CloudWatch Logs)
+  ['GET', /^\/logs$/],
+  ['GET', /^\/trace\/[^/]+$/]
 ];
 
 export function isAdminRoute(method, path) {
