@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: '2010-09-09'
+# Role que o GitHub Actions assume (OIDC, sem chaves guardadas no GitHub) para
+# fazer o deploy do stack da aplicação no push em master. Deploy manual, uma vez:
+#   aws cloudformation deploy --template-file infra/github-oidc.yaml \
+#     --stack-name github-deploy-role --capabilities CAPABILITY_NAMED_IAM
+# O ARN do output RoleArn vai na variável AWS_DEPLOY_ROLE_ARN do repositório
+Description: Role de deploy do GitHub Actions (OIDC) para o distributed-ecommerce-system
+
+Parameters:
+  GithubRepo:
+    Type: String
+    Default: Leandrodasilvahuber/lab_dist_system
+    Description: 'Repositório (dono/nome) autorizado a assumir a role'
+
+  # Só o job com esse environment assume a role. O environment fica restrito à
+  # branch master no GitHub: push em develop e PRs não chegam a ter credencial
+  GithubEnvironment:
+    Type: String
+    Default: production
+
+  AppStackName:
+    Type: String
+    Default: distributed-ecommerce-system
+    Description: 'Stack da aplicação: prefixo das roles que o deploy pode criar'
+
+  # A conta só aceita um provider por URL. Se outro stack já criou o do GitHub,
+  # passe CreateOidcProvider=false e o ARN existente
+  CreateOidcProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+
+  ExistingOidcProviderArn:
+    Type: String
+    Default: ''
+
+Conditions:
+  ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, 'true']
+
+Resources:
+  GithubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+
+  GithubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateOidcProvider
+                - !Ref GithubOidcProvider
+                - !Ref ExistingOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GithubRepo}:environment:${GithubEnvironment}
+      # O stack usa uns 15 serviços (Lambda, DynamoDB, Step Functions, Cognito,
+      # Budgets, Application Signals...); o PowerUserAccess cobre todos menos IAM
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      Policies:
+        # IAM só nas roles do stack: com CAPABILITY_IAM o CloudFormation gera
+        # nomes com o nome do stack como prefixo
+        - PolicyName: AppStackRoles
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:UpdateRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:ListRoleTags
+                  - iam:GetRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:ListAttachedRolePolicies
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-*
+
+Outputs:
+  RoleArn:
+    Description: Vai na variável AWS_DEPLOY_ROLE_ARN do repositório
+    Value: !GetAtt GithubDeployRole.Arn

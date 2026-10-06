@@ -1,4 +1,4 @@
-# Checkov (npm run sast:iac): IaC do template.yaml.
+# Checkov (npm run sast:iac): IaC do template.yaml e da role de deploy (infra/).
 # Checks desligados de propósito: custo fixo alto demais para um laboratório
 # ou sem efeito na arquitetura (Lambdas síncronas atrás do API Gateway).
 # Exceções de um recurso só ficam no template.yaml (checkov:skip com o motivo).
@@ -6,6 +6,7 @@ framework:
   - cloudformation
 file:
   - template.yaml
+  - infra/github-oidc.yaml
 compact: true
 quiet: true
 skip-check:

@@ -1,12 +1,14 @@
-# Análise estática e testes unitários. Os testes de integração e e2e
-# precisam do LocalStack e continuam locais (README-LOCALSTACK.md).
+# Análise estática e testes unitários em develop, master e nos PRs; push em
+# master (merge do PR develop → master) faz o deploy na AWS depois dos dois.
+# Os testes de integração e e2e precisam do LocalStack e continuam locais
+# (README-LOCALSTACK.md).
 name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, develop]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, develop]
 
 permissions:
   contents: read
@@ -44,3 +46,35 @@ jobs:
           cache: npm
       # npm audit, Semgrep, Gitleaks e Checkov (os três últimos em Docker)
       - run: npm run sast
+
+  # Role e environment: seção "Deploy automático" do AWS-SETUP.md
+  deploy:
+    needs: [static, sast]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    # A trust policy da role só aceita tokens deste environment
+    environment: production
+    # Merges seguidos entram na fila: nunca dois sam deploy no mesmo stack
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+        with:
+          use-installer: true
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      # scripts/deploy.sh: npm ci, sam build e sam deploy sem confirmação (CI=true)
+      - run: npm run deploy
+        env:
+          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}

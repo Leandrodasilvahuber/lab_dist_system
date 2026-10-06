@@ -47,7 +47,11 @@ if [ -z "$ALERT_EMAIL" ] && [ -f .env ]; then
 fi
 OVERRIDES="Environment=$ENVIRONMENT"
 [ -n "$ALERT_EMAIL" ] && OVERRIDES="$OVERRIDES AlertEmail=$ALERT_EMAIL"
-sam deploy --config-file samconfig.toml \
+# No GitHub Actions (CI=true) não há quem confirme o changeset, e um merge que
+# não muda o stack (só docs, dashboard) não é erro
+SAM_FLAGS=()
+[ "$CI" = "true" ] && SAM_FLAGS=(--no-confirm-changeset --no-fail-on-empty-changeset)
+sam deploy --config-file samconfig.toml "${SAM_FLAGS[@]}" \
     --parameter-overrides $OVERRIDES || exit 1
 [ -n "$ALERT_EMAIL" ] && echo "📧 Confirme a assinatura no e-mail enviado para $ALERT_EMAIL (sem isso, os alarmes não chegam)"
 
