@@ -13,15 +13,10 @@ Parameters:
     Description: 'Repositório (dono/nome) autorizado a assumir a role'
 
   # Só o job com esse environment assume a role. O environment fica restrito à
-  # branch master no GitHub: push em develop e PRs não chegam a ter credencial
+  # branch prod no GitHub: push em master e PRs não chegam a ter credencial
   GithubEnvironment:
     Type: String
     Default: production
-
-  AppStackName:
-    Type: String
-    Default: distributed-ecommerce-system
-    Description: 'Stack da aplicação: prefixo das roles que o deploy pode criar'
 
   # A conta só aceita um provider por URL. Se outro stack já criou o do GitHub,
   # passe CreateOidcProvider=false e o ARN existente
@@ -70,7 +65,8 @@ Resources:
         - arn:aws:iam::aws:policy/PowerUserAccess
       Policies:
         # IAM só nas roles do stack: com CAPABILITY_IAM o CloudFormation gera
-        # nomes com o nome do stack como prefixo
+        # nomes com o nome do stack como prefixo, cortado quando o nome da role
+        # passaria de 64 caracteres (distributed-ecommerce-sys-...)
         - PolicyName: AppStackRoles
           PolicyDocument:
             Version: '2012-10-17'
@@ -93,7 +89,7 @@ Resources:
                   - iam:AttachRolePolicy
                   - iam:DetachRolePolicy
                   - iam:ListAttachedRolePolicies
-                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-*
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/distributed-ecommerce-sys*
 
 Outputs:
   RoleArn:

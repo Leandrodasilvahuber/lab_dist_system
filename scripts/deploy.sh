@@ -88,6 +88,34 @@ elif ! aws cognito-idp admin-get-user --user-pool-id "$USER_POOL_ID" --username 
     echo "   read -rs ADMIN_PASSWORD && export ADMIN_PASSWORD && ./scripts/deploy.sh"
 fi
 
+# Dashboard (front): sobe dashboard/ para o bucket do CloudFront. O index.html
+# fica na raiz (DefaultRootObject) e os assets em /dashboard/*, os mesmos
+# caminhos do local-server. Só no bucket, runtime-config.js recebe a URL da API
+# (DEFAULT_API), para o dashboard publicado não precisar de ?api=.
+# Cache-Control: no-cache faz o CloudFront e o navegador revalidarem a cada
+# acesso (arquivos pequenos), então o deploy novo aparece sem invalidação
+echo ""
+echo "🖥️  Publicando o dashboard..."
+DASHBOARD_BUCKET=$(stack_output DashboardBucketName)
+DASHBOARD_API=$(stack_output ApiGatewayUrl)
+if [ -z "$DASHBOARD_BUCKET" ] || [ "$DASHBOARD_BUCKET" = "None" ] || [ -z "$DASHBOARD_API" ]; then
+    echo "❌ Outputs DashboardBucketName/ApiGatewayUrl não encontrados no stack $STACK_NAME"
+    exit 1
+fi
+DASHBOARD_STAGE=$(mktemp -d)
+mkdir -p "$DASHBOARD_STAGE/dashboard"
+cp -R dashboard/. "$DASHBOARD_STAGE/dashboard/" || exit 1
+cp dashboard/index.html "$DASHBOARD_STAGE/index.html" || exit 1
+# JSON.stringify: a URL entra no JS como string com o escape certo
+DASHBOARD_API="$DASHBOARD_API" node -e 'process.stdout.write(
+    "// Gerado por scripts/deploy.sh: API do stack para o dashboard publicado\n" +
+    `export const DEFAULT_API = ${JSON.stringify(process.env.DASHBOARD_API)};\n`)' \
+    > "$DASHBOARD_STAGE/dashboard/js/core/runtime-config.js" || exit 1
+aws s3 sync "$DASHBOARD_STAGE" "s3://$DASHBOARD_BUCKET" --delete \
+    --cache-control no-cache --only-show-errors || { rm -rf "$DASHBOARD_STAGE"; exit 1; }
+rm -rf "$DASHBOARD_STAGE"
+echo "🖥️  Dashboard: $(stack_output DashboardUrl)"
+
 # A chave antiga (X-Api-Key) não é mais usada na AWS
 if aws ssm get-parameter --name "/$ENVIRONMENT/ecommerce/admin-api-key" > /dev/null 2>&1; then
     echo "🧹 Chave antiga sem uso: aws ssm delete-parameter --name /$ENVIRONMENT/ecommerce/admin-api-key"
@@ -104,6 +132,7 @@ API_URL=$(stack_output ApiGatewayUrl)
 
 if [ ! -z "$API_URL" ]; then
     echo "🌐 API Gateway URL: $API_URL"
+    echo "🖥️  Dashboard:       $(stack_output DashboardUrl)"
     echo ""
     echo "🧪 Testar endpoints:"
     echo "   Health:     $API_URL/health"

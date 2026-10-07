@@ -158,7 +158,7 @@ seguintes são rápidas.
 | `TIMEOUT_SCALE` | Multiplica os timeouts do SDK (conexão, request, Scan, Lambda de produtos). Ligado sozinho com `AWS_ENDPOINT` ou `LOCALSTACK_HOSTNAME` (o LocalStack sobrecarregado não responde nos tempos da AWS); o breaker de produtos passa a abrir com 10 falhas e testar a volta em 10s. `1` desliga. Na AWS nenhuma dessas variáveis existe | `3` no LocalStack, `1` na AWS |
 | `PAYMENT_MAX_AMOUNT` | Valor máximo aprovado pelo pagamento simulado | `10000` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` ou `silent` | `info` (`warn` no `local-server`) |
-| `CORS_ALLOW_ORIGIN` | Origem do header `Access-Control-Allow-Origin`. No `local-server` só é enviado se definida (o dashboard é servido pelo próprio servidor, na mesma origem); em invocações diretas o padrão é `*` (na AWS vale o parâmetro `AllowedOrigin`) | — no `local-server` |
+| `CORS_ALLOW_ORIGIN` | Origem do header `Access-Control-Allow-Origin`. No `local-server` só é enviado se definida (o dashboard é servido pelo próprio servidor, na mesma origem); em invocações diretas o padrão é `*` (na AWS vale o CORS do HttpApi: o dashboard no CloudFront, `http://localhost:3001` e o parâmetro `AllowedOrigin`) | — no `local-server` |
 | `ADMIN_API_KEY_HASH` | Hash scrypt da chave de admin do `local-server`, gerado por `npm run admin:hash` (tem prioridade sobre `ADMIN_API_KEY`) | — |
 | `HOST`, `PORT` | Endereço do `local-server` (`HOST=0.0.0.0` exige a chave de admin) | `127.0.0.1`, `3001` |
 | `LOCALSTACK_ENDPOINT` | Endpoint usado pelo `test:e2e` | `http://localhost:4566` |

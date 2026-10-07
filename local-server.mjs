@@ -244,7 +244,7 @@ const inlineScriptHashes = [...fs.readFileSync(path.join(DASHBOARD_DIR, 'index.h
 const SECURITY_HEADERS = {
   'Content-Security-Policy': [
     "default-src 'none'",
-    `script-src 'self' ${inlineScriptHashes.join(' ')}`,
+    ['script-src', "'self'", ...inlineScriptHashes].join(' '),
     "style-src 'self'",
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data:",

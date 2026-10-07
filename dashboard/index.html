@@ -4,13 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>E-commerce Dashboard</title>
-    <script>
-        // Tema escolhido antes do primeiro paint (sem piscar o claro no modo escuro)
-        try {
-            const theme = JSON.parse(localStorage.getItem('theme'));
-            if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
-        } catch { /* sem storage: segue o sistema */ }
-    </script>
+    <!-- Tema escolhido antes do primeiro paint (sem piscar o claro no modo escuro).
+         Arquivo, não <script> inline: a CSP do CloudFront fica só com 'self' -->
+    <script src="/dashboard/js/theme-init.js"></script>
     <link rel="stylesheet" href="/dashboard/css/tokens.css">
     <link rel="stylesheet" href="/dashboard/css/layout.css">
     <link rel="stylesheet" href="/dashboard/css/components.css">

@@ -13,10 +13,13 @@ Parameters:
     Default: dev
     Description: Environment name
 
+  # O CORS da API já aceita o dashboard no CloudFront (DashboardDistribution) e
+  # o local-server (http://localhost:3001, com ?api=). Aqui entra só uma origem
+  # a mais, se houver (ex.: https://loja.exemplo.com). Vazio = nenhuma outra
   AllowedOrigin:
     Type: String
-    Default: '*'
-    Description: 'Origem permitida pelo CORS (ex.: https://loja.exemplo.com)'
+    Default: ''
+    Description: 'Origem extra permitida pelo CORS (ex.: https://loja.exemplo.com)'
 
   # Bulkhead: teto de execuções simultâneas da GatewayFunction (observabilidade:
   # logs, métricas, DLQ), para que ela não consuma a concorrência das Lambdas da
@@ -104,6 +107,7 @@ Conditions:
   # Alarme purchase-limit só com o limite diário de compras ligado
   HasPurchaseLimit: !Not [!Equals [!Ref DailyPurchaseLimit, 0]]
   HasFloodAlarm: !Not [!Equals [!Ref FloodRequestsPer5Min, 0]]
+  HasAllowedOrigin: !Not [!Equals [!Ref AllowedOrigin, '']]
 
 # Todas as funções são empacotadas com esbuild a partir da raiz do projeto,
 # o que inclui automaticamente o código compartilhado de src/common.
@@ -257,8 +261,14 @@ Resources:
         'POST /metrics/cost/refresh':
           ThrottlingBurstLimit: 1
           ThrottlingRateLimit: 1
+      # Só o dashboard publicado (CloudFront) e o local-server chamam a API pelo
+      # navegador. Com CORS aqui, o HttpApi ignora o Access-Control-Allow-Origin
+      # que as Lambdas devolvem (src/common/response.mjs)
       CorsConfiguration:
-        AllowOrigins: [!Ref AllowedOrigin]
+        AllowOrigins:
+          - !Sub 'https://${DashboardDistribution.DomainName}'
+          - 'http://localhost:3001'
+          - !If [HasAllowedOrigin, !Ref AllowedOrigin, !Ref AWS::NoValue]
         AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
         AllowHeaders: [content-type, authorization, idempotency-key, x-idempotency-key, x-correlation-id]
         ExposeHeaders: [retry-after]
@@ -1778,6 +1788,147 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
 
+  # ---------- Dashboard publicado (S3 + CloudFront) ----------
+  # Os arquivos de dashboard/ vão para um bucket privado (scripts/deploy.sh faz
+  # o upload depois do sam deploy) e só o CloudFront lê, via Origin Access
+  # Control. O dashboard chama a API direto no execute-api (CORS acima): passar
+  # a API pelo CloudFront trocaria o IP do cliente pelo do CloudFront e
+  # quebraria o limite diário de compras por IP (DailyPurchaseLimitPerClient).
+  # Custo: dentro do free tier do CloudFront (1 TB e 10 mi de requisições/mês)
+  # e centavos de S3. Para apagar o stack, esvazie o bucket antes
+  DashboardBucket:
+    Type: AWS::S3::Bucket
+    # checkov:skip=CKV_AWS_18:só arquivos estáticos públicos via CloudFront; access log do S3 seria outro bucket só para isso
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      # Versões antigas (cada deploy sobrescreve os arquivos) somem em 7 dias
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 7
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  DashboardBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DashboardBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudFrontReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${DashboardBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${DashboardDistribution}'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt DashboardBucket.Arn
+              - !Sub '${DashboardBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  DashboardOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${Environment}-ecommerce-dashboard'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # Os mesmos headers de segurança do local-server.mjs. connect-src: a API
+  # (execute-api da região) e o Cognito do login de admin. Sem <script> inline
+  # no index.html (o do tema é js/theme-init.js), script-src fica só 'self'
+  DashboardSecurityHeaders:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${Environment}-ecommerce-dashboard'
+        SecurityHeadersConfig:
+          ContentSecurityPolicy:
+            Override: true
+            ContentSecurityPolicy: !Sub "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.execute-api.${AWS::Region}.amazonaws.com https://cognito-idp.${AWS::Region}.amazonaws.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: no-referrer
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            IncludeSubdomains: true
+            Override: true
+        CustomHeadersConfig:
+          Items:
+            - Header: Permissions-Policy
+              Value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()'
+              Override: true
+            - Header: Cross-Origin-Opener-Policy
+              Value: same-origin
+              Override: true
+            - Header: Cross-Origin-Resource-Policy
+              Value: same-origin
+              Override: true
+
+  DashboardDistribution:
+    Type: AWS::CloudFront::Distribution
+    # checkov:skip=CKV_AWS_68:WAF custa ~US$ 6/mês; o dashboard é estático e a API tem throttling e limites diários próprios
+    # checkov:skip=CKV_AWS_86:access log do CloudFront exigiria outro bucket; o tráfego da API já fica no ServicesLogGroup
+    # checkov:skip=CKV_AWS_174:o domínio padrão *.cloudfront.net não aceita escolher a versão mínima do TLS (só com certificado próprio no ACM)
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub 'Dashboard do ${Environment}-ecommerce'
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        # Só América do Norte e Europa (mais barato); o Brasil é servido de lá
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: dashboard-s3
+            DomainName: !GetAtt DashboardBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt DashboardOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: dashboard-s3
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # Managed-CachingOptimized. Os arquivos sobem com Cache-Control: no-cache
+          # (scripts/deploy.sh), então um deploy novo aparece sem invalidação
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: !Ref DashboardSecurityHeaders
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
   # ---------- Dashboard e Logs Insights ----------
   # Visão de saúde agregada (testes de carga e chaos). A latência por etapa usa
   # SEARCH na métrica EMF ActionDuration, então ação nova entra sozinha.
@@ -2158,6 +2309,18 @@ Outputs:
   SagaStateMachineArn:
     Description: "Saga State Machine ARN"
     Value: !Ref SagaStateMachine
+
+  DashboardUrl:
+    Description: "Dashboard (front) publicado no CloudFront"
+    Value: !Sub 'https://${DashboardDistribution.DomainName}'
+
+  DashboardBucketName:
+    Description: "Bucket com os arquivos do dashboard (scripts/deploy.sh faz o upload)"
+    Value: !Ref DashboardBucket
+
+  DashboardDistributionId:
+    Description: "Distribuição do CloudFront do dashboard"
+    Value: !Ref DashboardDistribution
 
   HealthDashboardUrl:
     Description: "Dashboard de saúde da saga (CloudWatch)"

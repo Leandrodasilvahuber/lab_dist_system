@@ -414,7 +414,21 @@ Uma variável já definida no shell tem prioridade sobre o `.env`. Por isso ele 
 expor na rede, use `HOST=0.0.0.0` junto com a chave de admin (sem ela, o
 servidor se recusa a subir).
 
-Para usar o dashboard com a API publicada na AWS, abra
+### Dashboard na AWS (CloudFront)
+
+O deploy também publica o dashboard: `scripts/deploy.sh` sobe `dashboard/`
+para um bucket S3 privado servido pelo CloudFront (output `DashboardUrl`,
+`https://<id>.cloudfront.net`). Só no bucket, `js/core/runtime-config.js`
+recebe a `ApiGatewayUrl`, então o dashboard publicado já chama a API do stack
+sem `?api=`. Ele fala direto com o execute-api (o CORS do HttpApi aceita só o
+domínio do CloudFront, `http://localhost:3001` e o `AllowedOrigin`, se houver),
+não através do CloudFront, para a API continuar vendo o IP real do cliente
+(limite diário de compras por IP). Os headers de segurança são os mesmos do
+`local-server` (`DashboardSecurityHeaders`), e os arquivos sobem com
+`Cache-Control: no-cache`, então um deploy novo aparece sem invalidação.
+Para apagar o stack, esvazie antes o bucket (`DashboardBucketName`).
+
+Para usar o dashboard local com a API publicada na AWS, abra
 `http://localhost:3001/?api=<ApiGatewayUrl>`. A CSP do
 `local-server` só deixa o dashboard chamar a própria origem e
 `https://*.execute-api.amazonaws.com`.
