@@ -30,7 +30,8 @@ npm run localstack:start
 # 2. Cria as tabelas, publica as Lambdas e a saga no LocalStack e abre o dashboard
 npm run build              # empacota as Lambdas
 npm run localstack:deploy  # repita depois de mudar o código (após npm run build)
-npm run local-server       # http://localhost:3001
+npm run local-server       # dashboard em http://localhost:3001/laboratory
+                           # (a raiz / é a página inicial: a Lambda hello world, como na AWS)
 
 # 3. Popula os dados (em outro terminal, com o local-server rodando)
 #    (de novo, só grava o que falta; -- --reset volta catálogo e estoque aos valores do seed)

@@ -67,6 +67,24 @@ export function templateMemoryMb() {
   return 256;
 }
 
+// Página inicial (HelloFunction do template.yaml): na AWS o CloudFront manda
+// '/' para ela; no local quem faz esse papel é o local-server
+export const LOCAL_HELLO_FUNCTION = 'local-HelloFunction';
+
+// Código inline da HelloFunction, sem a indentação do YAML: o LocalStack roda
+// exatamente o código da produção, sem cópia para manter em dia
+export function templateHelloCode() {
+  const lines = fs.readFileSync(path.join(ROOT, 'template.yaml'), 'utf8').split('\n');
+  const fn = lines.findIndex(line => line.trim() === 'HelloFunction:');
+  const start = lines.findIndex((line, i) => i > fn && line.replaceAll(' ', '') === 'InlineCode:|');
+  if (fn === -1 || start === -1) throw new Error('InlineCode da HelloFunction não encontrado no template.yaml');
+  const indent = lines[start].search(/\S/);
+  const end = lines.findIndex((line, i) => i > start && line.trim() && line.search(/\S/) <= indent);
+  const block = lines.slice(start + 1, end === -1 ? undefined : end);
+  const margin = Math.min(...block.filter(line => line.trim()).map(line => line.search(/\S/)));
+  return block.map(line => line.slice(margin)).join('\n').trimEnd() + '\n';
+}
+
 export function clients(endpoint) {
   const cfg = { region: 'us-east-1', endpoint, credentials: { accessKeyId: 'test', secretAccessKey: 'test' } };
   return {
@@ -153,6 +171,32 @@ export async function deploySaga({ L, F }, { prefix, tables, environment = {} })
   }));
 
   return { stateMachineArn, runtime };
+}
+
+/**
+ * Cria (ou recria) a página inicial a partir do InlineCode do template.yaml.
+ * O SAM grava InlineCode como index.js (CommonJS); aqui é igual.
+ */
+export async function deployHello({ L }, FunctionName = LOCAL_HELLO_FUNCTION) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hello-deploy-'));
+  try {
+    fs.writeFileSync(path.join(tmp, 'index.js'), templateHelloCode());
+    execSync('python3 -m zipfile -c hello.zip index.js', { cwd: tmp });
+    await L.send(new lambda.DeleteFunctionCommand({ FunctionName })).catch(() => {});
+    await L.send(new lambda.CreateFunctionCommand({
+      FunctionName,
+      Runtime: templateRuntime(),
+      Handler: 'index.handler',
+      Timeout: LOCAL_LAMBDA_TIMEOUT_S,
+      MemorySize: 128,
+      Role: `arn:aws:iam::${ACCOUNT}:role/lambda-role`,
+      Architectures: [os.arch() === 'arm64' ? 'arm64' : 'x86_64'],
+      Code: { ZipFile: fs.readFileSync(path.join(tmp, 'hello.zip')) }
+    }));
+    await lambda.waitUntilFunctionActiveV2({ client: L, maxWaitTime: 180 }, { FunctionName });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 /**

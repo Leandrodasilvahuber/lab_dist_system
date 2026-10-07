@@ -25,6 +25,10 @@
  * Escuta só em 127.0.0.1 (as rotas de admin podem estar abertas). Para expor
  * na rede local, defina HOST=0.0.0.0 junto com a chave de admin.
  *
+ * Mesmo roteamento do CloudFront da AWS: '/' é a página inicial (HelloFunction,
+ * invocada no LocalStack) e o dashboard fica em /laboratory, com os assets em
+ * /dashboard/*.
+ *
  * O dashboard é servido daqui (mesma origem), então o servidor não manda
  * Access-Control-Allow-Origin: outro site aberto no navegador não consegue
  * chamar a API local. Para liberar uma origem, defina CORS_ALLOW_ORIGIN.
@@ -37,13 +41,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SFNClient, ListStateMachinesCommand } from '@aws-sdk/client-sfn';
+import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { isAdminRoute, isValidApiKey, isValidApiKeyHash } from './src/common/auth.mjs';
 import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
 import { createLogBuffer, parseLogLine, isTraceId } from './src/common/log-query.mjs';
 import { createEmfAgent } from './scripts/lib/emf-agent.mjs';
 import { createLocalstackHealth } from './scripts/lib/localstack-health.mjs';
-import { LOCAL_CHAOS_PARAM, templateMemoryMb } from './scripts/lib/localstack.mjs';
+import { LOCAL_CHAOS_PARAM, LOCAL_HELLO_FUNCTION, templateMemoryMb } from './scripts/lib/localstack.mjs';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from './src/common/database.mjs';
 import { SAGAS_BY_DAY_INDEX, dayShardsInWindow } from './src/common/saga-day-index.mjs';
@@ -269,10 +274,11 @@ const STATIC_TYPES = {
   '.svg': 'image/svg+xml'
 };
 
-// Arquivo do dashboard para o caminho pedido: '/' é o index; os assets ficam em
+// Arquivo do dashboard para o caminho pedido: /laboratory* é o index (como o
+// PathPattern + LaboratoryRewriteFunction do CloudFront); os assets ficam em
 // /dashboard/*. Só serve o que está dentro de dashboard/ e tem tipo conhecido
 function dashboardFile(pathname) {
-  if (pathname === '/' || pathname === '/index.html') return path.join(DASHBOARD_DIR, 'index.html');
+  if (pathname.startsWith('/laboratory')) return path.join(DASHBOARD_DIR, 'index.html');
   if (!pathname.startsWith('/dashboard/')) return null;
   let relative;
   try {
@@ -282,6 +288,19 @@ function dashboardFile(pathname) {
   }
   const file = path.resolve(DASHBOARD_DIR, relative);
   return file.startsWith(DASHBOARD_DIR + path.sep) && STATIC_TYPES[path.extname(file)] ? file : null;
+}
+
+// Página inicial: na AWS o CloudFront chama a Function URL da HelloFunction;
+// aqui ela é invocada direto no LocalStack, com o mesmo evento da Function URL
+const helloLambda = new LambdaClient({ region: process.env.AWS_REGION, endpoint: process.env.AWS_ENDPOINT });
+
+async function helloPage(event) {
+  const { Payload, FunctionError } = await helloLambda.send(new InvokeCommand({
+    FunctionName: LOCAL_HELLO_FUNCTION,
+    Payload: JSON.stringify(event)
+  }));
+  if (FunctionError) throw new Error(`${LOCAL_HELLO_FUNCTION}: ${FunctionError}`);
+  return JSON.parse(Buffer.from(Payload).toString('utf8'));
 }
 
 // Host sem a porta: 'localhost:3001' -> 'localhost', '[::1]:3001' -> '[::1]'
@@ -314,6 +333,19 @@ const server = http.createServer(async (req, res) => {
     }
     // no-store: o navegador nunca reaproveita uma versão antiga do dashboard
     return send(res, 200, { 'Content-Type': STATIC_TYPES[path.extname(staticFile)], 'Cache-Control': 'no-store' }, body);
+  }
+
+  if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/') {
+    try {
+      const result = await helloPage(buildEvent({ method: req.method, url, headers: req.headers }));
+      return send(res, result.statusCode, result.headers || {}, req.method === 'HEAD' ? '' : result.body);
+    } catch (error) {
+      console.error(`${req.method} / ->`, error.message);
+      return send(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({
+        error: 'Página inicial indisponível',
+        hint: 'Rode npm run localstack:deploy (dashboard em /laboratory)'
+      }));
+    }
   }
 
   // Confere a chave de admin sem ler nada (dashboard, ao entrar e ao recarregar):
@@ -377,7 +409,8 @@ server.listen(PORT, HOST, () => {
   emfAgent.start();
   localstackHealth.start();
   startSagaReconciler();
-  console.log(`🛒 Dashboard em http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+  const origin = `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`;
+  console.log(`🛒 Dashboard em ${origin}/laboratory (página inicial em ${origin}/)`);
   console.log(`   LocalStack: ${process.env.AWS_ENDPOINT} (timeouts x${TIMEOUT_SCALE})`);
   console.log(process.env.SAGA_STATE_MACHINE_ARN
     ? `   Saga: ${process.env.SAGA_STATE_MACHINE_ARN}`

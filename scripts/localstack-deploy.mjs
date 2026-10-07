@@ -6,7 +6,7 @@
  *
  * Uso: npm run build && npm run localstack:deploy
  */
-import { clients, ensureTables, deploySaga, ensureChaosParameter, LOCAL_CHAOS_ENV } from './lib/localstack.mjs';
+import { clients, ensureTables, deploySaga, deployHello, ensureChaosParameter, LOCAL_CHAOS_ENV, LOCAL_HELLO_FUNCTION } from './lib/localstack.mjs';
 
 const endpoint = process.env.LOCALSTACK_ENDPOINT || 'http://localhost:4566';
 export const LOCAL_PREFIX = 'local';
@@ -27,8 +27,10 @@ try {
   // Só as Lambdas local-* leem a config de caos: as dos testes e2e ficam de fora
   const { stateMachineArn, runtime } = await deploySaga(c, { prefix: LOCAL_PREFIX, tables: LOCAL_TABLES, environment: LOCAL_CHAOS_ENV });
   console.log(`✅ Saga publicada (${runtime}): ${stateMachineArn}`);
+  await deployHello(c);
+  console.log(`✅ Página inicial publicada: ${LOCAL_HELLO_FUNCTION}`);
   console.log('\nPróximos passos:');
-  console.log('   npm run local-server    # e abra http://localhost:3001');
+  console.log('   npm run local-server    # e abra http://localhost:3001 (dashboard em /laboratory)');
   console.log('   npm run seed:local      # dev: produtos e estoque (prod: seed:local:prod)');
   console.log('   npm run test:e2e:orders # compras de exemplo no dashboard');
 } catch (error) {
