@@ -1280,7 +1280,6 @@ Resources:
                 Stat: Sum
           MonitoredRequestCountMetric:
             GoodCountMetric:
-                          GoodCountMetric:
               - Id: good
                 ReturnData: true
                 Expression: FILL(goodSucceeded, 0) + FILL(goodCompensated, 0)
