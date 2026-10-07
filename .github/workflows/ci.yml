@@ -1,4 +1,4 @@
-# Análise estática e testes unitários em develop, master, prod e nos PRs; push em
+# Análise estática e testes unitários em master, prod e nos PRs; push em
 # prod (branch de produção) faz o deploy na AWS depois dos dois.
 # Os testes de integração e e2e precisam do LocalStack e continuam locais
 # (README-LOCALSTACK.md).
@@ -6,9 +6,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master, develop, prod]
+    branches: [main, master, prod]
   pull_request:
-    branches: [main, master, develop, prod]
+    branches: [main, master, prod]
 
 permissions:
   contents: read

@@ -46,7 +46,7 @@ criado e gerenciado pelo SAM (`resolve_s3 = true`).
 
 ## Deploy automático (GitHub Actions)
 
-O trabalho do dia a dia vai na branch `develop`; o PR `develop` → `master`
+O trabalho do dia a dia vai na branch `master`; o PR `master` → `prod`
 roda o CI e, no merge, o job `deploy` do `.github/workflows/ci.yml` faz o
 deploy depois do lint, dos testes e do SAST. Ele roda o mesmo `npm run deploy`,
 sem confirmar o changeset (`CI=true`) e sem trocar a senha do admin. O deploy
@@ -64,13 +64,12 @@ GitHub. Configuração, uma vez:
    ```
    Se a conta já tiver o provider OIDC do GitHub, acrescente
    `--parameter-overrides CreateOidcProvider=false ExistingOidcProviderArn=arn:aws:iam::<conta>:oidc-provider/token.actions.githubusercontent.com`.
-   A role tem `PowerUserAccess` e IAM só nas roles `distributed-ecommerce-system-*`,
+   A role tem `PowerUserAccess` e IAM só nas roles `distributed-ecommerce-sys*`,
    e só o environment `production` deste repositório a assume.
 2. No GitHub (Settings): crie o environment `production` com *Deployment
-   branches* restrito a `master`, e as variáveis de repositório
+   branches* restrito a `prod`, e as variáveis de repositório
    `AWS_DEPLOY_ROLE_ARN` (o ARN acima) e `ALERT_EMAIL` (opcional).
-3. Opcional: proteja `master` (exigir PR e CI verde) e torne `develop` a
-   branch padrão.
+3. Opcional: proteja `prod` (exigir PR e CI verde).
 
 **Stack criado antes do `ActiveReservationsIndex`:** a tabela de reservas trocou
 o GSI `StatusIndex` pelo `ActiveReservationsIndex`, e o CloudFormation não
