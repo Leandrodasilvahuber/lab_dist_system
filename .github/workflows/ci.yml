@@ -70,6 +70,8 @@ jobs:
       - uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
         with:
           use-installer: true
+          # Token evita o rate limit da API do GitHub ao buscar a última versão do SAM CLI
+          token: ${{ github.token }}
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
