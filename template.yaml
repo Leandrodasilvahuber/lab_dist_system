@@ -1282,8 +1282,8 @@ Resources:
             GoodCountMetric:
               - Id: good
                 ReturnData: true
-                Expression: FILL(succeeded, 0) + FILL(compensated, 0)
-              - Id: succeeded
+                Expression: FILL(goodSucceeded, 0) + FILL(goodCompensated, 0)
+              - Id: goodSucceeded
                 ReturnData: false
                 MetricStat:
                   Metric:
@@ -1294,7 +1294,7 @@ Resources:
                         Value: !Ref SagaStateMachine
                   Period: 60
                   Stat: Sum
-              - Id: compensated
+              - Id: goodCompensated
                 ReturnData: false
                 MetricStat:
                   Metric:
