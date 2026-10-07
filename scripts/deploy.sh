@@ -111,6 +111,10 @@ DASHBOARD_STAGE=$(mktemp -d)
 mkdir -p "$DASHBOARD_STAGE/dashboard"
 cp -R dashboard/. "$DASHBOARD_STAGE/dashboard/" || exit 1
 cp dashboard/index.html "$DASHBOARD_STAGE/index.html" || exit 1
+# Diagramas da aba Diagramas: ficam em diagramas/ na raiz (com o README) e são
+# servidos em /dashboard/diagramas/, como no local-server. Só os SVGs
+mkdir -p "$DASHBOARD_STAGE/dashboard/diagramas"
+cp diagramas/*.svg "$DASHBOARD_STAGE/dashboard/diagramas/" || exit 1
 # JSON.stringify: a URL entra no JS como string com o escape certo
 DASHBOARD_API="$DASHBOARD_API" node -e 'process.stdout.write(
     "// Gerado por scripts/deploy.sh: API do stack para o dashboard publicado\n" +

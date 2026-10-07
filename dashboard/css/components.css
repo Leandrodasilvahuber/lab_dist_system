@@ -772,3 +772,12 @@
 @media (max-width: 600px) {
     .chaos-banner { margin: 12px 16px 0; }
 }
+
+/* Aba Diagramas: os SVGs são claros, então ficam num quadro branco nos dois temas */
+.diagram-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.diagram-tabs .btn[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); border-color: transparent; box-shadow: none; }
+a.btn { text-decoration: none; }
+.diagram-summary { margin: 0 0 12px; color: var(--text-2); font-size: 13px; }
+.diagram-frame { background: #ffffff; border: 1px solid var(--border); border-radius: 10px; overflow: auto; max-height: 80vh; }
+.diagram-frame img { display: block; width: 100%; height: auto; }
+.diagram-frame.is-actual img { width: auto; max-width: none; }

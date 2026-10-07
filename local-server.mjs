@@ -275,9 +275,15 @@ const STATIC_TYPES = {
   '.webp': 'image/webp'
 };
 
+// Os diagramas ficam em diagramas/ na raiz do projeto e aparecem para o
+// dashboard em /dashboard/diagramas/ (no deploy, scripts/deploy.sh os copia
+// para o mesmo caminho no bucket). Só os SVGs: os PNGs são para o README
+const DIAGRAMS_DIR = path.join(ROOT, 'diagramas');
+const DIAGRAMS_PREFIX = 'diagramas/';
+
 // Arquivo do dashboard para o caminho pedido: /laboratory* é o index (como o
 // PathPattern + LaboratoryRewriteFunction do CloudFront); os assets ficam em
-// /dashboard/*. Só serve o que está dentro de dashboard/ e tem tipo conhecido
+// /dashboard/*. Só serve o que está dentro de dashboard/ (ou diagramas/) e tem tipo conhecido
 function dashboardFile(pathname) {
   if (pathname.startsWith('/laboratory')) return path.join(DASHBOARD_DIR, 'index.html');
   if (!pathname.startsWith('/dashboard/')) return null;
@@ -286,6 +292,10 @@ function dashboardFile(pathname) {
     relative = decodeURIComponent(pathname.slice('/dashboard/'.length));
   } catch {
     return null;
+  }
+  if (relative.startsWith(DIAGRAMS_PREFIX)) {
+    const diagram = path.resolve(DIAGRAMS_DIR, relative.slice(DIAGRAMS_PREFIX.length));
+    return diagram.startsWith(DIAGRAMS_DIR + path.sep) && path.extname(diagram) === '.svg' ? diagram : null;
   }
   const file = path.resolve(DASHBOARD_DIR, relative);
   return file.startsWith(DASHBOARD_DIR + path.sep) && STATIC_TYPES[path.extname(file)] ? file : null;
