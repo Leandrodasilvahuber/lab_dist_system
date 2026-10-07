@@ -21,6 +21,19 @@ Parameters:
     Default: ''
     Description: 'Origem extra permitida pelo CORS (ex.: https://loja.exemplo.com)'
 
+  # Domínio próprio no CloudFront (ex.: www.meulab.com.br). Precisa de uma
+  # hosted zone no Route 53 para esse domínio: o stack cria o certificado no
+  # ACM (validado por DNS sozinho), o registro A/AAAA apontando para o
+  # CloudFront e libera o domínio no CORS. Os dois vazios = só *.cloudfront.net
+  DomainName:
+    Type: String
+    Default: ''
+    Description: 'Domínio do site (ex.: www.meulab.com.br). Vazio = só o domínio *.cloudfront.net'
+  HostedZoneId:
+    Type: String
+    Default: ''
+    Description: 'ID da hosted zone do Route 53 que contém o DomainName (ex.: Z0123456789ABC)'
+
   # Bulkhead: teto de execuções simultâneas da GatewayFunction (observabilidade:
   # logs, métricas, DLQ), para que ela não consuma a concorrência das Lambdas da
   # compra. 0 = sem reserva. Contas novas têm limite de concorrência 10 e não
@@ -108,6 +121,9 @@ Conditions:
   HasPurchaseLimit: !Not [!Equals [!Ref DailyPurchaseLimit, 0]]
   HasFloodAlarm: !Not [!Equals [!Ref FloodRequestsPer5Min, 0]]
   HasAllowedOrigin: !Not [!Equals [!Ref AllowedOrigin, '']]
+  HasCustomDomain: !And
+    - !Not [!Equals [!Ref DomainName, '']]
+    - !Not [!Equals [!Ref HostedZoneId, '']]
 
 # Todas as funções são empacotadas com esbuild a partir da raiz do projeto,
 # o que inclui automaticamente o código compartilhado de src/common.
@@ -269,6 +285,7 @@ Resources:
           - !Sub 'https://${DashboardDistribution.DomainName}'
           - 'http://localhost:3001'
           - !If [HasAllowedOrigin, !Ref AllowedOrigin, !Ref AWS::NoValue]
+          - !If [HasCustomDomain, !Sub 'https://${DomainName}', !Ref AWS::NoValue]
         AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
         AllowHeaders: [content-type, authorization, idempotency-key, x-idempotency-key, x-correlation-id]
         ExposeHeaders: [retry-after]
@@ -1896,16 +1913,135 @@ Resources:
               Value: same-origin
               Override: true
 
+  # ---------- Página inicial (Lambda hello world) ----------
+  # A raiz do site (/) é esta Lambda; o dashboard fica em /laboratory (e os
+  # assets em /dashboard/*), servido do S3. A Function URL exige assinatura
+  # (AWS_IAM): só o CloudFront, via Origin Access Control, consegue chamar
+  HelloFunction:
+    Type: AWS::Serverless::Function
+    # checkov:skip=CKV_AWS_116:página estática sem evento assíncrono, DLQ não se aplica
+    # checkov:skip=CKV_AWS_117:não acessa recursos de VPC
+    # checkov:skip=CKV_AWS_173:as variáveis de ambiente vêm do Globals e não são segredos
+    # checkov:skip=CKV_AWS_115:contas novas não aceitam reserva de concorrência; reserva só com GatewayConcurrencyLimit
+    Properties:
+      Handler: index.handler
+      MemorySize: 128
+      Timeout: 3
+      # Teto de execuções: a página é pública e não pode tirar concorrência da compra
+      ReservedConcurrentExecutions: !If [LimitGatewayConcurrency, 2, !Ref AWS::NoValue]
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
+      InlineCode: |
+        // Página inicial: hello world com link para o dashboard (/laboratory).
+        // Sem <style>/<script> inline: a CSP do CloudFront só permite style="..."
+        const html = `<!doctype html>
+        <html lang="pt-BR">
+        <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hello World</title></head>
+        <body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#0f1115;color:#e6e6e6">
+          <main style="text-align:center;padding:24px">
+            <h1 style="font-size:2.5rem;margin:0 0 12px">Hello World 👋</h1>
+            <p style="margin:0 0 24px;color:#9aa0a6">Página servida por uma AWS Lambda.</p>
+            <a href="/laboratory" style="display:inline-block;padding:12px 20px;border-radius:8px;background:#4ade80;color:#0f1115;font-weight:600;text-decoration:none">Abrir o laboratório (dashboard)</a>
+          </main>
+        </body>
+        </html>`;
+        // InlineCode vira index.js (CommonJS): exports, não export
+        exports.handler = async () => ({
+          statusCode: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' },
+          body: html
+        });
+
+  # Desde out/2025 a Function URL pede as duas permissões para o CloudFront
+  HelloFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref HelloFunction
+      FunctionUrlAuthType: AWS_IAM
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${DashboardDistribution}'
+
+  HelloFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref HelloFunction
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${DashboardDistribution}'
+
+  HelloOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${Environment}-ecommerce-hello'
+        OriginAccessControlOriginType: lambda
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # /laboratory e /laboratory/... devolvem o index.html do dashboard (o
+  # roteamento do dashboard fica no hash, #/slo, então o caminho não importa)
+  LaboratoryRewriteFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub '${Environment}-ecommerce-laboratory-rewrite'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: /laboratory -> /index.html do dashboard
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          request.uri = '/index.html';
+          return request;
+        }
+
+  # Certificado do domínio próprio. O CloudFront só aceita certificado de
+  # us-east-1 (a região deste stack); a validação por DNS na hosted zone é
+  # automática e o deploy espera ela terminar (alguns minutos)
+  SiteCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: HasCustomDomain
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  # Z2FDTNDATAQYW2: hosted zone fixa de todo alias para o CloudFront
+  SiteDnsRecordA:
+    Type: AWS::Route53::RecordSet
+    Condition: HasCustomDomain
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt DashboardDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+  SiteDnsRecordAAAA:
+    Type: AWS::Route53::RecordSet
+    Condition: HasCustomDomain
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt DashboardDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
   DashboardDistribution:
     Type: AWS::CloudFront::Distribution
     # checkov:skip=CKV_AWS_68:WAF custa ~US$ 6/mês; o dashboard é estático e a API tem throttling e limites diários próprios
     # checkov:skip=CKV_AWS_86:access log do CloudFront exigiria outro bucket; o tráfego da API já fica no ServicesLogGroup
-    # checkov:skip=CKV_AWS_174:o domínio padrão *.cloudfront.net não aceita escolher a versão mínima do TLS (só com certificado próprio no ACM)
+    # checkov:skip=CKV_AWS_174:o domínio padrão *.cloudfront.net não aceita escolher a versão mínima do TLS (com domínio próprio fica TLSv1.2_2021)
     Properties:
       DistributionConfig:
         Enabled: true
-        Comment: !Sub 'Dashboard do ${Environment}-ecommerce'
-        DefaultRootObject: index.html
+        Comment: !Sub 'Site e dashboard do ${Environment}-ecommerce'
+        Aliases: !If [HasCustomDomain, [!Ref DomainName], !Ref AWS::NoValue]
         HttpVersion: http2and3
         IPV6Enabled: true
         # Só América do Norte e Europa (mais barato); o Brasil é servido de lá
@@ -1916,18 +2052,55 @@ Resources:
             OriginAccessControlId: !GetAtt DashboardOriginAccessControl.Id
             S3OriginConfig:
               OriginAccessIdentity: ''
+          - Id: hello-lambda
+            # https://<id>.lambda-url.<região>.on.aws/ -> <id>.lambda-url.<região>.on.aws
+            DomainName: !Select [2, !Split ['/', !GetAtt HelloFunctionUrl.FunctionUrl]]
+            OriginAccessControlId: !GetAtt HelloOriginAccessControl.Id
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        # Raiz e qualquer outro caminho: a Lambda hello world (sem cache)
         DefaultCacheBehavior:
-          TargetOriginId: dashboard-s3
+          TargetOriginId: hello-lambda
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD]
           CachedMethods: [GET, HEAD]
           Compress: true
-          # Managed-CachingOptimized. Os arquivos sobem com Cache-Control: no-cache
-          # (scripts/deploy.sh), então um deploy novo aparece sem invalidação
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          # Managed-CachingDisabled e Managed-AllViewerExceptHostHeader (a
+          # Function URL precisa receber o próprio Host, não o do site)
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5ccfad0047
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
           ResponseHeadersPolicyId: !Ref DashboardSecurityHeaders
-        ViewerCertificate:
-          CloudFrontDefaultCertificate: true
+        CacheBehaviors:
+          # Página do dashboard
+          - PathPattern: /laboratory*
+            TargetOriginId: dashboard-s3
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+            ResponseHeadersPolicyId: !Ref DashboardSecurityHeaders
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt LaboratoryRewriteFunction.FunctionMetadata.FunctionARN
+          # Assets do dashboard (js, css)
+          - PathPattern: /dashboard/*
+            TargetOriginId: dashboard-s3
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            # Managed-CachingOptimized. Os arquivos sobem com Cache-Control: no-cache
+            # (scripts/deploy.sh), então um deploy novo aparece sem invalidação
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+            ResponseHeadersPolicyId: !Ref DashboardSecurityHeaders
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - AcmCertificateArn: !Ref SiteCertificate
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
 
   # ---------- Dashboard e Logs Insights ----------
   # Visão de saúde agregada (testes de carga e chaos). A latência por etapa usa
@@ -2310,9 +2483,13 @@ Outputs:
     Description: "Saga State Machine ARN"
     Value: !Ref SagaStateMachine
 
+  SiteUrl:
+    Description: "Página inicial (Lambda hello world), com link para o dashboard"
+    Value: !If [HasCustomDomain, !Sub 'https://${DomainName}', !Sub 'https://${DashboardDistribution.DomainName}']
+
   DashboardUrl:
     Description: "Dashboard (front) publicado no CloudFront"
-    Value: !Sub 'https://${DashboardDistribution.DomainName}'
+    Value: !If [HasCustomDomain, !Sub 'https://${DomainName}/laboratory', !Sub 'https://${DashboardDistribution.DomainName}/laboratory']
 
   DashboardBucketName:
     Description: "Bucket com os arquivos do dashboard (scripts/deploy.sh faz o upload)"

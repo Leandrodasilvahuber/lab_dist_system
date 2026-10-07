@@ -47,6 +47,11 @@ if [ -z "$ALERT_EMAIL" ] && [ -f .env ]; then
 fi
 OVERRIDES="Environment=$ENVIRONMENT"
 [ -n "$ALERT_EMAIL" ] && OVERRIDES="$OVERRIDES AlertEmail=$ALERT_EMAIL"
+# Domínio próprio (opcional): DOMAIN_NAME (ex.: www.meulab.com.br) e o ID da
+# hosted zone dele no Route 53. Sem os dois, o site fica só no *.cloudfront.net
+if [ -n "$DOMAIN_NAME" ] && [ -n "$HOSTED_ZONE_ID" ]; then
+    OVERRIDES="$OVERRIDES DomainName=$DOMAIN_NAME HostedZoneId=$HOSTED_ZONE_ID"
+fi
 # No GitHub Actions (CI=true) não há quem confirme o changeset, e um merge que
 # não muda o stack (só docs, dashboard) não é erro
 SAM_FLAGS=()
@@ -114,6 +119,7 @@ DASHBOARD_API="$DASHBOARD_API" node -e 'process.stdout.write(
 aws s3 sync "$DASHBOARD_STAGE" "s3://$DASHBOARD_BUCKET" --delete \
     --cache-control no-cache --only-show-errors || { rm -rf "$DASHBOARD_STAGE"; exit 1; }
 rm -rf "$DASHBOARD_STAGE"
+echo "🏠 Site:      $(stack_output SiteUrl)"
 echo "🖥️  Dashboard: $(stack_output DashboardUrl)"
 
 # A chave antiga (X-Api-Key) não é mais usada na AWS

@@ -1,4 +1,4 @@
-import { successResponse, errorResponse, notFoundResponse, dailyLimitResponse } from '../../../../common/response.mjs';
+import { successResponse, errorResponse, notFoundResponse, dailyLimitResponse, CORS_HEADERS } from '../../../../common/response.mjs';
 import { DailyLimitError, DomainError } from '../../../../common/errors.mjs';
 import { normalizeHttpEvent } from '../../../../common/http-event.mjs';
 import { log } from '../../../../common/logger.mjs';
@@ -87,6 +87,14 @@ export function createAPIHandler({
     if (rawEvent?.action === 'refreshCost') return refreshCost(cost);
 
     const event = normalizeHttpEvent(rawEvent);
+
+    // Preflight de CORS: a rota ANY /{proxy+} do HttpApi também casa OPTIONS,
+    // então o preflight do dashboard (CloudFront) chega aqui em vez de ser
+    // respondido pelo API Gateway. 204 sem corpo; o HttpApi aplica os headers
+    // da CorsConfiguration do template.yaml
+    if (event.method === 'OPTIONS') {
+      return { statusCode: 204, headers: { ...CORS_HEADERS }, body: '' };
+    }
 
     // `environment`: o dashboard enfileira as leituras do CloudWatch no
     // LocalStack, que atende o GetMetricData uma consulta por vez (não vem do

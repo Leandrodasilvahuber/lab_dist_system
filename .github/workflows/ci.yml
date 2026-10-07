@@ -80,3 +80,6 @@ jobs:
       - run: npm run deploy
         env:
           ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
+          # Domínio próprio (opcional): os dois vazios = só *.cloudfront.net
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+          HOSTED_ZONE_ID: ${{ vars.HOSTED_ZONE_ID }}
