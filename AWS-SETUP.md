@@ -37,8 +37,9 @@ reprocessar ou descartar eventos da DLQ (`POST /dlq/{id}/redrive|discard`),
 além do custo da conta (`GET /metrics/cost` e `POST /metrics/cost/refresh`), dos logs
 (`GET /logs`) e do rastreio (`GET /trace/{id}`). O resto é aberto, inclusive
 pedidos e compras (`/orders`, `/sagas`), métricas e a lista da
-DLQ: serve ao laboratório, mas expõe as compras de todos. Para restringir o CORS a uma origem, passe
-também `AllowedOrigin=https://...` em `--parameter-overrides`.
+DLQ: serve ao laboratório, mas expõe as compras de todos. O CORS só aceita o dashboard
+publicado no CloudFront (output `DashboardUrl`) e `http://localhost:3001`; para liberar
+mais uma origem, passe `AllowedOrigin=https://...` em `--parameter-overrides`.
 
 O `sam deploy` mostra o changeset e pede confirmação antes de criar os recursos
 (`confirm_changeset = true` no `samconfig.toml`). O bucket S3 dos artefatos é

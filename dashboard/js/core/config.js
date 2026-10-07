@@ -1,4 +1,7 @@
-// API: o próprio local-server (padrão) ou outra via ?api=https://.../dev
+import { DEFAULT_API } from './runtime-config.js';
+
+// API: ?api=https://.../dev, senão a do deploy (runtime-config.js, no CloudFront),
+// senão o próprio local-server
 const params = new URLSearchParams(location.search);
 
 // Forma canônica (host em minúsculas, sem barra final): o mesmo endereço
@@ -14,5 +17,5 @@ function normalize(base) {
     }
 }
 
-export const API_BASE = normalize(params.get('api') ||
+export const API_BASE = normalize(params.get('api') || DEFAULT_API ||
     (location.protocol.startsWith('http') ? location.origin : 'http://localhost:3001'));
