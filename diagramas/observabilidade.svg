@@ -1,0 +1,271 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1462" viewBox="0 0 1600 1462" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a5568"/></marker>
+    <marker id="arrow-indigo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4c51bf"/></marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c53030"/></marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f855a"/></marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c05621"/></marker>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2c7a7b"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.15"/></filter>
+    <style>
+      .title { font-size: 30px; font-weight: 700; fill: #2d3748; }
+      .subtitle { font-size: 15px; fill: #718096; }
+      .section { font-size: 20px; font-weight: 700; fill: #553c9a; }
+      .box { stroke-width: 2; filter: url(#shadow); }
+      .label { font-size: 15px; font-weight: 600; fill: #1a202c; text-anchor: middle; }
+      .small { font-size: 12.5px; fill: #4a5568; text-anchor: middle; }
+      .tiny { font-size: 12px; fill: #4a5568; }
+      .mono { font-size: 11.5px; font-family: Consolas, Menlo, monospace; fill: #2d3748; }
+      .edge { font-size: 12px; fill: #4a5568; }
+      .line { stroke: #4a5568; stroke-width: 1.6; fill: none; }
+    </style>
+  </defs>
+  <rect width="1600" height="1462" fill="#ffffff"/>
+  <text x="40" y="48" class="title">🔭 Observabilidade e resiliência</text>
+  <text x="40" y="74" class="subtitle">Logs JSON com métricas EMF · alarmes · SLOs · DLQ com reprocessamento · circuit breaker · engenharia de caos · tudo visível no dashboard</text>
+
+  <!-- =================== 1. DE ONDE VÊM OS DADOS =================== -->
+  <rect x="20" y="95" width="1560" height="630" rx="14" fill="#f7fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="40" y="128" class="section">1. Da linha de log ao alarme</text>
+
+  <!-- Fontes -->
+  <rect x="45" y="155" width="280" height="150" rx="10" class="box" fill="#fffaf0" stroke="#dd6b20"/>
+  <text x="185" y="180" class="label">Lambdas (todas)</text>
+  <text x="185" y="200" class="small">src/common/logger.mjs</text>
+  <text x="61" y="224" class="tiny">• 1 linha JSON por evento, com correlationId</text>
+  <text x="61" y="243" class="tiny">• warn = erro de negócio · error = não tratado</text>
+  <text x="61" y="262" class="tiny">• bloco _aws (EMF) com as métricas</text>
+  <text x="61" y="281" class="tiny">• abaixo do LOG_LEVEL: linha mínima só</text>
+  <text x="73" y="297" class="tiny">com os campos EMF (métrica não some)</text>
+
+  <rect x="45" y="330" width="280" height="90" rx="10" class="box" fill="#fff5f7" stroke="#d53f8c"/>
+  <text x="185" y="356" class="label">Step Functions</text>
+  <text x="185" y="378" class="small">log de execução (ExecutionFailed…)</text>
+  <text x="185" y="398" class="small">+ trace no X-Ray</text>
+
+  <rect x="45" y="515" width="280" height="80" rx="10" class="box" fill="#e6fffa" stroke="#319795"/>
+  <text x="185" y="542" class="label">SQS ProductEventsDlq</text>
+  <text x="185" y="564" class="small">eventos que o Stock não processou</text>
+  <text x="185" y="582" class="small">(só falhas transitórias)</text>
+
+  <rect x="45" y="620" width="280" height="80" rx="10" class="box" fill="#faf5ff" stroke="#805ad5"/>
+  <text x="185" y="647" class="label">API Gateway</text>
+  <text x="185" y="669" class="small">respostas 5xx · throttles</text>
+
+  <!-- Log groups -->
+  <rect x="400" y="155" width="300" height="150" rx="10" class="box" fill="#ebf4ff" stroke="#4c51bf"/>
+  <text x="550" y="180" class="label">ServicesLogGroup</text>
+  <text x="550" y="198" class="small">/aws/lambda/dev-ecommerce · 14 dias</text>
+  <text x="416" y="224" class="mono">{"status":"warn","event":</text>
+  <text x="416" y="240" class="mono"> "ACTION_REJECTED",</text>
+  <text x="416" y="256" class="mono"> "correlationId":"corr_…",</text>
+  <text x="416" y="272" class="mono"> "_aws":{"CloudWatchMetrics":…}}</text>
+  <text x="550" y="295" class="small" fill="#4c51bf">campo service = função</text>
+  <line x1="325" y1="230" x2="398" y2="230" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="400" y="330" width="300" height="90" rx="10" class="box" fill="#ebf4ff" stroke="#4c51bf"/>
+  <text x="550" y="356" class="label">Log group da state machine</text>
+  <text x="550" y="378" class="small">metric filters:</text>
+  <text x="550" y="396" class="small">SagaCompensations · SagaUnrecovered</text>
+  <line x1="325" y1="375" x2="398" y2="375" class="line" marker-end="url(#arrow)"/>
+
+  <!-- Métricas -->
+  <rect x="780" y="155" width="360" height="335" rx="10" class="box" fill="#ebf4ff" stroke="#4c51bf"/>
+  <text x="960" y="180" class="label">Métricas · namespace Ecommerce/&lt;env&gt;</text>
+  <text x="960" y="198" class="small">o CloudWatch extrai o EMF sozinho (sem PutMetricData,</text>
+  <text x="960" y="214" class="small">sem permissão IAM nas Lambdas)</text>
+  <text x="796" y="240" class="tiny" font-weight="700">BusinessErrors</text>
+  <text x="920" y="240" class="tiny">total e por ErrorType (linhas warn)</text>
+  <text x="796" y="260" class="tiny" font-weight="700">UnhandledErrors</text>
+  <text x="920" y="260" class="tiny">total e por ErrorType (linhas error)</text>
+  <text x="796" y="280" class="tiny" font-weight="700">ActionCount</text>
+  <text x="920" y="280" class="tiny">por Action + Outcome</text>
+  <text x="796" y="300" class="tiny" font-weight="700">ActionDuration</text>
+  <text x="920" y="300" class="tiny">ms (ok / rejected / failed)</text>
+  <text x="796" y="320" class="tiny" font-weight="700">CircuitOpened</text>
+  <text x="920" y="320" class="tiny">por Circuit (products)</text>
+  <text x="796" y="340" class="tiny" font-weight="700">MemoryUsedMB</text>
+  <text x="920" y="340" class="tiny">por FunctionName (aba Recursos)</text>
+  <text x="796" y="360" class="tiny" font-weight="700">ClientErrors</text>
+  <text x="920" y="360" class="tiny">leituras com 404 (cliente)</text>
+  <text x="796" y="380" class="tiny" font-weight="700">SagasStuck</text>
+  <text x="920" y="380" class="tiny">sagas paradas (varredura a cada 5 min)</text>
+  <text x="796" y="400" class="tiny" font-weight="700">SagaCompensations · SagaUnrecovered</text>
+  <text x="1040" y="400" class="tiny">(metric filters)</text>
+  <text x="796" y="420" class="tiny" font-weight="700">PurchaseLimitHit · ChaosInjected</text>
+  <text x="1010" y="420" class="tiny">limite diário · caos</text>
+  <text x="796" y="446" class="tiny" fill="#718096">+ métricas nativas: AWS/States (ExecutionTime,</text>
+  <text x="796" y="462" class="tiny" fill="#718096">Succeeded, TimedOut…), AWS/Lambda (Throttles),</text>
+  <text x="796" y="478" class="tiny" fill="#718096">AWS/SQS, AWS/ApiGateway (Count, 5xx)</text>
+  <line x1="700" y1="230" x2="778" y2="230" stroke="#4c51bf" stroke-width="2" marker-end="url(#arrow-indigo)"/>
+  <text x="708" y="222" class="edge" fill="#4c51bf">EMF</text>
+  <line x1="700" y1="375" x2="778" y2="396" stroke="#4c51bf" stroke-width="2" marker-end="url(#arrow-indigo)"/>
+  <path d="M 325 555 L 740 555 L 740 440 L 778 440" class="line" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <path d="M 325 660 L 755 660 L 755 456 L 778 456" class="line" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text x="400" y="548" class="edge">AgeOfOldestMessage · MessagesVisible</text>
+  <text x="400" y="653" class="edge">5xx · Count</text>
+
+  <!-- Alarmes -->
+  <rect x="1200" y="155" width="360" height="335" rx="10" class="box" fill="#fff5f5" stroke="#c53030"/>
+  <text x="1380" y="180" class="label">🚨 Alarmes &lt;env&gt;-ecommerce-*</text>
+  <text x="1216" y="202" class="tiny" font-weight="700">unhandled-errors</text>
+  <text x="1380" y="202" class="tiny">≥ 1 erro não tratado</text>
+  <text x="1216" y="221" class="tiny" font-weight="700">business-errors</text>
+  <text x="1380" y="221" class="tiny">≥ 20 em 5 min</text>
+  <text x="1216" y="240" class="tiny" font-weight="700">product-events-dlq</text>
+  <text x="1380" y="240" class="tiny">mensagem na DLQ</text>
+  <text x="1216" y="259" class="tiny" font-weight="700">circuit-open</text>
+  <text x="1380" y="259" class="tiny">breaker de products abriu</text>
+  <text x="1216" y="278" class="tiny" font-weight="700">saga-failed</text>
+  <text x="1380" y="278" class="tiny">nem a compensação fechou</text>
+  <text x="1216" y="297" class="tiny" font-weight="700">saga-compensation-rate</text>
+  <text x="1380" y="297" class="tiny">&gt; 5% (mín. 20 sagas)</text>
+  <text x="1216" y="316" class="tiny" font-weight="700">api-5xx</text>
+  <text x="1380" y="316" class="tiny">5xx no API Gateway</text>
+  <text x="1216" y="335" class="tiny" font-weight="700">client-errors</text>
+  <text x="1380" y="335" class="tiny">≥ 300 leituras 404 em 5 min</text>
+  <text x="1216" y="354" class="tiny" font-weight="700">sagas-stuck</text>
+  <text x="1380" y="354" class="tiny">&gt; 5 min sem reconciliar</text>
+  <text x="1216" y="373" class="tiny" font-weight="700">lambda-throttles</text>
+  <text x="1380" y="373" class="tiny">Throttles nas Lambdas</text>
+  <text x="1216" y="392" class="tiny" font-weight="700">purchase-limit</text>
+  <text x="1380" y="392" class="tiny">limite diário de compras atingido</text>
+  <text x="1216" y="411" class="tiny" font-weight="700">api-flood</text>
+  <text x="1380" y="411" class="tiny">enxurrada → corta a API</text>
+  <text x="1216" y="438" class="tiny" fill="#c53030">📧 tópico SNS AlarmTopic: aviso por e-mail (AlertEmail)</text>
+  <text x="1216" y="458" class="tiny" fill="#718096">Dashboard CloudWatch: sagas/min, sucesso e compensação,</text>
+  <text x="1216" y="474" class="tiny" fill="#718096">p50/p95/p99 por etapa, throttles, DLQ e alarmes</text>
+  <line x1="1140" y1="287" x2="1198" y2="287" stroke="#c53030" stroke-width="2" marker-end="url(#arrow-red)"/>
+
+  <!-- SLOs -->
+  <rect x="780" y="515" width="360" height="185" rx="10" class="box" fill="#f0fff4" stroke="#38a169"/>
+  <text x="960" y="540" class="label">🎯 SLOs (Application Signals)</text>
+  <text x="960" y="558" class="small">janela móvel de 1 dia · burn rate de 60 min</text>
+  <text x="796" y="584" class="tiny" font-weight="700">slo-saga-outcome</text>
+  <text x="796" y="601" class="tiny">≥ 99,5% das sagas em Completed ou Compensated</text>
+  <text x="796" y="625" class="tiny" font-weight="700">slo-purchase-latency</text>
+  <text x="796" y="642" class="tiny">p95 da execução &lt; 2 s em 99% das janelas de 5 min</text>
+  <text x="796" y="666" class="tiny" font-weight="700">slo-dlq-age</text>
+  <text x="796" y="683" class="tiny">mensagem mais antiga da DLQ &lt; 24 h</text>
+  <line x1="960" y1="490" x2="960" y2="513" stroke="#2f855a" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+  <!-- Logs Insights -->
+  <rect x="1200" y="515" width="360" height="185" rx="10" class="box" fill="#ffffff" stroke="#4c51bf"/>
+  <text x="1380" y="540" class="label">🔎 Logs Insights (consultas salvas)</text>
+  <text x="1380" y="558" class="small">ecommerce/dev/*</text>
+  <text x="1216" y="586" class="tiny">• Rastreio por correlationId (Lambdas + state</text>
+  <text x="1228" y="603" class="tiny">machine, em ordem no tempo)</text>
+  <text x="1216" y="627" class="tiny">• Erros por evento</text>
+  <text x="1216" y="651" class="tiny">• Etapas mais lentas</text>
+  <text x="1216" y="683" class="tiny" fill="#718096">mesma visão da aba 🔎 Rastreio do dashboard</text>
+
+  <!-- =================== 2. NO DASHBOARD =================== -->
+  <rect x="20" y="745" width="760" height="697" rx="14" fill="#f7fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="40" y="778" class="section">2. Abas do dashboard ← Gateway λ</text>
+  <text x="40" y="800" class="tiny">A Gateway λ lê CloudWatch, DLQ, Sagas (só leitura), CostSnapshots e SSM · 🔑 = login de admin</text>
+
+  <g>
+    <rect x="45" y="820" width="710" height="548" rx="10" fill="#ffffff" stroke="#cbd5e0"/>
+    <text x="65" y="846" class="tiny" font-weight="700">Aba</text>
+    <text x="220" y="846" class="tiny" font-weight="700">Rota</text>
+    <text x="420" y="846" class="tiny" font-weight="700">Fonte</text>
+    <line x1="55" y1="856" x2="745" y2="856" stroke="#e2e8f0"/>
+
+    <text x="65" y="880" class="tiny">🩺 Monitoramento</text>
+    <text x="220" y="880" class="mono">GET /alarms</text>
+    <text x="420" y="880" class="tiny">DescribeAlarms (&lt;env&gt;-ecommerce-*)</text>
+
+    <text x="65" y="912" class="tiny">📊 Métricas 🔑</text>
+    <text x="220" y="912" class="mono">GET /metrics/errors</text>
+    <text x="420" y="912" class="tiny">GetMetricData em Ecommerce/&lt;env&gt; (EMF)</text>
+
+    <text x="65" y="944" class="tiny">📜 Logs 🔑</text>
+    <text x="220" y="944" class="mono">GET /logs</text>
+    <text x="420" y="944" class="tiny">FilterLogEvents: linhas warn/error</text>
+
+    <text x="65" y="976" class="tiny">🔎 Rastreio 🔑</text>
+    <text x="220" y="976" class="mono">GET /trace/{corrId}</text>
+    <text x="420" y="976" class="tiny">todas as linhas do correlationId + estado da saga</text>
+
+    <text x="65" y="1008" class="tiny">⏱️ Desempenho</text>
+    <text x="220" y="1008" class="mono">GET /metrics/sagas</text>
+    <text x="420" y="1008" class="tiny">Step Functions (últimas 10) · mesmos status da API</text>
+
+    <text x="65" y="1040" class="tiny">🎯 SLOs</text>
+    <text x="220" y="1040" class="mono">GET /metrics/slo</text>
+    <text x="420" y="1040" class="tiny">tabela Sagas (SagasByDayIndex) + idade da DLQ</text>
+
+    <text x="65" y="1072" class="tiny">🧠 Recursos 🔑</text>
+    <text x="220" y="1072" class="mono">GET /metrics/memory · /cost</text>
+    <text x="420" y="1072" class="tiny">MemoryUsedMB · custo estimado + CostSnapshots</text>
+
+    <text x="65" y="1104" class="tiny">📭 DLQ</text>
+    <text x="220" y="1104" class="mono">GET /dlq · POST …</text>
+    <text x="420" y="1104" class="tiny">lista; redrive 🔑 republica; discard 🔑 apaga</text>
+    <text x="65" y="1136" class="tiny">🧪 Caos</text>
+    <text x="220" y="1136" class="mono">GET · PUT · DELETE /chaos</text>
+    <text x="420" y="1136" class="tiny">parâmetro SSM lido por todas as λ (até 60 min)</text>
+    <line x1="55" y1="1150" x2="745" y2="1150" stroke="#e2e8f0"/>
+
+    <text x="65" y="1176" class="tiny" font-weight="700">SagasByDayIndex</text>
+    <text x="65" y="1194" class="tiny">chave YYYY-MM-DD#k, k = hash(sagaId) % 10: a aba SLOs consulta só os dias da janela,</text>
+    <text x="65" y="1211" class="tiny">10 shards por dia, sem varrer a tabela. Sagas antigas: npm run backfill:sagas -- --stage dev.</text>
+
+    <text x="65" y="1241" class="tiny" font-weight="700">Aba SLOs × Application Signals</text>
+    <text x="65" y="1259" class="tiny">A aba calcula na hora: latência só das COMPLETED, desfecho pelo status da saga (funciona</text>
+    <text x="65" y="1276" class="tiny">no LocalStack). Application Signals usa AWS/States ExecutionTime (inclui compensadas),</text>
+    <text x="65" y="1293" class="tiny">janelas de 5 min, histórico e error budget. Mesmas metas: SLO_TARGETS em SloClient.js.</text>
+
+    <text x="65" y="1323" class="tiny" fill="#718096">Local: o agente EMF do local-server publica as métricas com PutMetricData a cada 10 s</text>
+    <text x="65" y="1339" class="tiny" fill="#718096">(o LocalStack não extrai EMF); Logs/Rastreio leem um buffer de 2000 linhas em memória.</text>
+  </g>
+
+  <!-- =================== 3. CIRCUIT BREAKER + DLQ =================== -->
+  <rect x="800" y="745" width="780" height="697" rx="14" fill="#f7fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="820" y="778" class="section">3. Resiliência ao iniciar a compra e nos eventos</text>
+  <text x="820" y="800" class="tiny">Saga Orchestrator → getProduct (Products λ): timeout de 5 s + retry em throttling + circuit breaker por container</text>
+
+  <!-- estados -->
+  <rect x="840" y="840" width="180" height="80" rx="40" class="box" fill="#c6f6d5" stroke="#2f855a"/>
+  <text x="930" y="872" class="label" fill="#22543d">closed</text>
+  <text x="930" y="892" class="small">chamadas passam</text>
+
+  <rect x="1340" y="840" width="200" height="80" rx="40" class="box" fill="#fed7d7" stroke="#c53030"/>
+  <text x="1440" y="868" class="label" fill="#742a2a">open</text>
+  <text x="1440" y="888" class="small">503 + Retry-After na hora,</text>
+  <text x="1440" y="904" class="small">sem invocar · 30 s</text>
+
+  <rect x="1090" y="970" width="180" height="80" rx="40" class="box" fill="#fefcbf" stroke="#d69e2e"/>
+  <text x="1180" y="1002" class="label" fill="#744210">half-open</text>
+  <text x="1180" y="1022" class="small">1 chamada de teste</text>
+
+  <line x1="1020" y1="865" x2="1338" y2="865" stroke="#c53030" stroke-width="2" marker-end="url(#arrow-red)"/>
+  <text x="1180" y="855" class="edge" fill="#c53030" text-anchor="middle">5 falhas transitórias seguidas</text>
+  <text x="1180" y="885" class="edge" fill="#c53030" text-anchor="middle">CircuitOpened → alarme circuit-open</text>
+  <path d="M 1440 920 L 1440 1010 L 1272 1010" stroke="#c05621" stroke-width="2" fill="none" marker-end="url(#arrow-orange)"/>
+  <text x="1448" y="970" class="edge" fill="#c05621">passaram 30 s</text>
+  <path d="M 1090 1010 L 930 1010 L 930 922" stroke="#2f855a" stroke-width="2" fill="none" marker-end="url(#arrow-green)"/>
+  <text x="940" y="1002" class="edge" fill="#2f855a">sucesso fecha</text>
+  <path d="M 1180 970 L 1180 935 L 1400 935 L 1400 922" stroke="#c53030" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#arrow-red)"/>
+  <text x="1188" y="952" class="edge" fill="#c53030">falha reabre</text>
+
+  <text x="820" y="1082" class="tiny">• Só falhas transitórias contam: NotFound é resposta válida de um serviço saudável.</text>
+  <text x="820" y="1100" class="tiny">• Função inexistente ou sem permissão é erro de configuração: 500, sem abrir o circuito.</text>
+  <text x="820" y="1118" class="tiny">• Throttling da Lambda de produtos: até 5 esperas curtas (≤ 4,6 s) antes de desistir;</text>
+  <text x="820" y="1136" class="tiny">• timeout ou 5xx de serviço AWS: 503 + Retry-After, o cliente repete com a mesma chave.</text>
+
+  <!-- DLQ -->
+  <rect x="820" y="1176" width="740" height="120" rx="10" fill="#ffffff" stroke="#319795"/>
+  <text x="840" y="1200" class="tiny" font-weight="700" fill="#2c7a7b">📭 Eventos ProductCreated/Deleted → Stock λ</text>
+  <text x="840" y="1222" class="tiny">• Falha de entrega: RetryPolicy da regra do EventBridge e depois DeadLetterConfig → DLQ.</text>
+  <text x="840" y="1242" class="tiny">• Falha da função (transitória): retries da invocação assíncrona e depois OnFailure → mesma DLQ.</text>
+  <text x="840" y="1262" class="tiny">• Erro de negócio (ex.: initialStock -1): log warn DOMAIN_EVENT_REJECTED, evento confirmado, sem DLQ.</text>
+  <text x="840" y="1282" class="tiny">• Aba DLQ: lista aberta · ♻️ Reprocessar 🔑 republica no EventBus e apaga · 🗑️ Descartar 🔑 só apaga.</text>
+
+  <!-- Caos -->
+  <rect x="820" y="1316" width="740" height="106" rx="10" fill="#ffffff" stroke="#b7791f"/>
+  <text x="840" y="1340" class="tiny" font-weight="700" fill="#975a16">🧪 Engenharia de caos (src/common/chaos.mjs · aba Caos · npm run chaos)</text>
+  <text x="840" y="1362" class="tiny">• Falhas latency · transient · crash · unavailable por serviço/ação, lidas do SSM /&lt;env&gt;/ecommerce/chaos (cache 10 s).</text>
+  <text x="840" y="1382" class="tiny">• expiresAt obrigatório (≤ 60 min) · DailyChaosLimit ativações/dia · desligado em prod · sem caos se o SSM falhar.</text>
+  <text x="840" y="1402" class="tiny">• Cada injeção: CHAOS_INJECTED no rastreio + métrica ChaosInjected; faixa de alerta em todas as telas do dashboard.</text>
+</svg>
