@@ -4,6 +4,21 @@ Laboratório de sistemas distribuídos na AWS: um e-commerce serverless em que a
 compra é uma **saga orquestrada pelo AWS Step Functions**, assíncrona e com
 compensação automática.
 
+[![Arquitetura e saga de compra](diagramas/arquitetura-e-saga.png)](diagramas/arquitetura-e-saga.svg)
+
+## Documentação
+
+| Documento | Conteúdo |
+|---|---|
+| [diagramas/](diagramas/README.md) | Índice da documentação e os diagramas em tamanho real (SVG) |
+| [Arquitetura e saga](diagramas/arquitetura-e-saga.svg) | Serviços, tabelas, eventos e o fluxo da compra com as compensações |
+| [API, telas e exposição](diagramas/api-e-telas.svg) | Rotas por Lambda, quais exigem login, abas do dashboard e o que fica só dentro da AWS |
+| [Observabilidade e resiliência](diagramas/observabilidade.svg) | Logs EMF → métricas → alarmes e SLOs, circuit breaker, DLQ e caos |
+| [Entrega, site e custo](diagramas/deploy-e-custo.svg) | CI/CD, CloudFront + S3 e as proteções de custo |
+| [Saga Orchestrator](src/ecommerce/saga-orchestrator/README.md) | A saga em detalhe: garantias, idempotência e o registro da saga |
+| [README-LOCALSTACK.md](README-LOCALSTACK.md) | Rodar localmente |
+| [AWS-SETUP.md](AWS-SETUP.md) | Deploy na AWS (manual e pelo GitHub Actions) |
+
 ## Stack
 
 - **Node.js 22** em **AWS Lambda** (arm64), empacotado com esbuild
@@ -12,7 +27,10 @@ compensação automática.
 - **DynamoDB** (on-demand), com transações e escritas condicionais
 - **EventBridge** para eventos de domínio (Archive dos eventos de pedidos para auditoria e SQS DLQ para eventos que falharam)
 - **CloudWatch** para logs JSON, métricas EMF, alarmes, dashboard e SLOs (Application Signals)
-- **AWS SAM** para infraestrutura e deploy, **LocalStack** para rodar localmente
+- **Cognito** para o login de admin (JWT authorizer do HttpApi, sem Lambda)
+- **CloudFront + S3** para o site e o dashboard; **SSM Parameter Store** para a configuração de caos
+- **AWS Budgets** e um interruptor de custo que fecha a API se o gasto ou o tráfego dispararem
+- **AWS SAM** para infraestrutura e deploy, **GitHub Actions** (OIDC) para CI/CD, **LocalStack** para rodar localmente
 
 ## Arquitetura
 
@@ -33,7 +51,7 @@ compensação automática.
     SagaOrchestrator ──getProduct (Lambda invoke, síncrono)──▶ Products   preço + 404 imediato
     Stock ──getProduct (Lambda invoke, síncrono)──▶ Products              só no ajuste que cria o inventário
     Products ──ProductCreated/Deleted (EventBridge, assíncrono)──▶ Stock  cria/remove o inventário
-  Gateway: /health, /alarms, /logs, /trace, /metrics/*, /dlq (observabilidade)
+  Gateway: /health, /alarms, /logs, /trace, /metrics/*, /dlq (observabilidade), /chaos, /reset
 
   Tabelas por serviço: Products │ Orders │ Payments │ Inventory + StockReservations │ Sagas
   Cada serviço publica eventos de domínio (OrderCreated, PaymentRefunded...) no EventBridge.
@@ -58,6 +76,9 @@ compensação automática.
     localmente, entrega em processo). Pedidos só são criados pela saga.
 
 ## A saga de compra
+
+O diagrama completo, com as compensações de cada passo, está na seção 2 de
+[arquitetura-e-saga](diagramas/arquitetura-e-saga.svg).
 
 ```
 CreateOrder ─▶ ReserveStock ─▶ ProcessPayment ─▶ CommitReservation ─▶ ConfirmOrder ─▶ COMPLETED
@@ -134,6 +155,8 @@ Os erros de cada execução ficam no log group da state machine (output
 
 ## Observabilidade
 
+[![Observabilidade e resiliência](diagramas/observabilidade.png)](diagramas/observabilidade.svg)
+
 Cada Lambda escreve uma linha JSON por evento (`src/common/logger.mjs`) no
 `ServicesLogGroup`. As métricas saem nessas mesmas linhas, no
 [Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format.html):
@@ -181,9 +204,12 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 
 ## API
 
+[![API, telas e exposição](diagramas/api-e-telas.png)](diagramas/api-e-telas.svg)
+
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/health` | Health check; `environment` (`aws` ou `localstack`) diz ao dashboard se enfileira as leituras do CloudWatch |
+| GET | `/auth/config` | Como é o login de admin: `{ mode: 'cognito', region, clientId }` na AWS ou `{ mode: 'key' }` (chave `X-Api-Key`) no local-server |
 | GET | `/alarms` | Alarmes do CloudWatch do ambiente (aba Monitoramento) |
 | GET | `/logs?level=warn\|error&hours=24` 🔑 | Linhas de log warn/error, mais recentes primeiro (aba Logs); `hours` vira 1, 24, 168 ou 336 |
 | GET | `/trace/{correlationId}` 🔑 | Todas as linhas de log de uma compra, em ordem (aba Rastreio) |
@@ -197,8 +223,10 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | POST | `/dlq/{messageId}/redrive` 🔑 | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
 | POST | `/dlq/{messageId}/discard` 🔑 | Apaga o evento da DLQ |
 | GET | `/chaos` | Falhas injetadas em vigor (`enabled`, `active`, `expiresAt`, `faults`); ver [Engenharia de caos](#engenharia-de-caos) |
-| PUT | `/chaos` 🔑 | Liga falhas `{ expiresAt, faults: [{ service, action?, type, probability?, latencyMs? }] }` (substitui as anteriores) |
-| DELETE | `/chaos` 🔑 | Desliga todas as falhas |
+| PUT | `/chaos` | Liga falhas `{ expiresAt, faults: [{ service, action?, type, probability?, latencyMs? }] }` (substitui as anteriores). Aberta, até `DailyChaosLimit` ativações por dia (429 depois); desligada em prod |
+| DELETE | `/chaos` | Desliga todas as falhas (não conta no limite) |
+| GET | `/reset` | Situação do **Zerar base**: usos hoje e limite |
+| POST | `/reset` | Zera a base e grava o seed (ver [Exposição](#exposição)). Aberta, até `DailyResetLimit` por dia; desligada em prod |
 | GET | `/products` | Lista produtos, paginado (`?name=&priceMin=&priceMax=&limit=&nextToken=`) |
 | POST | `/products` 🔑 | Cria produto `{ name, price, description?, stock? }` (`price > 0`; `stock` vira o estoque inicial no serviço de Stock) |
 | GET | `/products/{id}` | Busca produto |
@@ -216,7 +244,7 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 usuário do Cognito (`AdminUserPool`, sem auto-cadastro), conferido pelo JWT
 authorizer do próprio HttpApi (sem Lambda); no local-server, o header `X-Api-Key`.
 São de admin as escritas: cadastrar
-e remover produto, ajustar estoque, ligar e desligar o caos e reprocessar ou
+e remover produto, ajustar estoque e reprocessar ou
 descartar eventos da DLQ (descartar perde o evento de vez). O custo também, por
 ser o gasto da conta AWS inteira, as métricas lidas do CloudWatch (`/metrics/errors`
 e `/metrics/memory`: o GetMetricData é cobrado por métrica pedida e fica fora do
@@ -314,6 +342,8 @@ src/
 └── layers/api-gateway-layer/   # /health, /alarms, /logs, /dlq e fallback 404
 
 scripts/       # seed, deploy, LocalStack, teste e2e, gerador do workflow
+diagramas/     # diagramas (SVG + PNG) e índice da documentação; também na aba Diagramas
+infra/         # role de deploy do GitHub Actions (OIDC)
 test/
 ├── unit/          # sem infraestrutura
 └── integration/   # SDKs contra DynamoDB (LocalStack)
@@ -365,8 +395,9 @@ O dashboard (`dashboard/`), servido pelo `local-server.mjs`, permite comprar e
 acompanhar cada saga em tempo real: os passos concluídos, o que falhou e as
 compensações executadas. As telas ficam agrupadas por assunto: **Loja**
 (comprar, produtos, estoque, pedidos, resumo), **Observabilidade**
-(monitoramento, métricas, logs, rastreio, desempenho, SLOs, recursos) e **Operação**
-(DLQ, caos, admin). A tela atual fica na URL (`#/slo`), e há tema claro e escuro.
+(monitoramento, métricas, logs, rastreio, desempenho, SLOs, recursos), **Operação**
+(DLQ, caos, admin) e **Documentação** (diagramas: os SVGs de [`diagramas/`](diagramas/README.md),
+servidos em `/dashboard/diagramas/` pelo `local-server` e, na AWS, copiados para o bucket pelo `deploy.sh`). A tela atual fica na URL (`#/slo`), e há tema claro e escuro.
 
 Sem build: são módulos ES carregados direto pelo navegador.
 
@@ -415,6 +446,8 @@ expor na rede, use `HOST=0.0.0.0` junto com a chave de admin (sem ela, o
 servidor se recusa a subir).
 
 ### Dashboard na AWS (CloudFront)
+
+[![Entrega, site e proteções de custo](diagramas/deploy-e-custo.png)](diagramas/deploy-e-custo.svg)
 
 O deploy também publica o dashboard: `scripts/deploy.sh` sobe `dashboard/`
 para um bucket S3 privado servido pelo CloudFront (output `DashboardUrl`,
@@ -518,4 +551,6 @@ Localmente o LocalStack precisa de `ssm` em `SERVICES` (`docker-compose.yml`), e
   paginado, com os filtros aplicados por página. As consultas em caminhos
   críticos usam chave ou GSI (`ActiveReservationsIndex`, índice esparso das
   reservas ativas por produto).
-- A autenticação é uma chave única de admin, sem usuários.
+- O login de admin é tudo ou nada: quem está no `AdminUserPool` acessa todas as
+  rotas 🔑, sem papéis. Compras, pedidos e sagas não têm dono (as rotas de
+  leitura mostram as compras de todos).

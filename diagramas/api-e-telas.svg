@@ -1,0 +1,328 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1831" viewBox="0 0 1600 1831" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4a5568"/></marker>
+    <marker id="arrow-pink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d53f8c"/></marker>
+    <marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b46c1"/></marker>
+    <marker id="arrow-yellow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b7791f"/></marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3182ce"/></marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c53030"/></marker>
+    <marker id="arrow-indigo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4c51bf"/></marker>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2c7a7b"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.15"/></filter>
+    <style>
+      .title { font-size: 30px; font-weight: 700; fill: #2d3748; }
+      .subtitle { font-size: 15px; fill: #718096; }
+      .section { font-size: 20px; font-weight: 700; fill: #553c9a; }
+      .box { stroke-width: 2; filter: url(#shadow); }
+      .label { font-size: 15px; font-weight: 600; fill: #1a202c; text-anchor: middle; }
+      .small { font-size: 12.5px; fill: #4a5568; text-anchor: middle; }
+      .tiny { font-size: 12px; fill: #4a5568; }
+      .route { font-size: 12.5px; font-family: Consolas, Menlo, monospace; }
+      .edge { font-size: 12px; fill: #4a5568; }
+    </style>
+  </defs>
+  <rect width="1600" height="1831" fill="#ffffff"/>
+  <text x="40" y="48" class="title" >🌐 API, telas e o que fica exposto à internet</text>
+  <text x="40" y="74" class="subtitle" >CloudFront serve o site e o dashboard · só o API Gateway recebe chamadas de API · rotas 🔑 exigem login no Cognito · o resto é invocado dentro da AWS (IAM)</text>
+  <rect x="20" y="95" width="450" height="1479" rx="14" class="" fill="#ebf8ff" stroke="#90cdf4" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <rect x="490" y="95" width="440" height="1479" rx="14" class="" fill="#faf5ff" stroke="#b794f4" stroke-width="1.5"/>
+  <rect x="950" y="95" width="630" height="1479" rx="14" class="" fill="#f7fafc" stroke="#a0aec0" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="40" y="125" class="section" >1. Internet (fora da AWS)</text>
+  <text x="510" y="125" class="section" >2. Borda pública: API Gateway</text>
+  <text x="970" y="125" class="section" >3. Rede interna AWS (sem acesso direto)</text>
+  <rect x="45" y="150" width="400" height="112" rx="10" class="box" fill="#f0f5ff" stroke="#5a67d8" />
+  <text x="245" y="174" class="label" >CloudFront (site e dashboard)</text>
+  <text x="63" y="196" class="tiny" >/  → página inicial (HelloFunction, Function URL + OAC)</text>
+  <text x="63" y="214" class="tiny" >/laboratory  → dashboard (S3 privado + OAC)</text>
+  <text x="63" y="232" class="tiny" >HTTPS · headers de segurança (CSP) · domínio próprio opcional</text>
+  <text x="63" y="250" class="tiny" fill="#4c51bf">o dashboard chama a API direto (CORS), não via CloudFront</text>
+  <rect x="45" y="282" width="400" height="709" rx="10" class="box" fill="#ffffff" stroke="#3182ce"/>
+  <text x="245" y="306" class="label" >Dashboard (/laboratory)</text>
+  <text x="245" y="324" class="small" >15 abas em 3 grupos · 🔑 = pede login de admin</text>
+  <text x="63" y="352" class="tiny" font-weight="700" fill="#2f855a" letter-spacing="0.5">LOJA</text>
+  <text x="63" y="371" class="tiny" font-weight="700" fill="#2d3748">🛍️ Comprar</text>
+  <text x="85" y="387" class="route" fill="#22543d">POST /saga/execute · GET /saga/{id} · /sagas</text>
+  <text x="63" y="408" class="tiny" font-weight="700" fill="#2d3748">📦 Produtos · 📊 Estoque</text>
+  <text x="85" y="424" class="route" fill="#22543d">GET /products · GET /stock</text>
+  <text x="63" y="445" class="tiny" font-weight="700" fill="#2d3748">🧾 Pedidos · 📈 Resumo</text>
+  <text x="85" y="461" class="route" fill="#22543d">GET /orders · /products · /stock · /sagas</text>
+  <text x="63" y="488" class="tiny" font-weight="700" fill="#4c51bf" letter-spacing="0.5">OBSERVABILIDADE</text>
+  <text x="63" y="507" class="tiny" font-weight="700" fill="#2d3748">🩺 Monitoramento</text>
+  <text x="85" y="523" class="route" fill="#22543d">GET /alarms · /metrics/slo · /metrics/errors 🔑</text>
+  <text x="63" y="544" class="tiny" font-weight="700" fill="#2d3748">📊 Métricas 🔑</text>
+  <text x="85" y="560" class="route" fill="#22543d">GET /metrics/errors</text>
+  <text x="63" y="581" class="tiny" font-weight="700" fill="#2d3748">📜 Logs 🔑 · 🔎 Rastreio 🔑</text>
+  <text x="85" y="597" class="route" fill="#22543d">GET /logs · /trace/{correlationId}</text>
+  <text x="63" y="618" class="tiny" font-weight="700" fill="#2d3748">⏱️ Desempenho · 🎯 SLOs</text>
+  <text x="85" y="634" class="route" fill="#22543d">GET /metrics/sagas · /metrics/slo</text>
+  <text x="63" y="655" class="tiny" font-weight="700" fill="#2d3748">🧠 Recursos 🔑</text>
+  <text x="85" y="671" class="route" fill="#22543d">GET /metrics/memory · /metrics/cost (+ refresh)</text>
+  <text x="63" y="698" class="tiny" font-weight="700" fill="#c05621" letter-spacing="0.5">OPERAÇÃO</text>
+  <text x="63" y="717" class="tiny" font-weight="700" fill="#2d3748">📭 DLQ</text>
+  <text x="85" y="733" class="route" fill="#22543d">GET /dlq · POST /dlq/{id}/redrive|discard 🔑</text>
+  <text x="63" y="754" class="tiny" font-weight="700" fill="#2d3748">🧪 Caos</text>
+  <text x="85" y="770" class="route" fill="#22543d">GET · PUT · DELETE /chaos</text>
+  <text x="63" y="791" class="tiny" font-weight="700" fill="#2d3748">🛠️ Admin 🔑</text>
+  <text x="85" y="807" class="route" fill="#22543d">POST /products · DELETE /products/{id}</text>
+  <text x="85" y="828" class="route" fill="#22543d">POST /stock/{productId}/adjust</text>
+  <text x="63" y="855" class="tiny" font-weight="700" fill="#4a5568" letter-spacing="0.5">TOPO (TODAS AS TELAS)</text>
+  <text x="63" y="874" class="tiny" font-weight="700" fill="#2d3748">🟢 Status · faixa de caos</text>
+  <text x="85" y="890" class="route" fill="#22543d">GET /health · GET /chaos</text>
+  <text x="63" y="911" class="tiny" font-weight="700" fill="#2d3748">🔐 Login de admin</text>
+  <text x="85" y="927" class="route" fill="#22543d">GET /auth/config → Cognito (usuário e senha)</text>
+  <text x="63" y="948" class="tiny" font-weight="700" fill="#2d3748">🧹 Zerar base</text>
+  <text x="85" y="964" class="route" fill="#22543d">GET · POST /reset</text>
+  <line x1="445" y1="322" x2="508" y2="322" stroke="#3182ce" stroke-width="2" stroke-dasharray="0" fill="none" marker-end="url(#arrow-blue)"/>
+  <text x="450" y="314" class="edge" fill="#2b6cb0">HTTPS</text>
+  <line x1="245" y1="262" x2="245" y2="280" stroke="#5a67d8" stroke-width="1.6" stroke-dasharray="4 3" fill="none" marker-end="url(#arrow-indigo)"/>
+  <rect x="45" y="1009" width="400" height="96" rx="10" class="box" fill="#fff5f5" stroke="#c53030" />
+  <text x="245" y="1033" class="label" >Cliente externo (curl, Postman, app)</text>
+  <text x="245" y="1053" class="small" >alcança qualquer rota da borda: as abertas respondem;</text>
+  <text x="245" y="1070" class="small" >rotas 🔑 respondem 401 sem token válido do Cognito</text>
+  <text x="245" y="1087" class="small" fill="#c53030">não alcança Lambda, Step Functions nem DynamoDB</text>
+  <path d="M 445 1057 L 478 1057 L 478 1149 L 508 1149" stroke="#c53030" stroke-width="2" stroke-dasharray="0" fill="none" marker-end="url(#arrow-red)"/>
+  <text x="450" y="1049" class="edge" fill="#c53030">HTTPS</text>
+  <rect x="45" y="1125" width="400" height="92" rx="10" class="" fill="#ffffff" stroke="#90cdf4" stroke-dasharray="4 3"/>
+  <text x="61" y="1147" class="tiny" font-weight="700" fill="#2d3748">Local: local-server.mjs (127.0.0.1:3001)</text>
+  <text x="61" y="1167" class="tiny" >mesmo roteamento do CloudFront (/ e /laboratory); imita o</text>
+  <text x="61" y="1184" class="tiny" >API Gateway chamando os handlers reais · admin: X-Api-Key</text>
+  <text x="61" y="1201" class="tiny" >(hash scrypt no .env) · na AWS: ?api=&lt;ApiGatewayUrl&gt;</text>
+  <rect x="510" y="150" width="400" height="1031" rx="10" class="box" fill="#ffffff" stroke="#805ad5" />
+  <text x="710" y="178" class="label" >API Gateway (HttpApi) · CORS · throttling</text>
+  <text x="528" y="212" class="tiny" font-weight="700" fill="#553c9a">→ GatewayFunction</text>
+  <rect x="528" y="226" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="241" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="241" class="route" fill="#22543d">/health</text>
+  <rect x="528" y="251" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="266" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="266" class="route" fill="#22543d">/auth/config</text>
+  <text x="882" y="266" class="tiny" fill="#22543d" text-anchor="end">Cognito ou chave</text>
+  <rect x="528" y="276" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="291" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="291" class="route" fill="#22543d">/alarms</text>
+  <rect x="528" y="301" width="364" height="21" rx="4" class="" fill="#feebc8" stroke="#c05621" stroke-width="1"/>
+  <text x="538" y="316" class="route" font-weight="700" fill="#7b341e">GET</text>
+  <text x="594" y="316" class="route" fill="#7b341e">/logs</text>
+  <text x="882" y="316" class="tiny" fill="#7b341e" text-anchor="end">🔑</text>
+  <rect x="528" y="326" width="364" height="21" rx="4" class="" fill="#feebc8" stroke="#c05621" stroke-width="1"/>
+  <text x="538" y="341" class="route" font-weight="700" fill="#7b341e">GET</text>
+  <text x="594" y="341" class="route" fill="#7b341e">/trace/{correlationId}</text>
+  <text x="882" y="341" class="tiny" fill="#7b341e" text-anchor="end">🔑</text>
+  <rect x="528" y="351" width="364" height="21" rx="4" class="" fill="#feebc8" stroke="#c05621" stroke-width="1"/>
+  <text x="538" y="366" class="route" font-weight="700" fill="#7b341e">GET</text>
+  <text x="594" y="366" class="route" fill="#7b341e">/metrics/errors</text>
+  <text x="882" y="366" class="tiny" fill="#7b341e" text-anchor="end">🔑</text>
+  <rect x="528" y="376" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="391" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="391" class="route" fill="#22543d">/metrics/sagas</text>
+  <rect x="528" y="401" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="416" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="416" class="route" fill="#22543d">/metrics/slo</text>
+  <rect x="528" y="426" width="364" height="21" rx="4" class="" fill="#feebc8" stroke="#c05621" stroke-width="1"/>
+  <text x="538" y="441" class="route" font-weight="700" fill="#7b341e">GET</text>
+  <text x="594" y="441" class="route" fill="#7b341e">/metrics/memory</text>
+  <text x="882" y="441" class="tiny" fill="#7b341e" text-anchor="end">🔑</text>
+  <rect x="528" y="451" width="364" height="21" rx="4" class="" fill="#feebc8" stroke="#c05621" stroke-width="1"/>
+  <text x="538" y="466" class="route" font-weight="700" fill="#7b341e">GET</text>
+  <text x="594" y="466" class="route" fill="#7b341e">/metrics/cost</text>
+  <text x="882" y="466" class="tiny" fill="#7b341e" text-anchor="end">🔑</text>
+  <rect x="528" y="476" width="364" height="21" rx="4" class="" fill="#feebc8" stroke="#c05621" stroke-width="1"/>
+  <text x="538" y="491" class="route" font-weight="700" fill="#7b341e">POST</text>
+  <text x="594" y="491" class="route" fill="#7b341e">/metrics/cost/refresh</text>
+  <text x="882" y="491" class="tiny" fill="#7b341e" text-anchor="end">🔑 · 5/dia</text>
+  <rect x="528" y="501" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="516" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="516" class="route" fill="#22543d">/dlq</text>
+  <rect x="528" y="526" width="364" height="21" rx="4" class="" fill="#feebc8" stroke="#c05621" stroke-width="1"/>
+  <text x="538" y="541" class="route" font-weight="700" fill="#7b341e">POST</text>
+  <text x="594" y="541" class="route" fill="#7b341e">/dlq/{messageId}/{action}</text>
+  <text x="882" y="541" class="tiny" fill="#7b341e" text-anchor="end">🔑 redrive|discard</text>
+  <rect x="528" y="551" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="566" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="566" class="route" fill="#22543d">/chaos</text>
+  <rect x="528" y="576" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="591" class="route" font-weight="700" fill="#22543d">PUT</text>
+  <text x="594" y="591" class="route" fill="#22543d">/chaos</text>
+  <text x="882" y="591" class="tiny" fill="#22543d" text-anchor="end">20/dia</text>
+  <rect x="528" y="601" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="616" class="route" font-weight="700" fill="#22543d">DELETE</text>
+  <text x="594" y="616" class="route" fill="#22543d">/chaos</text>
+  <rect x="528" y="626" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="641" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="641" class="route" fill="#22543d">/reset</text>
+  <rect x="528" y="651" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="666" class="route" font-weight="700" fill="#22543d">POST</text>
+  <text x="594" y="666" class="route" fill="#22543d">/reset</text>
+  <text x="882" y="666" class="tiny" fill="#22543d" text-anchor="end">10/dia</text>
+  <rect x="528" y="676" width="364" height="21" rx="4" class="" fill="#edf2f7" stroke="#a0aec0" stroke-width="1"/>
+  <text x="538" y="691" class="route" font-weight="700" fill="#4a5568">ANY</text>
+  <text x="594" y="691" class="route" fill="#4a5568">/{proxy+}  → 404 + lista</text>
+  <text x="528" y="717" class="tiny" font-weight="700" fill="#553c9a">→ ProductFunction</text>
+  <rect x="528" y="731" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="746" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="746" class="route" fill="#22543d">/products</text>
+  <rect x="528" y="756" width="364" height="21" rx="4" class="" fill="#bee3f8" stroke="#2b6cb0" stroke-width="1"/>
+  <text x="538" y="771" class="route" font-weight="700" fill="#2a4365">GET</text>
+  <text x="594" y="771" class="route" fill="#2a4365">/products/{id}</text>
+  <rect x="528" y="781" width="364" height="21" rx="4" class="" fill="#feebc8" stroke="#c05621" stroke-width="1"/>
+  <text x="538" y="796" class="route" font-weight="700" fill="#7b341e">POST</text>
+  <text x="594" y="796" class="route" fill="#7b341e">/products</text>
+  <text x="882" y="796" class="tiny" fill="#7b341e" text-anchor="end">🔑</text>
+  <rect x="528" y="806" width="364" height="21" rx="4" class="" fill="#feebc8" stroke="#c05621" stroke-width="1"/>
+  <text x="538" y="821" class="route" font-weight="700" fill="#7b341e">DELETE</text>
+  <text x="594" y="821" class="route" fill="#7b341e">/products/{id}</text>
+  <text x="882" y="821" class="tiny" fill="#7b341e" text-anchor="end">🔑</text>
+  <text x="528" y="847" class="tiny" font-weight="700" fill="#553c9a">→ SagaOrchestratorFunction</text>
+  <rect x="528" y="861" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="876" class="route" font-weight="700" fill="#22543d">POST</text>
+  <text x="594" y="876" class="route" fill="#22543d">/saga/execute</text>
+  <text x="882" y="876" class="tiny" fill="#22543d" text-anchor="end">Idempotency-Key · 150/dia</text>
+  <rect x="528" y="886" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="901" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="901" class="route" fill="#22543d">/saga/{sagaId}</text>
+  <rect x="528" y="911" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="926" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="926" class="route" fill="#22543d">/sagas</text>
+  <text x="882" y="926" class="tiny" fill="#22543d" text-anchor="end">?recent=N</text>
+  <text x="528" y="952" class="tiny" font-weight="700" fill="#553c9a">→ OrderFunction</text>
+  <rect x="528" y="966" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="981" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="981" class="route" fill="#22543d">/orders</text>
+  <rect x="528" y="991" width="364" height="21" rx="4" class="" fill="#bee3f8" stroke="#2b6cb0" stroke-width="1"/>
+  <text x="538" y="1006" class="route" font-weight="700" fill="#2a4365">GET</text>
+  <text x="594" y="1006" class="route" fill="#2a4365">/orders/{id}</text>
+  <text x="528" y="1032" class="tiny" font-weight="700" fill="#553c9a">→ StockFunction</text>
+  <rect x="528" y="1046" width="364" height="21" rx="4" class="" fill="#c6f6d5" stroke="#2f855a" stroke-width="1"/>
+  <text x="538" y="1061" class="route" font-weight="700" fill="#22543d">GET</text>
+  <text x="594" y="1061" class="route" fill="#22543d">/stock</text>
+  <rect x="528" y="1071" width="364" height="21" rx="4" class="" fill="#bee3f8" stroke="#2b6cb0" stroke-width="1"/>
+  <text x="538" y="1086" class="route" font-weight="700" fill="#2a4365">GET</text>
+  <text x="594" y="1086" class="route" fill="#2a4365">/stock/{productId}</text>
+  <rect x="528" y="1096" width="364" height="21" rx="4" class="" fill="#feebc8" stroke="#c05621" stroke-width="1"/>
+  <text x="538" y="1111" class="route" font-weight="700" fill="#7b341e">POST</text>
+  <text x="594" y="1111" class="route" fill="#7b341e">/stock/{productId}/adjust</text>
+  <text x="882" y="1111" class="tiny" fill="#7b341e" text-anchor="end">🔑</text>
+  <rect x="528" y="1129" width="364" height="40" rx="6" class="" fill="#ffffff" stroke="#cbd5e0" stroke-dasharray="4 3"/>
+  <text x="540" y="1145" class="tiny" font-weight="700" fill="#718096">PaymentFunction: nenhuma rota HTTP</text>
+  <text x="540" y="1162" class="tiny" >pagar/reembolsar, reservar/liberar, confirmar/cancelar: só a saga</text>
+  <rect x="975" y="198" width="210" height="44" rx="8" class="box" fill="#edf2f7" stroke="#718096" />
+  <text x="1080" y="217" class="label" >Gateway λ</text>
+  <text x="1080" y="234" class="small" >observabilidade · caos · reset</text>
+  <line x1="910" y1="220" x2="973" y2="220" stroke="#4a5568" stroke-width="1.8" stroke-dasharray="0" fill="none" marker-end="url(#arrow)"/>
+  <rect x="975" y="703" width="210" height="44" rx="8" class="box" fill="#fffaf0" stroke="#dd6b20" />
+  <text x="1080" y="730" class="label" >Products λ</text>
+  <line x1="910" y1="725" x2="973" y2="725" stroke="#4a5568" stroke-width="1.8" stroke-dasharray="0" fill="none" marker-end="url(#arrow)"/>
+  <rect x="975" y="833" width="210" height="44" rx="8" class="box" fill="#fff5f7" stroke="#d53f8c" />
+  <text x="1080" y="860" class="label" >Saga Orchestrator λ</text>
+  <line x1="910" y1="855" x2="973" y2="855" stroke="#4a5568" stroke-width="1.8" stroke-dasharray="0" fill="none" marker-end="url(#arrow)"/>
+  <rect x="975" y="938" width="210" height="44" rx="8" class="box" fill="#fffaf0" stroke="#dd6b20" />
+  <text x="1080" y="965" class="label" >Orders λ</text>
+  <line x1="910" y1="960" x2="973" y2="960" stroke="#4a5568" stroke-width="1.8" stroke-dasharray="0" fill="none" marker-end="url(#arrow)"/>
+  <rect x="975" y="1018" width="210" height="44" rx="8" class="box" fill="#fffaf0" stroke="#dd6b20" />
+  <text x="1080" y="1045" class="label" >Stock λ</text>
+  <line x1="910" y1="1040" x2="973" y2="1040" stroke="#4a5568" stroke-width="1.8" stroke-dasharray="0" fill="none" marker-end="url(#arrow)"/>
+  <rect x="975" y="1127" width="210" height="44" rx="8" class="box" fill="#fffaf0" stroke="#dd6b20" />
+  <text x="1080" y="1146" class="label" >Payments λ</text>
+  <text x="1080" y="1163" class="small" fill="#a0aec0">sem HTTP</text>
+  <rect x="975" y="629" width="210" height="52" rx="8" class="box" fill="#fff5f5" stroke="#c53030" />
+  <text x="1080" y="650" class="label" >JWT authorizer</text>
+  <text x="1080" y="668" class="small" >do próprio HttpApi (sem Lambda)</text>
+  <line x1="910" y1="655" x2="973" y2="655" stroke="#c53030" stroke-width="2" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-red)"/>
+  <text x="916" y="648" class="edge" >🔑</text>
+  <rect x="1290" y="621" width="270" height="68" rx="10" class="box" fill="#fff5f5" stroke="#c53030" />
+  <text x="1425" y="645" class="label" >Cognito AdminUserPool</text>
+  <text x="1425" y="664" class="small" >sem auto-cadastro · token de 1 h</text>
+  <text x="1425" y="680" class="small" >emissor e audiência conferidos</text>
+  <line x1="1185" y1="655" x2="1288" y2="655" stroke="#4a5568" stroke-width="1.8" stroke-dasharray="0" fill="none" marker-end="url(#arrow)"/>
+  <rect x="1290" y="150" width="270" height="128" rx="10" class="box" fill="#ebf4ff" stroke="#4c51bf" />
+  <text x="1425" y="174" class="label" >CloudWatch</text>
+  <text x="1425" y="194" class="small" >alarmes · métricas EMF · SLOs</text>
+  <text x="1425" y="212" class="small" >Logs (ServicesLogGroup) · Logs Insights</text>
+  <text x="1425" y="230" class="small" >Cost Explorer: regra a cada 6 h</text>
+  <text x="1425" y="248" class="small" >→ tabela CostSnapshots</text>
+  <text x="1425" y="268" class="small" fill="#4c51bf">← todas as λ escrevem logs</text>
+  <path d="M 1185 212 L 1240 212 L 1240 209 L 1288 209" stroke="#4c51bf" stroke-width="2" stroke-dasharray="0" fill="none" marker-end="url(#arrow-indigo)"/>
+  <text x="1194" y="206" class="edge" fill="#4c51bf">lê</text>
+  <rect x="1290" y="292" width="270" height="164" rx="10" class="box" fill="#f0fff4" stroke="#38a169" />
+  <text x="1425" y="314" class="label" >DynamoDB</text>
+  <text x="1306" y="336" class="tiny" font-weight="700">cada λ só nas próprias tabelas:</text>
+  <text x="1306" y="356" class="tiny" >Products · Orders · Payments</text>
+  <text x="1306" y="374" class="tiny" >Inventory + StockReservations (Stock)</text>
+  <text x="1306" y="392" class="tiny" >Sagas (Saga + Step Functions)</text>
+  <text x="1306" y="410" class="tiny" >CostSnapshots (Gateway)</text>
+  <text x="1306" y="428" class="tiny" >Gateway lê Sagas (SLOs); o reset</text>
+  <text x="1306" y="444" class="tiny" >apaga e regrava o seed (fora de prod)</text>
+  <path d="M 1185 228 L 1255 228 L 1255 420 L 1288 420" stroke="#4a5568" stroke-width="1.4" stroke-dasharray="3 3" fill="none" marker-end="url(#arrow)"/>
+  <rect x="1290" y="474" width="270" height="62" rx="10" class="box" fill="#fffff0" stroke="#b7791f" />
+  <text x="1425" y="498" class="label" font-size="14">SSM /&lt;env&gt;/ecommerce/chaos</text>
+  <text x="1425" y="518" class="small" >Gateway grava · todas as λ leem (10 s)</text>
+  <path d="M 1185 236 L 1270 236 L 1270 504 L 1288 504" stroke="#b7791f" stroke-width="1.4" stroke-dasharray="3 3" fill="none" marker-end="url(#arrow-yellow)"/>
+  <line x1="1200" y1="831" x2="1200" y2="749" stroke="#6b46c1" stroke-width="2.2" stroke-dasharray="0" fill="none" marker-end="url(#arrow-purple)"/>
+  <text x="1194" y="789" class="edge" fill="#553c9a" font-weight="600" text-anchor="end">getProduct</text>
+  <text x="1194" y="803" class="edge" fill="#553c9a" text-anchor="end">timeout 5 s · breaker</text>
+  <text x="1194" y="817" class="edge" fill="#553c9a" text-anchor="end">+ retry throttling</text>
+  <rect x="1290" y="815" width="270" height="80" rx="10" class="box" fill="#fff5f7" stroke="#d53f8c" />
+  <text x="1425" y="843" class="label" >Step Functions</text>
+  <text x="1425" y="863" class="small" >purchase-saga</text>
+  <text x="1425" y="880" class="small" >grava cada passo na tabela Sagas</text>
+  <line x1="1185" y1="855" x2="1288" y2="855" stroke="#d53f8c" stroke-width="2" stroke-dasharray="0" fill="none" marker-end="url(#arrow-pink)"/>
+  <text x="1192" y="849" class="edge" fill="#b83280">StartExecution</text>
+  <line x1="1330" y1="895" x2="1330" y2="1149" stroke="#d53f8c" stroke-width="2" stroke-dasharray="6 4"/>
+  <line x1="1330" y1="960" x2="1187" y2="960" stroke="#d53f8c" stroke-width="2" stroke-dasharray="6 4" fill="none" marker-end="url(#arrow-pink)"/>
+  <line x1="1330" y1="1149" x2="1187" y2="1149" stroke="#d53f8c" stroke-width="2" stroke-dasharray="6 4" fill="none" marker-end="url(#arrow-pink)"/>
+  <line x1="1330" y1="1040" x2="1187" y2="1040" stroke="#d53f8c" stroke-width="2" stroke-dasharray="6 4" fill="none" marker-end="url(#arrow-pink)"/>
+  <text x="1338" y="915" class="tiny" fill="#b83280">Lambda invoke {action, input}</text>
+  <text x="1338" y="931" class="tiny" fill="#b83280">createOrder · reserveStock ·</text>
+  <text x="1338" y="947" class="tiny" fill="#b83280">processPayment · commitReservation ·</text>
+  <text x="1338" y="963" class="tiny" fill="#b83280">confirmOrder + compensações</text>
+  <rect x="1290" y="1209" width="270" height="60" rx="10" class="box" fill="#fefcbf" stroke="#d69e2e" />
+  <text x="1425" y="1233" class="label" >EventBridge</text>
+  <text x="1425" y="1253" class="small" >eventos de domínio</text>
+  <path d="M 1185 737 L 1270 737 L 1270 1229 L 1288 1229" stroke="#b7791f" stroke-width="2" stroke-dasharray="3 3" fill="none" marker-end="url(#arrow-yellow)"/>
+  <path d="M 1290 1253 L 1235 1253 L 1235 1052 L 1187 1052" stroke="#b7791f" stroke-width="2" stroke-dasharray="3 3" fill="none" marker-end="url(#arrow-yellow)"/>
+  <text x="1228" y="1086" class="edge" fill="#975a16" font-weight="600" text-anchor="end">ProductCreated/Deleted → Stock λ</text>
+  <rect x="1290" y="1299" width="125" height="60" rx="10" class="box" fill="#fffff0" stroke="#d69e2e" />
+  <text x="1352" y="1323" class="label" >Archive</text>
+  <text x="1352" y="1342" class="small" >orders · 10 dias</text>
+  <rect x="1430" y="1299" width="130" height="60" rx="10" class="box" fill="#e6fffa" stroke="#319795" />
+  <text x="1495" y="1323" class="label" >SQS DLQ</text>
+  <text x="1495" y="1342" class="small" >ProductEventsDlq</text>
+  <line x1="1352" y1="1269" x2="1352" y2="1297" stroke="#4a5568" stroke-width="1.8" stroke-dasharray="0" fill="none" marker-end="url(#arrow)"/>
+  <line x1="1495" y1="1269" x2="1495" y2="1297" stroke="#4a5568" stroke-width="1.8" stroke-dasharray="4 3" fill="none" marker-end="url(#arrow)"/>
+  <text x="1495" y="1379" class="edge" fill="#2c7a7b" text-anchor="middle">Gateway λ lista, republica</text>
+  <text x="1495" y="1395" class="edge" fill="#2c7a7b" text-anchor="middle">(redrive 🔑) ou descarta 🔑</text>
+  <rect x="970" y="1424" width="590" height="130" rx="10" class="" fill="#ffffff" stroke="#cbd5e0" stroke-dasharray="4 3"/>
+  <text x="988" y="1448" class="tiny" >🔒 Lambdas de serviço não têm Function URL: só recebem HTTP pelo API Gateway.</text>
+  <text x="988" y="1469" class="tiny" >     (a HelloFunction tem, mas com AWS_IAM: só o CloudFront, via OAC, a chama.)</text>
+  <text x="988" y="1490" class="tiny" >🔑 Chamadas internas exigem permissão IAM (LambdaInvokePolicy, regra do EventBridge).</text>
+  <text x="988" y="1511" class="tiny" >🛡️ Ações {action, input} só rodam sem requestContext: um request HTTP</text>
+  <text x="988" y="1532" class="tiny" >     nunca dispara createOrder, reserveStock etc. (src/common/actions.mjs).</text>
+  <text x="40" y="1599" class="tiny" font-weight="700">Rotas</text>
+  <rect x="40" y="1611" width="22" height="16" rx="3" class="" fill="#c6f6d5" stroke="#2f855a" />
+  <text x="70" y="1624" class="tiny" >aberta (usada pelo dashboard)</text>
+  <rect x="285.6" y="1611" width="22" height="16" rx="3" class="" fill="#bee3f8" stroke="#2b6cb0" />
+  <text x="315.6" y="1624" class="tiny" >consulta extra (não usada pelo dashboard)</text>
+  <rect x="608.0" y="1611" width="22" height="16" rx="3" class="" fill="#feebc8" stroke="#c05621" />
+  <text x="638.0" y="1624" class="tiny" >🔑 admin: token do Cognito (JWT)</text>
+  <rect x="866.4" y="1611" width="22" height="16" rx="3" class="" fill="#edf2f7" stroke="#a0aec0" />
+  <text x="896.4" y="1624" class="tiny" >fallback</text>
+  <text x="987.6" y="1624" class="tiny" fill="#7b341e">N/dia = limite diário (429 depois; zera às 12:00 de Brasília)</text>
+  <text x="40" y="1649" class="tiny" font-weight="700">Setas</text>
+  <line x1="40" y1="1669" x2="80" y2="1669" stroke="#4a5568" stroke-width="2" stroke-dasharray="0" fill="none" marker-end="url(#arrow)"/>
+  <text x="88" y="1674" class="tiny" >HTTP: API Gateway → Lambda</text>
+  <line x1="273.79999999999995" y1="1669" x2="313.79999999999995" y2="1669" stroke="#d53f8c" stroke-width="2" stroke-dasharray="6 4" fill="none" marker-end="url(#arrow-pink)"/>
+  <text x="321.79999999999995" y="1674" class="tiny" >Step Functions → ação da Lambda</text>
+  <line x1="539.0999999999999" y1="1669" x2="579.0999999999999" y2="1669" stroke="#6b46c1" stroke-width="2" stroke-dasharray="0" fill="none" marker-end="url(#arrow-purple)"/>
+  <text x="587.0999999999999" y="1674" class="tiny" >invoke síncrono entre serviços</text>
+  <line x1="798.0999999999999" y1="1669" x2="838.0999999999999" y2="1669" stroke="#b7791f" stroke-width="2" stroke-dasharray="3 3" fill="none" marker-end="url(#arrow-yellow)"/>
+  <text x="846.0999999999999" y="1674" class="tiny" >evento / parâmetro SSM</text>
+  <line x1="1006.6999999999999" y1="1669" x2="1046.6999999999998" y2="1669" stroke="#c53030" stroke-width="2" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-red)"/>
+  <text x="1054.6999999999998" y="1674" class="tiny" >authorizer</text>
+  <line x1="1139.6999999999998" y1="1669" x2="1179.6999999999998" y2="1669" stroke="#4c51bf" stroke-width="2" stroke-dasharray="0" fill="none" marker-end="url(#arrow-indigo)"/>
+  <text x="1187.6999999999998" y="1674" class="tiny" >leitura do CloudWatch</text>
+  <rect x="20" y="1699" width="1560" height="112" rx="12" class="" fill="#fffaf0" stroke="#c05621" stroke-width="1.5"/>
+  <text x="40" y="1727" class="tiny" font-weight="700" fill="#7b341e" font-size="14">⚠️ Escritas de catálogo/estoque, DLQ, custo e leituras caras do CloudWatch exigem login · compra, caos e reset são abertos com limite diário</text>
+  <text x="40" y="1751" class="tiny" >Rotas 🔑: na AWS, Authorization: Bearer &lt;access token&gt; do Cognito, conferido pelo JWT authorizer do HttpApi (assinatura, emissor, audiência e expiração), sem Lambda; local, X-Api-Key.</text>
+  <text x="40" y="1771" class="tiny" >Compra, caos e reset são abertos para o laboratório, mas cada um tem limite diário (DailyPurchaseLimit, DailyChaosLimit, DailyResetLimit); caos e reset ficam desligados em prod.</text>
+  <text x="40" y="1791" class="tiny" >Throttling padrão de 10 req/s por rota (somando todos os clientes); com orçamento estourado ou enxurrada de requisições, o interruptor de custo zera o throttling do stage (diagrama de deploy e custo).</text>
+</svg>
