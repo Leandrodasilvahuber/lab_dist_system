@@ -13,7 +13,7 @@ for _ in $(seq 1 60); do
         echo "Próximos passos:"
         echo "   npm run build              # empacota as Lambdas"
         echo "   npm run localstack:deploy  # publica as Lambdas e a saga"
-        echo "   npm run local-server       # dashboard em http://localhost:3001"
+        echo "   npm run local-server       # dashboard em http://localhost:3001/laboratory"
         echo "   npm run seed:local         # dev: produtos e estoque (seed:local:prod: sem o server)"
         echo "   npm run test:e2e:orders    # compras de exemplo no dashboard"
         echo "   npm run test:e2e           # roda a saga completa no LocalStack"

@@ -1932,19 +1932,131 @@ Resources:
       FunctionUrlConfig:
         AuthType: AWS_IAM
       InlineCode: |
-        // Página inicial: hello world com link para o dashboard (/laboratory).
-        // Sem <style>/<script> inline: a CSP do CloudFront só permite style="..."
+        // Página inicial: apresentação do Leandro com os laboratórios (o de sistemas
+        // distribuídos abre o dashboard em /laboratory; os outros ainda não existem).
+        // Sem <style>/<script> inline: a CSP do CloudFront só permite style="...".
+        // A animação fica num SVG em data URI (img-src aceita data:), que tem CSS próprio
+        const C = { bg: '#0f1115', card: '#171a21', line: '#262b36', text: '#e6e6e6', muted: '#9aa0a6', green: '#4ade80', blue: '#60a5fa', pink: '#f472b6', yellow: '#facc15' };
+
+        const terminal = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 190' font-family='ui-monospace,Menlo,Consolas,monospace' font-size='14'>
+          <style>
+            .l{opacity:0;animation:show .2s forwards}
+            .l2{animation-delay:.9s}.l3{animation-delay:1.8s}.l4{animation-delay:2.4s}.l5{animation-delay:3s}.l6{animation-delay:3.8s}
+            .cur{animation:blink 1s steps(1) infinite}
+            @keyframes show{to{opacity:1}}
+            @keyframes blink{50%{opacity:0}}
+          </style>
+          <rect width='420' height='190' rx='12' fill='${C.card}' stroke='${C.line}'/>
+          <circle cx='22' cy='20' r='6' fill='#f87171'/><circle cx='42' cy='20' r='6' fill='${C.yellow}'/><circle cx='62' cy='20' r='6' fill='${C.green}'/>
+          <text x='20' y='60' fill='${C.text}' class='l'><tspan fill='${C.green}'>$</tspan> npx leandro --whoami</text>
+          <text x='20' y='86' fill='${C.muted}' class='l l2'>✔ carregando 15+ anos de experiência...</text>
+          <text x='20' y='108' fill='${C.muted}' class='l l3'>✔ conectando Kafka, Saga e DynamoDB...</text>
+          <text x='20' y='130' fill='${C.muted}' class='l l4'>✔ esquentando o café ☕</text>
+          <text x='20' y='158' fill='${C.green}' class='l l5'>Olá! Bora construir algo distribuído? 🚀</text>
+          <rect x='20' y='168' width='9' height='3' fill='${C.green}' class='l l6 cur'/>
+        </svg>`;
+
+        const labs = [
+          { emoji: '🛒', title: 'Sistemas Distribuídos', text: 'E-commerce serverless com saga no Step Functions, idempotência ponta a ponta, caos e SLOs. Rodando ao vivo.', href: '/laboratory' },
+          { emoji: '🧠', title: 'Fine-tuning', text: 'Ensinando modelos a falar a língua do domínio. Os GPUs ainda estão esquentando.' },
+          { emoji: '📚', title: 'RAG', text: 'Busca vetorial + LLM respondendo com as fontes certas, sem alucinar (muito).' }
+        ];
+
+        const stats = [
+          ['15+', 'anos em produção'],
+          ['500 mil', 'hectares de soja monitorados'],
+          ['100%', 'das comarcas de MG via Kafka'],
+          ['-90%', 'rollbacks depois do CI/CD'],
+          ['∞', 'xícaras de café']
+        ];
+
+        const stack = ['Node.js 22', 'TypeScript', 'AWS Lambda', 'Step Functions', 'DynamoDB', 'Kafka', 'RabbitMQ', 'EventBridge', 'SQS', 'PostgreSQL', 'Redis', 'MongoDB', 'Docker', 'LocalStack', 'AWS SAM', 'GitHub Actions', 'React', 'Vue.js', 'MCP', 'GitHub Copilot'];
+
+        const career = [
+          ['2023 → hoje', 'Hammer Consult', 'Kafka processando eventos de todas as comarcas de Minas, MCPs que automatizam processos e o time voando com Copilot.'],
+          ['2021 → 2023', 'Digifarmz (agtech)', 'Microsserviços para monitorar soja do tamanho de meio milhão de campos de futebol (mais ou menos).'],
+          ['2017 → 2021', 'Datacempro', 'Módulos críticos de ERP em Java, JavaScript e PHP.'],
+          ['2015 → 2017', 'F1 Soluções', 'APIs em Node.js e CakePHP e MySQL afinado na unha.'],
+          ['2007 → 2015', 'O começo', 'Spotcom, N2, Sygecom: onde aprendi que todo sistema é distribuído quando o servidor cai.']
+        ];
+
+        const faq = [
+          ['Ele sabe sair do Vim?', 'Sabe. Mas prefere não arriscar em produção.'],
+          ['Por que tanto Saga pattern?', 'Porque compra que dá pela metade tem que se desfazer sozinha. E porque o nome é épico.'],
+          ['O laboratório é de verdade?', 'É! Tem engenharia de caos embutida: dá pra quebrar a compra de propósito e ver a compensação acontecer.'],
+          ['Tá disponível?', 'Disponibilidade imediata, PJ ou CLT. Os contatos estão logo ali embaixo 👇']
+        ];
+
+        const section = (title, body) => `
+          <section style="margin:0 0 56px">
+            <h2 style="font-size:1.4rem;margin:0 0 20px;color:${C.text}">${title}</h2>
+            ${body}
+          </section>`;
+
+        const labCard = ({ emoji, title, text, href }) => {
+          const badge = href
+            ? `<span style="font-size:.75rem;padding:3px 10px;border-radius:999px;background:${C.green};color:${C.bg};font-weight:700">● AO VIVO</span>`
+            : `<span style="font-size:.75rem;padding:3px 10px;border-radius:999px;border:1px dashed ${C.muted};color:${C.muted}">🚧 em breve</span>`;
+          const inner = `
+              <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 14px"><span style="font-size:2rem">${emoji}</span>${badge}</div>
+              <h3 style="margin:0 0 8px;font-size:1.1rem">Laboratório de ${title}</h3>
+              <p style="margin:0 0 16px;color:${C.muted};line-height:1.5">${text}</p>
+              <span style="font-weight:700;color:${href ? C.green : C.muted}">${href ? 'Entrar no laboratório →' : 'Porta trancada 🔒'}</span>`;
+          const box = `display:block;padding:22px;border-radius:14px;background:${C.card};border:1px solid ${href ? C.green : C.line};text-decoration:none;color:${C.text}`;
+          return href
+            ? `<a href="${href}" style="${box}">${inner}</a>`
+            : `<div aria-disabled="true" title="Em construção" style="${box};opacity:.55;cursor:not-allowed;filter:grayscale(1)">${inner}</div>`;
+        };
+
+        const grid = (min, items) => `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,${min}),1fr));gap:16px">${items.join('')}</div>`;
+
         const html = `<!doctype html>
         <html lang="pt-BR">
-        <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hello World</title></head>
-        <body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#0f1115;color:#e6e6e6">
-          <main style="text-align:center;padding:24px">
-            <h1 style="font-size:2.5rem;margin:0 0 12px">Hello World 👋</h1>
-            <p style="margin:0 0 24px;color:#9aa0a6">Página servida por uma AWS Lambda.</p>
-            <a href="/laboratory" style="display:inline-block;padding:12px 20px;border-radius:8px;background:#4ade80;color:#0f1115;font-weight:600;text-decoration:none">Abrir o laboratório (dashboard)</a>
+        <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Leandro Huber · Laboratórios</title><meta name="description" content="Leandro Huber, engenheiro de software sênior: Node.js, TypeScript, AWS e sistemas distribuídos."></head>
+        <body style="margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:${C.bg};color:${C.text}">
+          <main style="max-width:960px;margin:0 auto;padding:48px 16px 32px">
+
+            <header style="display:flex;flex-wrap:wrap;gap:32px;align-items:center;margin:0 0 64px">
+              <div style="flex:1 1 320px">
+                <img src="/dashboard/img/leandro.webp" alt="Foto do Leandro Huber" width="112" height="112" style="display:block;width:112px;height:112px;border-radius:50%;object-fit:cover;border:3px solid ${C.green};box-shadow:0 0 0 6px ${C.card};margin:0 0 20px">
+                <p style="margin:0 0 8px;color:${C.green};font-family:ui-monospace,Menlo,monospace">Hello World 👋, eu sou o</p>
+                <h1 style="font-size:clamp(2.2rem,7vw,3.4rem);margin:0 0 12px;line-height:1.05">Leandro Huber</h1>
+                <p style="margin:0 0 16px;font-size:1.15rem;color:${C.text}">Engenheiro de Software Sênior · Node.js · TypeScript · AWS · Sistemas Distribuídos</p>
+                <p style="margin:0 0 24px;color:${C.muted};line-height:1.6">Há mais de 15 anos transformando café em APIs e eventos em sistemas que não vendem o mesmo estoque duas vezes. Moro em Florianópolis, onde os sistemas são distribuídos e as praias também. 🏝️</p>
+                <div style="display:flex;flex-wrap:wrap;gap:12px">
+                  <a href="/laboratory" style="padding:12px 20px;border-radius:8px;background:${C.green};color:${C.bg};font-weight:700;text-decoration:none">Abrir o laboratório 🧪</a>
+                  <a href="https://www.linkedin.com/in/leandrohuber" rel="noopener" style="padding:12px 20px;border-radius:8px;border:1px solid ${C.line};color:${C.text};text-decoration:none">LinkedIn</a>
+                  <a href="https://github.com/Leandrodasilvahuber" rel="noopener" style="padding:12px 20px;border-radius:8px;border:1px solid ${C.line};color:${C.text};text-decoration:none">GitHub</a>
+                </div>
+              </div>
+              <img src="data:image/svg+xml,${encodeURIComponent(terminal)}" alt="Terminal rodando npx leandro --whoami" width="420" height="190" style="flex:1 1 320px;max-width:100%;height:auto">
+            </header>
+        ${section('🧪 Laboratórios', grid('240px', labs.map(labCard)))}
+        ${section('📈 Métricas de produção', grid('150px', stats.map(([value, label]) => `
+              <div style="padding:18px;border-radius:12px;background:${C.card};border:1px solid ${C.line}">
+                <div style="font-size:1.8rem;font-weight:800;color:${C.yellow}">${value}</div>
+                <div style="color:${C.muted};font-size:.9rem;margin-top:4px">${label}</div>
+              </div>`)))}
+        ${section('🧰 <code style="font-size:1rem;color:' + C.muted + '">npm ls --depth=0</code>', `<div style="display:flex;flex-wrap:wrap;gap:8px">${stack.map(item => `<span style="padding:6px 12px;border-radius:999px;background:${C.card};border:1px solid ${C.line};font-size:.9rem">${item}</span>`).join('')}</div>`)}
+        ${section('🕹️ <code style="font-size:1rem;color:' + C.muted + '">git log --oneline carreira</code>', `<ol style="list-style:none;margin:0;padding:0 0 0 18px;border-left:2px solid ${C.line}">${career.map(([when, where, what]) => `
+              <li style="margin:0 0 20px">
+                <div style="font-family:ui-monospace,Menlo,monospace;color:${C.pink};font-size:.85rem">${when}</div>
+                <div style="font-weight:700;margin:2px 0">${where}</div>
+                <div style="color:${C.muted};line-height:1.5">${what}</div>
+              </li>`).join('')}</ol>`)}
+        ${section('🤔 Perguntas frequentes (e algumas nem tanto)', faq.map(([q, a]) => `
+              <details style="margin:0 0 10px;padding:14px 18px;border-radius:10px;background:${C.card};border:1px solid ${C.line}">
+                <summary style="cursor:pointer;font-weight:600">${q}</summary>
+                <p style="margin:10px 0 0;color:${C.muted};line-height:1.5">${a}</p>
+              </details>`).join(''))}
+            <footer style="padding:24px 0 0;border-top:1px solid ${C.line};color:${C.muted};font-size:.9rem;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between">
+              <span>📬 <a href="mailto:emaildohuber@gmail.com" style="color:${C.blue}">emaildohuber@gmail.com</a> · Florianópolis (SC)</span>
+              <span>Servido por uma AWS Lambda atrás do CloudFront ⚡</span>
+            </footer>
           </main>
         </body>
         </html>`;
+
         // InlineCode vira index.js (CommonJS): exports, não export
         exports.handler = async () => ({
           statusCode: 200,

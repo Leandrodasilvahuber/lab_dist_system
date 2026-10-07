@@ -316,7 +316,7 @@ try {
     out(`  ${a.StateValue === 'ALARM' ? color(31, 'ALARM') : color(32, a.StateValue.padEnd(5))} ${a.AlarmName}: ${a.StateReason}`);
   }
   check('alarmes no estado esperado (5 em ALARM; saga-failed e saga-compensation-rate OK)', alarms.length === definitions.length && alarms.every(a => a.StateValue === expected[a.AlarmName]));
-  out('\nVeja nas abas 🩺 Monitoramento e 📊 Métricas: npm run local-server e abra http://localhost:3001');
+  out('\nVeja nas abas 🩺 Monitoramento e 📊 Métricas: npm run local-server e abra http://localhost:3001/laboratory');
   out('Os alarmes voltam a OK sozinhos ~15 min depois. Para limpar: npm run test:e2e:errors -- --cleanup');
 } catch (error) {
   out(`  CloudWatch indisponível no LocalStack (${error.name}): alarmes não criados.`);

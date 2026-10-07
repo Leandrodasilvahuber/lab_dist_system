@@ -335,7 +335,7 @@ npm run build             # empacota as Lambdas (sam build + esbuild)
 # Local (LocalStack): veja README-LOCALSTACK.md
 npm run localstack:start
 npm run localstack:deploy # publica Lambdas e saga no LocalStack (para o dashboard)
-npm run local-server      # dashboard em http://localhost:3001
+npm run local-server      # dashboard em http://localhost:3001/laboratory
 npm run seed:local        # dev: produtos e estoque (seed:local:prod: sem o server)
 npm run test:e2e:orders   # compras de exemplo que ficam no dashboard
 npm run test:integration  # SDKs contra o DynamoDB do LocalStack
@@ -388,7 +388,7 @@ state machine no LocalStack. É o mesmo código que vai para a AWS.
 ```bash
 npm run localstack:start
 npm run build && npm run localstack:deploy   # publica as Lambdas e a saga no LocalStack
-npm run local-server                         # abra http://localhost:3001
+npm run local-server                         # abra http://localhost:3001/laboratory
 npm run seed:local                           # produtos e estoque (seed:local:prod: sem o server)
 npm run test:e2e:orders                      # compras de exemplo para o dashboard
 ```
@@ -429,7 +429,7 @@ não através do CloudFront, para a API continuar vendo o IP real do cliente
 Para apagar o stack, esvazie antes o bucket (`DashboardBucketName`).
 
 Para usar o dashboard local com a API publicada na AWS, abra
-`http://localhost:3001/?api=<ApiGatewayUrl>`. A CSP do
+`http://localhost:3001/laboratory?api=<ApiGatewayUrl>`. A CSP do
 `local-server` só deixa o dashboard chamar a própria origem e
 `https://*.execute-api.amazonaws.com`.
 
@@ -444,7 +444,7 @@ Para usar o dashboard local com a API publicada na AWS, abra
 | `npm run sast:iac` | Checkov no `template.yaml` (`.checkov.yaml`; exceções com motivo no próprio template) |
 | `npm run sast` | Os quatro acima |
 | `npm run dast:api` | `test/integration/security.test.mjs`: sobe o `local-server` e testa auth de admin, CORS, Host (DNS rebinding), path traversal e payloads malformados |
-| `npm run dast:zap` | OWASP ZAP baseline contra `DAST_TARGET` (padrão `http://localhost:3001/`); relatório em `reports/zap.html` |
+| `npm run dast:zap` | OWASP ZAP baseline contra `DAST_TARGET` (padrão `http://localhost:3001/laboratory`); relatório em `reports/zap.html` |
 | `npm run dast:zap:api` | Scan **ativo** do ZAP nas rotas públicas (`.zap/openapi.yaml`); relatório em `reports/zap-api.html`. Rode contra uma instância com chave de admin (as rotas de admin ficam de fora) |
 | `npm run security` | `lint` + `sast` + `dast:api` |
 
