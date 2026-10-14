@@ -7,6 +7,9 @@ export const CHAOS_PRESETS = [
         label: 'Pagamento instável',
         hypothesis: 'Metade das cobranças falha por throttling; o retry do Step Functions repete e todas as compras concluem.',
         expect: 'COMPLETED',
+        // Antes de ligar, a aba Caos pede confirmação com a estimativa de esgotar os retries
+        // (js/components/reliability-modal.js)
+        reliabilityNotice: true,
         faults: [{ id: 'payment-flaky', service: 'payments', action: 'processPayment', type: 'transient', probability: 0.5 }]
     },
     {

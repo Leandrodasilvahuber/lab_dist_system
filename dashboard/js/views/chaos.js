@@ -12,6 +12,7 @@ import { icon } from '../components/icons.js';
 import { bindRefresh, panel, refreshButton, spacer, status, toolbar } from '../components/layout.js';
 import { showToast } from '../components/toast.js';
 import { confirmDialog } from '../components/confirm-modal.js';
+import { confirmReliability } from '../components/reliability-modal.js';
 
 // Alvos conhecidos por serviço (ações da saga, eventos e rotas). O campo aceita
 // outro valor: rotas HTTP são "METHOD /caminho"; vazio vale para o serviço todo
@@ -198,7 +199,9 @@ async function applyPreset(event) {
         });
         return;
     }
-    if (chaosState.active && !await confirmDialog({
+    if (preset.reliabilityNotice) {
+        if (!await confirmReliability({ replacing: chaosState.active })) return;
+    } else if (chaosState.active && !await confirmDialog({
         title: 'Substituir as falhas ativas?',
         message: `As falhas injetadas agora são desligadas e o experimento "${preset.label}" entra no lugar.`,
         confirmLabel: 'Substituir',

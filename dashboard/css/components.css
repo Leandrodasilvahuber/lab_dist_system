@@ -579,6 +579,7 @@
 .reliability-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .reliability-note { color: var(--text-3); font-size: 12px; }
 .reliability-actions { display: flex; justify-content: flex-end; }
+.reliability-body .modal-actions { padding: 4px 0 0; }
 
 @keyframes modal-in {
     from { opacity: 0; transform: translateY(8px); }

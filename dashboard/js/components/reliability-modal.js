@@ -5,13 +5,11 @@ import { icon } from './icons.js';
 // houver dados reais de ACTION_FAILED ou do histórico do Step Functions.
 const FALHA_POR_TENTATIVA = 0.5;
 
-// Tentativas totais por passo, conforme o Retry do saga-workflow.asl.json:
-// throttling da Lambda (1 + 6) e erro transitório (1 + 3 na cobrança, 1 + 5 no reembolso)
+// Tentativas totais da cobrança (ProcessPayment), conforme o Retry do
+// saga-workflow.asl.json: throttling da Lambda (1 + 6) e erro transitório (1 + 3)
 const PASSOS = [
-    { nome: 'Cobrança', caso: 'throttling da Lambda', tentativas: 7 },
-    { nome: 'Cobrança', caso: 'erro transitório da AWS', tentativas: 4 },
-    { nome: 'Reembolso', caso: 'throttling da Lambda', tentativas: 7 },
-    { nome: 'Reembolso', caso: 'erro transitório da AWS', tentativas: 6 }
+    { caso: 'Throttling da Lambda', tentativas: 7 },
+    { caso: 'Erro transitório', tentativas: 4 }
 ];
 
 // Chance de todas as tentativas falharem: p^n
@@ -25,9 +23,8 @@ function percentual(valor) {
 }
 
 function linhas() {
-    return PASSOS.map(({ nome, caso, tentativas }) => `
+    return PASSOS.map(({ caso, tentativas }) => `
         <tr>
-            <td>${nome}</td>
             <td>${caso}</td>
             <td class="num">${tentativas}</td>
             <td class="num"><strong>${percentual(chanceDeEsgotar(tentativas))}</strong></td>
@@ -39,40 +36,60 @@ let dialog = null;
 function ensureDialog() {
     if (dialog) return dialog;
     dialog = document.createElement('dialog');
-    dialog.className = 'modal modal-wide';
+    dialog.className = 'modal modal-wide tone-warn';
     dialog.setAttribute('aria-labelledby', 'reliabilityModalTitle');
     dialog.innerHTML = `
         <header class="modal-head">
             <div class="modal-title">
-                <h2 id="reliabilityModalTitle">${icon('alert', { size: 18 })}<span>Pagamento e reembolso instáveis</span></h2>
-                <span class="modal-sub">Aviso para quem usa o dashboard</span>
+                <h2 id="reliabilityModalTitle">${icon('alert', { size: 18 })}<span>Pagamento instável</span></h2>
+                <span class="modal-sub">Confirme antes de ligar o experimento</span>
             </div>
         </header>
         <div class="modal-body reliability-body">
-            <p>A confirmação do pedido falha depois da cobrança, e o reembolso falha cerca de metade das vezes. Hoje as falhas são absorvidas por retries: a compra conclui, mas pode demorar e a instabilidade fica escondida.</p>
-            <p>Chance estimada de uma etapa esgotar todas as tentativas e cair na compensação (<strong>${percentual(FALHA_POR_TENTATIVA * 100)}</strong> de falha por tentativa, valor suposto):</p>
+            <p>Metade das cobranças falha. O Step Functions repete a cobrança e a compra costuma concluir, só que mais devagar.</p>
+            <p>Chance de a cobrança esgotar as tentativas (<strong>${percentual(FALHA_POR_TENTATIVA * 100)}</strong> de falha em cada uma):</p>
             <div class="table-wrap">
                 <table class="reliability-table">
                     <thead>
-                        <tr><th>Etapa</th><th>Tipo de falha</th><th class="num">Tentativas</th><th class="num">Chance de esgotar</th></tr>
+                        <tr><th>Tipo de falha</th><th class="num">Tentativas</th><th class="num">Chance de esgotar</th></tr>
                     </thead>
                     <tbody>${linhas()}</tbody>
                 </table>
             </div>
-            <p class="reliability-note">Estimativa calculada, não medida. Quando o reembolso esgota as tentativas, a saga vai para <span class="mono">COMPENSATION_FAILED</span> e exige correção manual.</p>
-            <div class="reliability-actions">
-                <button type="button" class="btn btn-primary" data-close>Entendi, fechar</button>
+            <p class="reliability-note">Estimativa, não medição. Se esgotar, a compra é desfeita (<span class="mono">COMPENSATED</span>): pedido cancelado e estoque devolvido.</p>
+            <p class="callout callout-warn" id="reliabilityReplace" hidden>As falhas ativas serão substituídas por este experimento.</p>
+            <div class="modal-actions reliability-actions">
+                <button type="button" class="btn btn-secondary" data-answer="no">Cancelar</button>
+                <button type="button" class="btn btn-primary" data-answer="yes">${icon('zap', { size: 15 })}<span>Ligar experimento</span></button>
             </div>
         </div>`;
-    // Obriga a fechar: só o botão fecha. Clique no fundo e Esc são bloqueados
-    dialog.addEventListener('cancel', event => event.preventDefault());
-    dialog.querySelector('[data-close]').addEventListener('click', () => dialog.close());
+    // Esc, clique no fundo e Cancelar não ligam o experimento
+    dialog.addEventListener('click', event => {
+        const answer = event.target.closest('[data-answer]')?.dataset.answer;
+        if (answer) dialog.close(answer);
+        else if (event.target === dialog) dialog.close('no');
+    });
+    dialog.addEventListener('close', () => {
+        settle?.(dialog.returnValue === 'yes');
+        settle = null;
+    });
     document.body.append(dialog);
     return dialog;
 }
 
-/** Abre o aviso bloqueante: só fecha pelo botão. */
-export function showReliabilityNotice() {
+let settle = null;
+
+/**
+ * Confirmação antes de ligar o experimento de pagamento instável: mostra a
+ * chance de a cobrança esgotar os retries. replacing: já há falhas ativas,
+ * que serão substituídas. Devolve Promise<boolean>.
+ */
+export function confirmReliability({ replacing = false } = {}) {
     const modal = ensureDialog();
-    if (!modal.open) modal.showModal();
+    settle?.(false);
+    modal.returnValue = '';
+    modal.querySelector('#reliabilityReplace').hidden = !replacing;
+    modal.showModal();
+    modal.querySelector('[data-answer="yes"]').focus();
+    return new Promise(resolve => { settle = resolve; });
 }
