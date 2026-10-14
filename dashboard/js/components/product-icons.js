@@ -33,6 +33,8 @@ const shine = (x, y, rx = 2.6, ry = 6, rot = -15) =>
     `<ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${ry}" fill="#fff" opacity=".4" transform="rotate(${rot} ${x} ${y})"/>`;
 const leaf = (d, fill = LEAF) => `<path d="${d}" fill="${fill}"/>`;
 
+let clipSeq = 0;
+
 const ICONS = {
     apple: mood => `
         <path d="M32 21c-6-5-19-3-19 12 0 13 8 24 19 24s19-11 19-24c0-15-13-17-19-12z" fill="#ff6b7a"/>
@@ -108,15 +110,20 @@ const ICONS = {
         ${leaf('M34 15c3-5 10-6 14-2-3 6-10 7-14 2z')}
         ${face(32, 40, { mood })}`,
 
-    pineapple: mood => `
-        <defs><clipPath id="pico-pine"><ellipse cx="32" cy="41" rx="17" ry="20"/></clipPath></defs>
+    // id único por instância: um clipPath de id repetido falha quando o primeiro
+    // SVG do documento está oculto (display:none)
+    pineapple: mood => {
+        const clip = `pico-pine-${++clipSeq}`;
+        return `
+        <defs><clipPath id="${clip}"><ellipse cx="32" cy="41" rx="17" ry="20"/></clipPath></defs>
         <path d="M32 22L22 6l8 6 2-10 2 10 8-6z" fill="#5fcf80"/>
         <path d="M24 24L16 12l9 6zM40 24l8-12-9 6z" fill="#7fdc9a"/>
         <ellipse cx="32" cy="41" rx="17" ry="20" fill="#ffcf4a"/>
-        <g clip-path="url(#pico-pine)" stroke="#f0a830" stroke-width="1.6" opacity=".55" fill="none">
+        <g clip-path="url(#${clip})" stroke="#f0a830" stroke-width="1.6" opacity=".55" fill="none">
             <path d="M10 28l44 30M10 40l34 24M10 16l44 30M22 14l34 26M20 66l36-26M10 52l44-30"/>
         </g>
-        ${face(32, 42, { mood })}`,
+        ${face(32, 42, { mood })}`;
+    },
 
     kiwi: mood => `
         <circle cx="32" cy="34" r="24" fill="#a07a50"/>
@@ -146,9 +153,9 @@ const ICONS = {
 
 // Nome do produto -> ícone (sem acento, minúsculas; inglês e português)
 const MATCH = [
-    ['pineapple', /pineapple|abacaxi/], ['apple', /apple|maca/], ['banana', /banana/], ['grape', /grape|uva/], ['orange', /orange|laranja|tangerina|mexerica/],
+    ['pineapple', /pineapple|abacaxi/], ['apple', /apple|\bmaca\b/], ['banana', /banana/], ['grape', /grape(?!fruit)|\buvas?\b/], ['orange', /orange|laranja|tangerina|mexerica/],
     ['lemon', /lemon|limao/], ['strawberry', /strawberr|morango/], ['watermelon', /watermelon|melancia/],
-    ['pear', /pear|pera\b/], ['cherry', /cherr|cereja/], ['peach', /peach|pessego/],
+    ['pear', /\bpears?\b|\bperas?\b/], ['cherry', /cherr|cereja/], ['peach', /peach|pessego/],
     ['kiwi', /kiwi/], ['server', /server|servidor/]
 ];
 

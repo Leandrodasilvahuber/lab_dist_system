@@ -46,7 +46,7 @@ function ensureDialog() {
             </div>
         </header>
         <div class="modal-body reliability-body">
-            <p>Metade das cobranças falha. O Step Functions repete a cobrança e a compra costuma concluir, só que mais devagar.</p>
+            <p>${percentual(FALHA_POR_TENTATIVA * 100)} das cobranças falham. O Step Functions repete a cobrança e a compra costuma concluir, só que mais devagar.</p>
             <p>Chance de a cobrança esgotar as tentativas (<strong>${percentual(FALHA_POR_TENTATIVA * 100)}</strong> de falha em cada uma):</p>
             <div class="table-wrap">
                 <table class="reliability-table">
@@ -89,7 +89,7 @@ export function confirmReliability({ replacing = false } = {}) {
     settle?.(false);
     modal.returnValue = '';
     modal.querySelector('#reliabilityReplace').hidden = !replacing;
-    modal.showModal();
+    if (!modal.open) modal.showModal();
     modal.querySelector('[data-answer="yes"]').focus();
     return new Promise(resolve => { settle = resolve; });
 }

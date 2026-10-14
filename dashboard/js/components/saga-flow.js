@@ -276,7 +276,9 @@ function summary(flow) {
 const TRAIL_STOPS = ['Início', ...FORWARD.map(name => STEP_LABELS[name]), 'Pronto'];
 const TRAIL_SEGMENTS = TRAIL_STOPS.length - 1;
 // Onde cada saga estava na última vez que foi desenhada: o CSS anima daí até o novo ponto
+// (limitado: sagas antigas saem na ordem de inserção)
 const lastProgress = new Map();
+const LAST_PROGRESS_MAX = 200;
 
 const GOAL_SVG = `<svg viewBox="0 0 48 48" width="40" height="40" aria-hidden="true" focusable="false">
     <path d="M7 22L24 7l17 15v18a3 3 0 0 1-3 3H10a3 3 0 0 1-3-3z" fill="#ffd9e4"/>
@@ -304,7 +306,9 @@ function trail(saga, flow) {
     const { to, mood, mode, bubble } = trailPlan(flow, done);
     const key = saga?.id || 'idle';
     const from = lastProgress.get(key) ?? 0;
+    lastProgress.delete(key);
     lastProgress.set(key, to);
+    if (lastProgress.size > LAST_PROGRESS_MAX) lastProgress.delete(lastProgress.keys().next().value);
     const reached = flow.outcome === 'completed' ? TRAIL_SEGMENTS : done;
     const stops = TRAIL_STOPS.slice(0, -1).map((label, i) => `
             <span class="trail-stop${i <= reached ? ' on' : ''}" style="left:${(i / TRAIL_SEGMENTS * 100).toFixed(2)}%"><i></i><b>${escapeHtml(label)}</b></span>`).join('');
