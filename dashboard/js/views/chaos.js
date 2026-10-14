@@ -3,6 +3,8 @@ import { on } from '../core/events.js';
 import { escapeHtml, time } from '../core/format.js';
 import { CHAOS_FAULT_TYPES, CHAOS_PRESETS, CHAOS_SERVICES } from '../services/chaos-presets.js';
 import { chaosState, clearChaos, loadChaos, saveChaos } from '../services/chaos.js';
+import { isAdmin } from '../core/session.js';
+import { showNoticeModal } from '../components/notice-modal.js';
 import { badge } from '../components/badge.js';
 import { dataTable } from '../components/data-table.js';
 import { emptyState, errorState } from '../components/empty.js';
@@ -79,6 +81,8 @@ export default {
         $('chaosClear').addEventListener('click', clearAll);
         bindRefresh($('chaosRefresh'), loadChaos);
         $('chaosPresets').innerHTML = presetList();
+        // Entrar ou sair do modo admin libera ou bloqueia os experimentos
+        on('admin', () => { $('chaosPresets').innerHTML = presetList(); });
         on('chaos', render);
     },
 
@@ -90,15 +94,19 @@ function fillActions() {
 }
 
 function presetList() {
-    return `<div class="chaos-presets">${CHAOS_PRESETS.map(p => `
+    const admin = isAdmin();
+    return `<div class="chaos-presets">${CHAOS_PRESETS.map(p => {
+        // Bloqueado = sem admin. O clique ainda chega ao botão, para explicar o motivo na modal
+        const locked = p.adminOnly && !admin;
+        return `
         <div class="chaos-preset">
             <div>
                 <strong>${escapeHtml(p.label)}</strong>${p.awsOnly ? ` ${badge('só na AWS', 'neutral')}` : ''}
                 <p class="muted">${escapeHtml(p.hypothesis)}</p>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" data-preset="${p.id}">${icon('zap', { size: 14 })}<span>Ligar</span></button>
-        </div>`).join('')}
-    </div>`;
+            <button type="button" class="btn btn-secondary btn-sm${locked ? ' is-locked' : ''}" data-preset="${p.id}" aria-disabled="${locked}">${icon(locked ? 'lock' : 'zap', { size: 14 })}<span>${locked ? 'Ligar (admin)' : 'Ligar'}</span></button>
+        </div>`;
+    }).join('')}</div>`;
 }
 
 function render(state) {
@@ -180,6 +188,14 @@ async function applyPreset(event) {
     const button = event.target.closest('button[data-preset]');
     if (!button) return;
     const preset = CHAOS_PRESETS.find(p => p.id === button.dataset.preset);
+    if (preset.adminOnly && !isAdmin()) {
+        showNoticeModal({
+            title: 'Login de admin necessário',
+            html: `<p>Para gerar o erro de <strong>${escapeHtml(preset.label)}</strong> é preciso <strong>cadastrar ou excluir produtos</strong>: o Stock só recebe o evento <span class="mono">ProductCreated</span> ou <span class="mono">ProductDeleted</span> quando um produto é criado ou removido, e isso exige login de admin.</p>
+                <p>Entre como admin no botão do canto superior direito e ligue o experimento de novo.</p>`
+        });
+        return;
+    }
     if (chaosState.active && !confirm('Substituir as falhas ativas por este experimento?')) return;
     await save(preset.faults, { minutes: Number($('chaosMinutes').value) }, `Experimento "${preset.label}" ligado`);
 }

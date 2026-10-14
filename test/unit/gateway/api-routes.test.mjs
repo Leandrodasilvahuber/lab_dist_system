@@ -289,6 +289,22 @@ describe('GET/PUT/DELETE /chaos', () => {
     return createAPIHandler({ chaos });
   }
 
+  it('falha de evento de produto não passa pelo PUT /chaos comum (403); só pela rota de admin', async () => {
+    const ssm = fakeSsm(undefined);
+    const handler = handlerWith(ssm);
+    const expiresAt = new Date(NOW + 10 * 60000).toISOString();
+    const faults = [{ service: 'stock', action: 'products/ProductCreated', type: 'transient' }];
+
+    const denied = await handler(http('PUT', { expiresAt, faults }));
+    assert.strictEqual(denied.statusCode, 403);
+    assert.strictEqual(ssm.value, undefined, 'nada gravado');
+
+    const adminPath = { ...http('PUT', { expiresAt, faults }), requestContext: { http: { method: 'PUT', path: '/chaos/product-events' } }, rawPath: '/chaos/product-events' };
+    const allowed = await handler(adminPath);
+    assert.strictEqual(allowed.statusCode, 200);
+    assert.strictEqual(JSON.parse(ssm.value).faults[0].action, 'products/ProductCreated');
+  });
+
   it('PUT valida e grava; GET devolve a config em vigor; DELETE grava a config vazia', async () => {
     const ssm = fakeSsm(undefined);
     const handler = handlerWith(ssm);

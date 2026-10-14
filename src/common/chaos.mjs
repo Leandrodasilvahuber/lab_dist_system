@@ -32,6 +32,14 @@ export const CHAOS_CACHE_TTL_MS = 10 * 1000;
 const EMPTY = Object.freeze({ faults: [] });
 
 /**
+ * Falha em evento de produto (ProductCreated/ProductDeleted, action `products/...`).
+ * Gerá-la exige login de admin: só PUT /chaos/product-events a aceita.
+ */
+export function touchesProductEvents(config) {
+    return Array.isArray(config?.faults) && config.faults.some(f => typeof f?.action === 'string' && f.action.startsWith('products/'));
+}
+
+/**
  * Valida e normaliza a config recebida (PUT /chaos). Lança ValidationError (400).
  * `action` é o nome da ação da saga, a chave `source/detail-type` do evento ou
  * `METHOD /caminho` de uma rota HTTP; sem ela, a falha vale para o serviço todo.

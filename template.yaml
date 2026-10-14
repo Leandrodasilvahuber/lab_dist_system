@@ -208,6 +208,9 @@ Resources:
         'PUT /chaos':
           ThrottlingBurstLimit: 2
           ThrottlingRateLimit: 2
+        'PUT /chaos/product-events':
+          ThrottlingBurstLimit: 2
+          ThrottlingRateLimit: 2
         'DELETE /chaos':
           ThrottlingBurstLimit: 2
           ThrottlingRateLimit: 2
@@ -569,6 +572,15 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /chaos
             Method: PUT
+        # Falha de evento de produto (ProductCreated/ProductDeleted): mesma proteção de cadastrar produto
+        PutChaosProductEvents:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /chaos/product-events
+            Method: PUT
+            Auth:
+              Authorizer: AdminJwt
         DeleteChaos:
           Type: HttpApi
           Properties:

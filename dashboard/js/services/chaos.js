@@ -19,7 +19,9 @@ export async function loadChaos() {
 // `expiresAt` mantém o prazo em vigor (editar a lista não conta no limite
 // diário); sem ele, o prazo é agora + `minutes`
 export async function saveChaos({ faults, minutes, expiresAt = new Date(Date.now() + minutes * 60 * 1000).toISOString() }) {
-    chaosState = await api('/chaos', { method: 'PUT', body: JSON.stringify({ expiresAt, faults }) });
+    // Falha de evento de produto vai pela rota de admin (sem login, o authorizer recusa)
+    const touchesProducts = faults.some(f => f.action?.startsWith('products/'));
+    chaosState = await api(touchesProducts ? '/chaos/product-events' : '/chaos', { method: 'PUT', body: JSON.stringify({ expiresAt, faults }) });
     emit('chaos', chaosState);
     return chaosState;
 }

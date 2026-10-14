@@ -776,6 +776,7 @@
 }
 
 .chaos-preset:last-child { padding-bottom: 0; border-bottom: none; }
+.chaos-preset .is-locked { opacity: 0.6; }
 .chaos-preset p { margin-top: 4px; }
 .chaos-preset .btn { flex-shrink: 0; }
 

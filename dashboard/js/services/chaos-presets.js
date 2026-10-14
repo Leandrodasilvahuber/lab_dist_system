@@ -51,6 +51,8 @@ export const CHAOS_PRESETS = [
         expect: 'DLQ',
         // Local não há EventBridge nem DLQ: o local-server entrega o evento em processo
         awsOnly: true,
+        // Só com login de admin: gerar o evento exige cadastrar ou excluir produto
+        adminOnly: true,
         faults: [{ id: 'event-dlq', service: 'stock', action: 'products/ProductCreated', type: 'transient', probability: 1 }]
     }
 ];
