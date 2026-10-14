@@ -7,6 +7,7 @@ import { icon } from '../components/icons.js';
 import { panel } from '../components/layout.js';
 import { productGrid } from '../components/product-grid.js';
 import { showToast } from '../components/toast.js';
+import { confirmDialog } from '../components/confirm-modal.js';
 
 export default {
     id: 'admin',
@@ -77,7 +78,13 @@ async function removeProduct(event) {
     const button = event.target.closest('button[data-remove-id]');
     if (!button) return;
     const { removeId, name } = button.dataset;
-    if (!confirm(`Remover o produto "${name}"? O estoque dele também é removido.`)) return;
+    if (!await confirmDialog({
+        title: `Remover "${name}"?`,
+        message: 'O estoque dele também é removido.',
+        confirmLabel: 'Remover',
+        danger: true,
+        iconName: 'trash'
+    })) return;
     button.disabled = true;
     try {
         await api(`/products/${encodeURIComponent(removeId)}`, { method: 'DELETE' });

@@ -16,6 +16,7 @@ import { runMonitors } from './views/monitoring.js';
 import { openTrace } from './views/trace.js';
 import { openSagaFlow } from './components/saga-modal.js';
 import { showReliabilityNotice } from './components/reliability-modal.js';
+import { confirmDialog } from './components/confirm-modal.js';
 
 // ---------- Casca: ícones fixos e endpoint ----------
 $('brandMark').innerHTML = icon('bag', { size: 19 });
@@ -110,7 +111,13 @@ async function loadReset() {
 
 $('resetBtn').addEventListener('click', async () => {
     const left = resetState.remaining === null ? '' : `\n\nRestam ${resetState.remaining} de ${resetState.limit} hoje.`;
-    if (!resetState.unfinished && !confirm(`Zerar a base? Apaga pedidos, pagamentos, reservas, sagas, produtos e estoque e grava de novo os produtos do seed.${left}`)) return;
+    if (!resetState.unfinished && !await confirmDialog({
+        title: 'Zerar a base?',
+        message: `Apaga pedidos, pagamentos, reservas, sagas, produtos e estoque e grava de novo os produtos do seed.${left}`,
+        confirmLabel: 'Zerar base',
+        danger: true,
+        iconName: 'refresh'
+    })) return;
     $('resetBtn').disabled = true;
     try {
         // Tabela grande não cabe numa chamada (complete: false): as seguintes continuam sem gastar outra vez

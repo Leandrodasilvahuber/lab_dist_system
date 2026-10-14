@@ -11,6 +11,7 @@ import { emptyState, errorState } from '../components/empty.js';
 import { icon } from '../components/icons.js';
 import { bindRefresh, panel, refreshButton, spacer, status, toolbar } from '../components/layout.js';
 import { showToast } from '../components/toast.js';
+import { confirmDialog } from '../components/confirm-modal.js';
 
 // Alvos conhecidos por serviço (ações da saga, eventos e rotas). O campo aceita
 // outro valor: rotas HTTP são "METHOD /caminho"; vazio vale para o serviço todo
@@ -191,16 +192,27 @@ async function applyPreset(event) {
     if (preset.adminOnly && !isAdmin()) {
         showNoticeModal({
             title: 'Login de admin necessário',
+            tone: 'warn',
             html: `<p>Para gerar o erro de <strong>${escapeHtml(preset.label)}</strong> é preciso <strong>cadastrar ou excluir produtos</strong>: o Stock só recebe o evento <span class="mono">ProductCreated</span> ou <span class="mono">ProductDeleted</span> quando um produto é criado ou removido, e isso exige login de admin.</p>
                 <p>Entre como admin no botão do canto superior direito e ligue o experimento de novo.</p>`
         });
         return;
     }
-    if (chaosState.active && !confirm('Substituir as falhas ativas por este experimento?')) return;
+    if (chaosState.active && !await confirmDialog({
+        title: 'Substituir as falhas ativas?',
+        message: `As falhas injetadas agora são desligadas e o experimento "${preset.label}" entra no lugar.`,
+        confirmLabel: 'Substituir',
+        iconName: 'zap'
+    })) return;
     await save(preset.faults, { minutes: Number($('chaosMinutes').value) }, `Experimento "${preset.label}" ligado`);
 }
 
 async function clearAll() {
-    if (!confirm('Desligar todas as falhas injetadas?')) return;
+    if (!await confirmDialog({
+        title: 'Desligar todas as falhas?',
+        message: 'As Lambdas param de injetar falhas e as compras voltam ao normal.',
+        confirmLabel: 'Desligar tudo',
+        iconName: 'zap'
+    })) return;
     await save([], {}, 'Caos desligado');
 }
