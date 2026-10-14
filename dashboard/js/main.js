@@ -15,6 +15,7 @@ import { loadChaos } from './services/chaos.js';
 import { runMonitors } from './views/monitoring.js';
 import { openTrace } from './views/trace.js';
 import { openSagaFlow } from './components/saga-modal.js';
+import { showReliabilityNotice } from './components/reliability-modal.js';
 
 // ---------- Casca: ícones fixos e endpoint ----------
 $('brandMark').innerHTML = icon('bag', { size: 19 });
@@ -294,6 +295,8 @@ if (getCredential()?.type === 'key') {
     });
 }
 initRouter();
+// Aviso bloqueante: só fecha pelo botão, a cada carregamento da página
+showReliabilityNotice();
 // O indicador do topo vale em qualquer tela; no Monitoramento o refresh já roda
 if (currentView() !== 'monitoring') runMonitors();
 if (currentView() !== 'chaos') loadChaos();

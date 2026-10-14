@@ -490,6 +490,16 @@
 .modal-body { min-height: 120px; }
 .modal-body > .empty { padding: 24px; }
 
+/* ---------- Aviso de confiabilidade (modal bloqueante) ---------- */
+.reliability-body { display: flex; flex-direction: column; gap: 14px; padding: 18px; }
+.reliability-body p { margin: 0; line-height: 1.5; }
+.reliability-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.reliability-table th, .reliability-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+.reliability-table th { color: var(--text-3); font-weight: 600; }
+.reliability-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.reliability-note { color: var(--text-3); font-size: 12px; }
+.reliability-actions { display: flex; justify-content: flex-end; }
+
 @keyframes modal-in {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: none; }
