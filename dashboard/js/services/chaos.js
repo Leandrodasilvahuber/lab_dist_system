@@ -16,8 +16,9 @@ export async function loadChaos() {
     return chaosState;
 }
 
-export async function saveChaos({ faults, minutes }) {
-    const expiresAt = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+// `expiresAt` mantém o prazo em vigor (editar a lista não conta no limite
+// diário); sem ele, o prazo é agora + `minutes`
+export async function saveChaos({ faults, minutes, expiresAt = new Date(Date.now() + minutes * 60 * 1000).toISOString() }) {
     chaosState = await api('/chaos', { method: 'PUT', body: JSON.stringify({ expiresAt, faults }) });
     emit('chaos', chaosState);
     return chaosState;

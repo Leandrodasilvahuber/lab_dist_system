@@ -134,14 +134,11 @@ function render(state) {
         </tr>`));
 }
 
-// Minutos que faltam para a config atual expirar (para manter o prazo ao editar)
-function remainingMinutes() {
-    return Math.max(1, Math.ceil((Date.parse(chaosState.expiresAt) - Date.now()) / 60000));
-}
-
-async function save(faults, minutes, done) {
+// `when`: { minutes } para ligar com prazo novo ou { expiresAt } para editar
+// a lista em vigor sem mexer no prazo (e sem gastar ativação do dia)
+async function save(faults, when, done) {
     try {
-        if (faults.length) await saveChaos({ faults, minutes });
+        if (faults.length) await saveChaos({ faults, ...when });
         else await clearChaos();
         showToast(done, 'success');
     } catch (error) {
@@ -163,15 +160,20 @@ async function addFault(event) {
         showToast('Informe a latência para uma falha do tipo Latência.', 'error');
         return;
     }
-    const current = chaosState.active ? chaosState.faults : [];
-    await save([...current, fault], Number($('chaosMinutes').value), 'Falha injetada');
+    // Com caos ativo, a falha entra no prazo atual; a duração vale ao ligar
+    // (prazo vencido com a tela aberta conta como desligado)
+    if (chaosState.active && Date.parse(chaosState.expiresAt) > Date.now()) {
+        await save([...chaosState.faults, fault], { expiresAt: chaosState.expiresAt }, 'Falha adicionada (mantém o prazo atual)');
+    } else {
+        await save([fault], { minutes: Number($('chaosMinutes').value) }, 'Falha injetada');
+    }
 }
 
 async function removeFault(event) {
     const button = event.target.closest('button[data-remove]');
     if (!button) return;
     const faults = chaosState.faults.filter((_, index) => index !== Number(button.dataset.remove));
-    await save(faults, remainingMinutes(), 'Falha removida');
+    await save(faults, { expiresAt: chaosState.expiresAt }, 'Falha removida');
 }
 
 async function applyPreset(event) {
@@ -179,10 +181,10 @@ async function applyPreset(event) {
     if (!button) return;
     const preset = CHAOS_PRESETS.find(p => p.id === button.dataset.preset);
     if (chaosState.active && !confirm('Substituir as falhas ativas por este experimento?')) return;
-    await save(preset.faults, Number($('chaosMinutes').value), `Experimento "${preset.label}" ligado`);
+    await save(preset.faults, { minutes: Number($('chaosMinutes').value) }, `Experimento "${preset.label}" ligado`);
 }
 
 async function clearAll() {
     if (!confirm('Desligar todas as falhas injetadas?')) return;
-    await save([], 0, 'Caos desligado');
+    await save([], {}, 'Caos desligado');
 }

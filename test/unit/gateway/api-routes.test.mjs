@@ -354,6 +354,26 @@ describe('GET/PUT/DELETE /chaos', () => {
     assert.deepStrictEqual([status.limit, status.used, status.remaining], [2, 2, 0]);
   });
 
+  it('editar as falhas em vigor sem passar do prazo não conta; estender o prazo conta', async () => {
+    const ssm = fakeSsm(undefined);
+    const db = fakeCounters();
+    const handler = handlerWith(ssm, { limit: 5, db });
+    const expiresAt = new Date(NOW + 10 * 60000).toISOString();
+    const two = [{ service: 'stock', type: 'crash' }, { service: 'payments', type: 'transient' }];
+
+    assert.strictEqual(JSON.parse((await handler(http('PUT', { expiresAt, faults: two }))).body).used, 1);
+    // remover uma falha mantendo o prazo
+    assert.strictEqual(JSON.parse((await handler(http('PUT', { expiresAt, faults: two.slice(0, 1) }))).body).used, 1);
+    // adicionar com prazo menor que o atual
+    assert.strictEqual(JSON.parse((await handler(http('PUT', { expiresAt: new Date(NOW + 5 * 60000).toISOString(), faults: two }))).body).used, 1);
+    // estender o prazo
+    assert.strictEqual(JSON.parse((await handler(http('PUT', { expiresAt: new Date(NOW + 20 * 60000).toISOString(), faults: two }))).body).used, 2);
+
+    // depois de desligar, ligar de novo conta mesmo com o mesmo prazo
+    await handler(http('DELETE'));
+    assert.strictEqual(JSON.parse((await handler(http('PUT', { expiresAt, faults: two }))).body).used, 3);
+  });
+
   it('sem limite (local-server): não lê nem grava contador', async () => {
     const db = { getItem: async () => { throw new Error('não deveria ler'); }, updateItem: async () => { throw new Error('não deveria gravar'); } };
     const handler = handlerWith(fakeSsm(undefined), { limit: 0, db });
