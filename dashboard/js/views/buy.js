@@ -44,7 +44,7 @@ export default {
                             <label for="buyQuantity">Quantidade</label>
                             <input type="number" id="buyQuantity" required min="1" max="${MAX_QUANTITY}" step="1" value="1">
                         </div>
-                        <button type="submit" class="btn btn-success btn-block" id="buyButton">${icon('cart', { size: 16 })}<span>Comprar</span></button>
+                        <button type="submit" class="btn btn-primary btn-block" id="buyButton">${icon('cart', { size: 16 })}<span>Comprar</span></button>
                     </form>`
             })}
             ${panel({ title: 'Fluxo da compra', icon: 'workflow', flush: true, body: `<div id="sagaFlow">${sagaDiagram(null)}</div>` })}

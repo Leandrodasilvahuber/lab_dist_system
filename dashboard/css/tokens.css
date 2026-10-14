@@ -6,6 +6,7 @@
  * Operação (âmbar). Os status seguem o semáforo: ok verde, atenção âmbar,
  * falha vermelho, em andamento azul.
  */
+
 /* Inter (OFL, fonts/Inter-OFL.txt) servida daqui: a CSP só aceita font-src 'self'.
  * Um arquivo variável cobre todos os pesos; sem ele, cai na fonte do sistema */
 @font-face {
@@ -19,19 +20,19 @@
 :root {
     color-scheme: light;
 
-    --bg: #f4f5f9;
+    --bg: #faf7ff;
     --surface: #ffffff;
-    --surface-2: #f7f8fb;
-    --surface-hover: #f1f3f9;
-    --border: #e3e6ee;
-    --border-strong: #cfd4df;
-    --text: #1b1f2e;
-    --text-2: #545b6e;
-    --text-3: #868c9e;
+    --surface-2: #f7f3fe;
+    --surface-hover: #f3eefd;
+    --border: #ebe5f8;
+    --border-strong: #d8cdef;
+    --text: #2a2340;
+    --text-2: #5d5677;
+    --text-3: #8c85a6;
 
-    --brand: #4f46e5;
-    --brand-hover: #4338ca;
-    --brand-soft: #eef0ff;
+    --brand: #6c5ce7;
+    --brand-hover: #5a49d6;
+    --brand-soft: #efebff;
     --on-brand: #ffffff;
 
     --store: #0d9488;
@@ -69,17 +70,19 @@
     --series-7: #0891b2;
     --series-8: #64748b;
 
-    /* A barra lateral é escura nos dois temas */
-    --sidebar-bg: #141729;
-    --sidebar-text: #a9afc4;
-    --sidebar-muted: #6b7190;
-    --sidebar-strong: #ffffff;
-    --sidebar-hover: rgba(255, 255, 255, 0.06);
-    --sidebar-active: rgba(255, 255, 255, 0.1);
-    --store-nav: #2dd4bf;
-    --observe-nav: #60a5fa;
-    --ops-nav: #fbbf24;
-    --docs-nav: #a78bfa;
+    /* Barra lateral: clara no tema claro, escura no escuro */
+    --sidebar-bg: #ffffff;
+    --sidebar-text: #4a5166;
+    --sidebar-muted: #8a90a6;
+    --sidebar-strong: #151827;
+    --sidebar-hover: #f2f4fa;
+    --sidebar-line: var(--border);
+    --sidebar-glow: rgba(99, 102, 241, 0.10);
+    --store-nav: #0d9488;
+    --observe-nav: #2563eb;
+    --ops-nav: #d97706;
+    --docs-nav: #7c3aed;
+    --on-accent: #ffffff;
 
     /* Cores dos serviços AWS no diagrama da saga (iguais nos dois temas) */
     --svc-lambda: #ed7100;
@@ -89,10 +92,12 @@
     --code-bg: #121626;
     --code-text: #dfe3ee;
 
-    --radius: 12px;
-    --radius-sm: 8px;
-    --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
-    --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.18);
+    --radius: 22px;
+    --radius-sm: 14px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 1px rgba(16, 24, 40, 0.02);
+    --shadow-md: 0 4px 14px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.05);
+    --shadow-lg: 0 20px 48px -8px rgba(16, 24, 40, 0.22);
+    --ring: 0 0 0 3px var(--brand-soft);
     --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --sidebar-w: 248px;
@@ -102,18 +107,18 @@
 :root[data-theme="dark"] {
     color-scheme: dark;
 
-    --bg: #0e1016;
-    --surface: #171a23;
-    --surface-2: #1d212c;
-    --surface-hover: #222736;
-    --border: #2a2f3d;
-    --border-strong: #3a4052;
-    --text: #e6e8ef;
-    --text-2: #a5abba;
-    --text-3: #757b8d;
+    --bg: #110f1a;
+    --surface: #1a1727;
+    --surface-2: #211d31;
+    --surface-hover: #292339;
+    --border: #2f2943;
+    --border-strong: #433c5b;
+    --text: #ece9f7;
+    --text-2: #aca7c3;
+    --text-3: #7f7a98;
 
-    --brand: #818cf8;
-    --brand-hover: #a5b4fc;
+    --brand: #a595ff;
+    --brand-hover: #bfb3ff;
     --brand-soft: rgba(129, 140, 248, 0.15);
     --on-brand: #11132a;
 
@@ -152,27 +157,39 @@
     --series-8: #94a3b8;
 
     --sidebar-bg: #0a0c12;
+    --sidebar-text: #a9afc4;
+    --sidebar-muted: #6b7190;
+    --sidebar-strong: #ffffff;
+    --sidebar-hover: rgba(255, 255, 255, 0.06);
+    --sidebar-line: rgba(255, 255, 255, 0.07);
+    --sidebar-glow: rgba(99, 102, 241, 0.16);
+    --store-nav: #2dd4bf;
+    --observe-nav: #60a5fa;
+    --ops-nav: #fbbf24;
+    --docs-nav: #a78bfa;
+    --on-accent: #0c0e14;
     --code-bg: #0a0c12;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 6px 18px -4px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 20px 48px -8px rgba(0, 0, 0, 0.6);
 }
 
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
         color-scheme: dark;
 
-        --bg: #0e1016;
-        --surface: #171a23;
-        --surface-2: #1d212c;
-        --surface-hover: #222736;
-        --border: #2a2f3d;
-        --border-strong: #3a4052;
-        --text: #e6e8ef;
-        --text-2: #a5abba;
-        --text-3: #757b8d;
+        --bg: #110f1a;
+        --surface: #1a1727;
+        --surface-2: #211d31;
+        --surface-hover: #292339;
+        --border: #2f2943;
+        --border-strong: #433c5b;
+        --text: #ece9f7;
+        --text-2: #aca7c3;
+        --text-3: #7f7a98;
 
-        --brand: #818cf8;
-        --brand-hover: #a5b4fc;
+        --brand: #a595ff;
+        --brand-hover: #bfb3ff;
         --brand-soft: rgba(129, 140, 248, 0.15);
         --on-brand: #11132a;
 
@@ -211,9 +228,21 @@
         --series-8: #94a3b8;
 
         --sidebar-bg: #0a0c12;
+        --sidebar-text: #a9afc4;
+        --sidebar-muted: #6b7190;
+        --sidebar-strong: #ffffff;
+        --sidebar-hover: rgba(255, 255, 255, 0.06);
+        --sidebar-line: rgba(255, 255, 255, 0.07);
+        --sidebar-glow: rgba(99, 102, 241, 0.16);
+        --store-nav: #2dd4bf;
+        --observe-nav: #60a5fa;
+        --ops-nav: #fbbf24;
+        --docs-nav: #a78bfa;
+        --on-accent: #0c0e14;
         --code-bg: #0a0c12;
         --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-        --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
+        --shadow-md: 0 6px 18px -4px rgba(0, 0, 0, 0.5);
+        --shadow-lg: 0 20px 48px -8px rgba(0, 0, 0, 0.6);
     }
 }
 
