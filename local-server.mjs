@@ -253,6 +253,7 @@ const SECURITY_HEADERS = {
     "style-src 'self'",
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data:",
+    "font-src 'self'",
     ['connect-src', "'self'", 'https://*.execute-api.amazonaws.com',
       ...(process.env.AWS_REGION ? [`https://cognito-idp.${process.env.AWS_REGION}.amazonaws.com`] : [])].join(' '),
     "base-uri 'none'",
@@ -272,7 +273,8 @@ const STATIC_TYPES = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
-  '.webp': 'image/webp'
+  '.webp': 'image/webp',
+  '.woff2': 'font/woff2'
 };
 
 // Os diagramas ficam em diagramas/ na raiz do projeto e aparecem para o

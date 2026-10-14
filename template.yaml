@@ -1900,7 +1900,7 @@ Resources:
         SecurityHeadersConfig:
           ContentSecurityPolicy:
             Override: true
-            ContentSecurityPolicy: !Sub "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.execute-api.${AWS::Region}.amazonaws.com https://cognito-idp.${AWS::Region}.amazonaws.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+            ContentSecurityPolicy: !Sub "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.execute-api.${AWS::Region}.amazonaws.com https://cognito-idp.${AWS::Region}.amazonaws.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
           ContentTypeOptions:
             Override: true
           FrameOptions:
