@@ -2036,8 +2036,9 @@ Resources:
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>Leandro Huber · Laboratórios</title>
           <meta name="description" content="Leandro Huber, engenheiro de software sênior: Node.js, TypeScript, AWS e sistemas distribuídos.">
-          <meta name="theme-color" content="#0b0d12">
+          <meta name="theme-color" content="#f6f7fb">
           <link rel="icon" href="${dataUri(favicon)}">
+          <script src="/dashboard/js/theme-init.js"></script>
           <link rel="preload" href="/dashboard/fonts/inter-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
           <link rel="stylesheet" href="/dashboard/css/home.css">
         </head>
@@ -2050,6 +2051,7 @@ Resources:
                 <a href="#carreira">Carreira</a>
                 <a href="#faq">FAQ</a>
                 <a class="btn btn-sm btn-primary" href="/laboratory">Abrir laboratório</a>
+                <button type="button" class="theme-btn" id="themeBtn"></button>
               </nav>
             </div>
           </header>
@@ -2108,17 +2110,19 @@ Resources:
             <span>Florianópolis (SC)</span>
             <span>Servido por uma AWS Lambda atrás do CloudFront ⚡</span>
           </footer>
+          <script src="/dashboard/js/home.js"></script>
         </body>
         </html>`;
 
-        // Página pública e igual para todos: o CloudFront guarda por 5 min e a
+        // Página pública e igual para todos: o CloudFront guarda por 5 min (s-maxage;
+        // o navegador não guarda, para um deploy novo aparecer na hora) e a
         // Lambda só roda uma vez por local de borda a cada 5 min (antes, com
         // no-cache, toda requisição executava a Lambda: um script gastava
         // execuções e a concorrência da conta, e o interruptor de custo não via)
         // InlineCode vira index.js (CommonJS): exports, não export
         exports.handler = async () => ({
           statusCode: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=0, s-maxage=300' },
           body: html
         });
 
@@ -2166,11 +2170,8 @@ Resources:
           return request;
         }
 
-  # Certificado do domínio próprio. O CloudFront só aceita certificado de
-  # us-east-1 (a região deste stack); a validação por DNS na hosted zone é
-  # automática e o deploy espera ela terminar (alguns minutos)
   # Qualquer caminho fora de /laboratory* e /dashboard/* devolve a mesma página
-  # inicial. A chave de cache inclui o caminho: sem isto, cada caminho inventado
+  # inicial (inclusive /favicon.ico e /robots.txt: HTML 200). A chave de cache inclui o caminho: sem isto, cada caminho inventado
   # (/a, /b, ...) seria um erro de cache e chamaria a Lambda de novo
   HomeRewriteFunction:
     Type: AWS::CloudFront::Function
@@ -2187,6 +2188,9 @@ Resources:
           return request;
         }
 
+  # Certificado do domínio próprio. O CloudFront só aceita certificado de
+  # us-east-1 (a região deste stack); a validação por DNS na hosted zone é
+  # automática e o deploy espera ela terminar (alguns minutos)
   SiteCertificate:
     Type: AWS::CertificateManager::Certificate
     Condition: HasCustomDomain

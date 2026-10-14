@@ -136,14 +136,15 @@ $('resetBtn').addEventListener('click', async () => {
 
 loadReset();
 
-// ---------- Tema claro/escuro (sem escolha, segue o sistema) ----------
-const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
-const isDark = () => (document.documentElement.dataset.theme || (prefersDark.matches ? 'dark' : 'light')) === 'dark';
+// ---------- Tema claro/escuro (padrão: claro; a escolha fica salva) ----------
+const isDark = () => document.documentElement.dataset.theme === 'dark';
 
 function renderThemeButton() {
     const dark = isDark();
     $('themeBtn').innerHTML = icon(dark ? 'sun' : 'moon', { size: 18 });
-    $('themeBtn').title = dark ? 'Usar tema claro' : 'Usar tema escuro';
+    $('themeBtn').title = dark
+        ? 'Tema claro: fundo branco, melhor com bastante luz. Clique para voltar ao claro.'
+        : 'Tema escuro: fundo escuro que cansa menos a vista em ambientes com pouca luz. Clique para ativar.';
     $('themeBtn').setAttribute('aria-label', $('themeBtn').title);
 }
 
@@ -153,7 +154,6 @@ $('themeBtn').addEventListener('click', () => {
     storage.set('theme', theme);
     renderThemeButton();
 });
-prefersDark.addEventListener('change', renderThemeButton);
 
 // ---------- Login de admin: popover no canto superior direito ----------
 // Na AWS, usuário e senha do Cognito; no local-server, a chave X-Api-Key
@@ -301,7 +301,6 @@ if (getCredential()?.type === 'key') {
     });
 }
 initRouter();
-// Aviso bloqueante: só fecha pelo botão, a cada carregamento da página
 // O indicador do topo vale em qualquer tela; no Monitoramento o refresh já roda
 if (currentView() !== 'monitoring') runMonitors();
 if (currentView() !== 'chaos') loadChaos();
