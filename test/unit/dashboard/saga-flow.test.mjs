@@ -158,3 +158,24 @@ describe('dashboard: fluxo da saga', () => {
     assert.doesNotMatch(html, /<img/);
   });
 });
+
+describe('dashboard: trilha da fruta', () => {
+  const trailOf = html => html.match(/class="trail trail-([a-z]+)([^"]*)" style="--from:([\d.]+);--to:([\d.]+)"/);
+
+  it('concluída chega ao fim; desfeita volta ao início', () => {
+    const steps = { createOrder: { status: 'COMPLETED', at: at(1) }, reserveStock: { status: 'COMPLETED', at: at(2) } };
+    const running = trailOf(sagaDiagram({ ...base, id: 'saga_trail', status: 'RUNNING', steps }));
+    assert.strictEqual(running[1], 'walk');
+    const done = trailOf(sagaDiagram({ ...base, id: 'saga_trail', status: 'COMPLETED', steps }));
+    assert.strictEqual(done[1], 'done');
+    assert.strictEqual(Number(done[4]), 1);
+    assert.strictEqual(Number(done[3]), Number(running[4]), 'anima a partir da posição anterior');
+  });
+
+  it('o mapa de posições não cresce sem limite', () => {
+    for (let i = 0; i < 500; i++) sagaDiagram({ ...base, id: `saga_many_${i}`, status: 'RUNNING', steps: {} });
+    // a saga mais antiga foi esquecida: recomeça de 0
+    const first = trailOf(sagaDiagram({ ...base, id: 'saga_many_0', status: 'RUNNING', steps: {} }));
+    assert.strictEqual(Number(first[3]), 0);
+  });
+});

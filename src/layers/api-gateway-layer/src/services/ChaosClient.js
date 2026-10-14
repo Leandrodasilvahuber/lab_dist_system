@@ -18,7 +18,8 @@ const CHAOS_COUNTER_PREFIX = `${QUOTA_ID_PREFIX}chaos_`;
  * SSM que as Lambdas dos serviços leem. GET /chaos devolve a config em vigor
  * (expirada conta como desligada); PUT valida e grava; DELETE grava a config
  * vazia (o parâmetro é recurso do template: apagá-lo deixaria a stack com drift).
- * Aberto a todos: ligar conta no limite diário (DEFAULT_DAILY_CHAOS_LIMIT).
+ * Aberto a todos: ligar (ou estender o prazo) conta no limite diário
+ * (DEFAULT_DAILY_CHAOS_LIMIT); editar as falhas em vigor não.
  */
 export class ChaosClient {
   /**
@@ -88,8 +89,8 @@ export class ChaosClient {
     return this.client;
   }
 
-  async get() {
-    if (!this.enabled) return { enabled: false, active: false, faults: [] };
+  // Config gravada e se ela está em vigor (com falhas e sem ter expirado)
+  async current() {
     let config = { faults: [] };
     try {
       const { Parameter } = await this.ssm().send(new GetParameterCommand({ Name: this.parameterName }));
@@ -98,6 +99,12 @@ export class ChaosClient {
       if (error?.name !== 'ParameterNotFound') throw error;
     }
     const active = Array.isArray(config.faults) && config.faults.length > 0 && Date.parse(config.expiresAt) > this.now();
+    return { config, active };
+  }
+
+  async get() {
+    if (!this.enabled) return { enabled: false, active: false, faults: [] };
+    const { config, active } = await this.current();
     return {
       enabled: true,
       active,
@@ -110,10 +117,18 @@ export class ChaosClient {
   async put(input) {
     if (!this.enabled) return { enabled: false, active: false, faults: [] };
     const config = validateChaosConfig(input, { now: this.now });
-    // Só ligar conta: uma config sem falhas equivale a desligar
-    const used = config.faults.length ? await this.count() : await this.used();
+    // Só ligar conta: uma config sem falhas equivale a desligar, e editar a
+    // lista em vigor (adicionar/remover falha) sem passar do prazo atual
+    // também não. Estender o prazo conta, senão o caos nunca acabaria
+    const used = config.faults.length && !(await this.isEdit(config)) ? await this.count() : await this.used();
     await this.write(config);
     return { enabled: true, active: config.faults.length > 0, ...config, ...this.quota(used) };
+  }
+
+  async isEdit(config) {
+    if (!this.limit) return false;
+    const { config: previous, active } = await this.current();
+    return active && Date.parse(config.expiresAt) <= Date.parse(previous.expiresAt);
   }
 
   async clear() {

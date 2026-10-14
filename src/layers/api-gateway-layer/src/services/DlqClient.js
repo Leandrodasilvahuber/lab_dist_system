@@ -12,6 +12,8 @@ import { awsClientConfig } from '../../../../common/aws-client.mjs';
 
 const BATCH = 10;
 const MAX_BATCHES = 5;
+// Espera do long polling em cada ReceiveMessage (o máximo do SQS é 20 s; a Gateway tem 15 s)
+const RECEIVE_WAIT_SECONDS = 1;
 // Tempo em que a mensagem fica escondida enquanto é reprocessada/descartada
 const LOCK_SECONDS = 30;
 // A listagem custa até MAX_BATCHES + 1 chamadas ao SQS e a rota é pública:
@@ -64,10 +66,14 @@ export class DlqClient {
     }
   }
 
+  // Long polling: sem WaitTimeSeconds o SQS consulta só parte dos servidores e
+  // pode responder vazio com mensagens na fila. A listagem para no primeiro
+  // lote vazio, então uma resposta vazia assim escondia a DLQ inteira
   receive(QueueUrl, VisibilityTimeout) {
     return this.client.send(new ReceiveMessageCommand({
       QueueUrl,
       MaxNumberOfMessages: BATCH,
+      WaitTimeSeconds: RECEIVE_WAIT_SECONDS,
       VisibilityTimeout,
       MessageAttributeNames: ['All'],
       MessageSystemAttributeNames: ['SentTimestamp', 'ApproximateReceiveCount']

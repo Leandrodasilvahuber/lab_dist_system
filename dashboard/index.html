@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>E-commerce Dashboard</title>
+    <link rel="icon" href="/dashboard/img/favicon.svg" type="image/svg+xml">
     <!-- Tema escolhido antes do primeiro paint (sem piscar o claro no modo escuro).
          Arquivo, não <script> inline: a CSP do CloudFront fica só com 'self' -->
     <script src="/dashboard/js/theme-init.js"></script>
@@ -54,7 +55,7 @@
                         <div class="popover" id="adminPopover" role="dialog" aria-label="Login de admin" hidden>
                             <form id="adminForm" class="form">
                                 <h3>Acesso de admin</h3>
-                                <p id="adminHint" hidden></p>
+                                <p id="adminHint" class="callout callout-warn" role="alert" hidden></p>
                                 <input type="text" id="adminUser" class="input" autocomplete="username" placeholder="Usuário" hidden>
                                 <input type="password" id="adminKey" class="input" autocomplete="off" placeholder="Chave de admin">
                                 <div class="popover-actions">

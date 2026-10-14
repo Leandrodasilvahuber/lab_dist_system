@@ -13,6 +13,7 @@ import { SloClient, parseSloQuery } from '../services/SloClient.js';
 import { MemoryMetricsClient } from '../services/MemoryMetricsClient.js';
 import { CostClient, parseCostQuery } from '../services/CostClient.js';
 import { ChaosClient } from '../services/ChaosClient.js';
+import { touchesProductEvents } from '../../../../common/chaos.mjs';
 import { ResetClient } from '../services/ResetClient.js';
 import { parseLogQuery, isTraceId } from '../../../../common/log-query.mjs';
 
@@ -47,6 +48,7 @@ const AVAILABLE_ENDPOINTS = [
   'POST /dlq/{messageId}/discard',
   'GET  /chaos',
   'PUT  /chaos',
+  'PUT  /chaos/product-events',
   'DELETE /chaos',
   'GET  /reset',
   'POST /reset',
@@ -235,6 +237,10 @@ export function createAPIHandler({
     if (event.path === '/chaos' && ['GET', 'PUT', 'DELETE'].includes(event.method)) {
       return chaosCall(event, chaos);
     }
+    // Falha de evento de produto: só admin (ADMIN_ROUTES, authorizer AdminJwt na AWS)
+    if (event.path === '/chaos/product-events' && event.method === 'PUT') {
+      return chaosCall(event, chaos, { productEvents: true });
+    }
 
     // zerar a base: aberto a todos, com limite diário (ResetClient)
     if (event.path === '/reset' && ['GET', 'POST'].includes(event.method)) {
@@ -245,7 +251,7 @@ export function createAPIHandler({
   };
 }
 
-async function chaosCall(event, chaos) {
+async function chaosCall(event, chaos, { productEvents = false } = {}) {
   try {
     if (event.method === 'GET') return successResponse(await chaos.get());
     if (event.method === 'DELETE') {
@@ -258,6 +264,10 @@ async function chaosCall(event, chaos) {
       body = JSON.parse(event.body || '');
     } catch {
       return errorResponse('Invalid JSON body', 400);
+    }
+    // Sem o caminho de admin, falha de produto não passa (o authorizer só cobre a rota de admin)
+    if (!productEvents && touchesProductEvents(body)) {
+      return errorResponse('Falhas de evento de produto exigem login de admin', 403);
     }
     const result = await chaos.put(body);
     log({

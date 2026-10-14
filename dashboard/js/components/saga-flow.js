@@ -1,6 +1,8 @@
 import { escapeHtml } from '../core/format.js';
 import { icon } from './icons.js';
 import { STEP_LABELS, TERMINAL } from './saga-card.js';
+import { productIcon } from './product-icons.js';
+import { productLabel, productNames } from '../services/catalog.js';
 
 // Mesma ordem do saga-workflow.asl.json (scripts/generate-saga-workflow.py)
 export const FORWARD = ['createOrder', 'reserveStock', 'processPayment', 'commitReservation', 'confirmOrder'];
@@ -267,6 +269,65 @@ function summary(flow) {
     }
 }
 
+// ---------- Trilha da fruta ----------
+// A fruta comprada anda do início até a casinha, parando em cada passo da saga.
+// Em andamento ela caminha até o meio do trecho do passo que está rodando;
+// concluída, chega e comemora; se a compra é desfeita, volta triste ao início.
+const TRAIL_STOPS = ['Início', ...FORWARD.map(name => STEP_LABELS[name]), 'Pronto'];
+const TRAIL_SEGMENTS = TRAIL_STOPS.length - 1;
+// Onde cada saga estava na última vez que foi desenhada: o CSS anima daí até o novo ponto
+// (limitado: sagas antigas saem na ordem de inserção)
+const lastProgress = new Map();
+const LAST_PROGRESS_MAX = 200;
+
+const GOAL_SVG = `<svg viewBox="0 0 48 48" width="40" height="40" aria-hidden="true" focusable="false">
+    <path d="M7 22L24 7l17 15v18a3 3 0 0 1-3 3H10a3 3 0 0 1-3-3z" fill="#ffd9e4"/>
+    <path d="M4 23L24 5l20 18" stroke="#ff7fa6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <rect x="19" y="27" width="10" height="16" rx="4" fill="#ff7fa6"/>
+    <path d="M24 20c-2.5-3.5-7-1-5.5 2 1.2 2.4 5.5 4.5 5.5 4.5s4.3-2.1 5.5-4.5c1.5-3-3-5.5-5.5-2z" fill="#ff5c8a"/></svg>`;
+
+function trailPlan(flow, done) {
+    const compDone = flow.compensation.nodes.filter(n => ['compensated', 'skipped', 'done'].includes(n.state)).length;
+    switch (flow.outcome) {
+        case 'running': return { to: (done + 0.8) / TRAIL_SEGMENTS, mood: 'happy', mode: 'walk', bubble: `${flow.current || 'Indo'}...` };
+        case 'compensating': return { to: done / TRAIL_SEGMENTS * (1 - compDone / COMPENSATIONS.length), mood: 'wow', mode: 'back', bubble: 'Voltando...' };
+        case 'completed': return { to: 1, mood: 'joy', mode: 'done', bubble: 'Compra feita!' };
+        case 'compensated': return { to: 0, mood: 'sad', mode: 'bad', bubble: 'Compra desfeita' };
+        case 'compensation-failed': return { to: done / TRAIL_SEGMENTS, mood: 'sad', mode: 'bad', bubble: 'Ficou preso...' };
+        case 'failed': return { to: done / TRAIL_SEGMENTS, mood: 'sad', mode: 'bad', bubble: 'Ops, falhou' };
+        case 'not-started': return { to: 0, mood: 'sad', mode: 'bad', bubble: 'Nem saiu do lugar' };
+        default: return { to: 0, mood: 'sleep', mode: 'idle', bubble: 'zzz' };
+    }
+}
+
+function trail(saga, flow) {
+    const name = saga ? productLabel(productNames(), saga) : 'Banana';
+    const done = flow.forward.filter(n => n.state === 'done').length;
+    const { to, mood, mode, bubble } = trailPlan(flow, done);
+    const key = saga?.id || 'idle';
+    const from = lastProgress.get(key) ?? 0;
+    lastProgress.delete(key);
+    lastProgress.set(key, to);
+    if (lastProgress.size > LAST_PROGRESS_MAX) lastProgress.delete(lastProgress.keys().next().value);
+    const reached = flow.outcome === 'completed' ? TRAIL_SEGMENTS : done;
+    const stops = TRAIL_STOPS.slice(0, -1).map((label, i) => `
+            <span class="trail-stop${i <= reached ? ' on' : ''}" style="left:${(i / TRAIL_SEGMENTS * 100).toFixed(2)}%"><i></i><b>${escapeHtml(label)}</b></span>`).join('');
+    const hearts = mode === 'done' ? '<i class="heart h1">♥</i><i class="heart h2">♥</i><i class="heart h3">♥</i>' : '';
+    const label = `${name}: ${bubble}`;
+    return `
+            <div class="trail trail-${mode}${to < from ? ' is-back' : ''}${Math.abs(to - from) > 0.001 ? ' is-moving' : ''}${to > 0.78 ? ' trail-edge-end' : to < 0.1 ? ' trail-edge-start' : ''}" style="--from:${from.toFixed(4)};--to:${to.toFixed(4)}" role="img" aria-label="${escapeHtml(label)}">
+                <div class="trail-lane">
+                    <div class="trail-track"><i class="trail-fill"></i></div>${stops}
+                    <span class="trail-goal">${GOAL_SVG}<b>Pronto</b></span>
+                    <span class="walker">
+                        <span class="bubble">${escapeHtml(bubble)}</span>
+                        <span class="walker-body">${productIcon(name, { size: 46, mood })}</span>
+                        <i class="foot f1"></i><i class="foot f2"></i>${hearts}
+                    </span>
+                </div>
+            </div>`;
+}
+
 /** Diagrama da saga no estilo da visão geral do console da Lambda: trigger, a state machine com as Lambdas da ida e da compensação, e o resultado. */
 export function sagaDiagram(saga) {
     const flow = withoutStatus(flowState(saga));
@@ -277,7 +338,7 @@ export function sagaDiagram(saga) {
     const failedColumn = compensation.active ? FORWARD.indexOf(flow.failedStep) : -1;
     const [resultState, resultName, resultNote] = RESULT[flow.outcome] || RESULT.running;
     return `
-        <div class="fx" data-outcome="${flow.outcome}">
+        <div class="fx" data-outcome="${flow.outcome}">${trail(saga, flow)}
             <div class="fx-canvas">
                 <div class="fx-node fx-trigger">
                     ${card({ tile: 'api', glyph: 'braces', name: 'API Gateway', sub: 'POST /saga/execute', state: started || finished ? 'done' : 'idle', note: started || finished ? 'recebida' : '' })}

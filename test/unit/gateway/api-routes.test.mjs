@@ -289,6 +289,22 @@ describe('GET/PUT/DELETE /chaos', () => {
     return createAPIHandler({ chaos });
   }
 
+  it('falha de evento de produto não passa pelo PUT /chaos comum (403); só pela rota de admin', async () => {
+    const ssm = fakeSsm(undefined);
+    const handler = handlerWith(ssm);
+    const expiresAt = new Date(NOW + 10 * 60000).toISOString();
+    const faults = [{ service: 'stock', action: 'products/ProductCreated', type: 'transient' }];
+
+    const denied = await handler(http('PUT', { expiresAt, faults }));
+    assert.strictEqual(denied.statusCode, 403);
+    assert.strictEqual(ssm.value, undefined, 'nada gravado');
+
+    const adminPath = { ...http('PUT', { expiresAt, faults }), requestContext: { http: { method: 'PUT', path: '/chaos/product-events' } }, rawPath: '/chaos/product-events' };
+    const allowed = await handler(adminPath);
+    assert.strictEqual(allowed.statusCode, 200);
+    assert.strictEqual(JSON.parse(ssm.value).faults[0].action, 'products/ProductCreated');
+  });
+
   it('PUT valida e grava; GET devolve a config em vigor; DELETE grava a config vazia', async () => {
     const ssm = fakeSsm(undefined);
     const handler = handlerWith(ssm);
@@ -352,6 +368,26 @@ describe('GET/PUT/DELETE /chaos', () => {
 
     const status = JSON.parse((await handler(http('GET'))).body);
     assert.deepStrictEqual([status.limit, status.used, status.remaining], [2, 2, 0]);
+  });
+
+  it('editar as falhas em vigor sem passar do prazo não conta; estender o prazo conta', async () => {
+    const ssm = fakeSsm(undefined);
+    const db = fakeCounters();
+    const handler = handlerWith(ssm, { limit: 5, db });
+    const expiresAt = new Date(NOW + 10 * 60000).toISOString();
+    const two = [{ service: 'stock', type: 'crash' }, { service: 'payments', type: 'transient' }];
+
+    assert.strictEqual(JSON.parse((await handler(http('PUT', { expiresAt, faults: two }))).body).used, 1);
+    // remover uma falha mantendo o prazo
+    assert.strictEqual(JSON.parse((await handler(http('PUT', { expiresAt, faults: two.slice(0, 1) }))).body).used, 1);
+    // adicionar com prazo menor que o atual
+    assert.strictEqual(JSON.parse((await handler(http('PUT', { expiresAt: new Date(NOW + 5 * 60000).toISOString(), faults: two }))).body).used, 1);
+    // estender o prazo
+    assert.strictEqual(JSON.parse((await handler(http('PUT', { expiresAt: new Date(NOW + 20 * 60000).toISOString(), faults: two }))).body).used, 2);
+
+    // depois de desligar, ligar de novo conta mesmo com o mesmo prazo
+    await handler(http('DELETE'));
+    assert.strictEqual(JSON.parse((await handler(http('PUT', { expiresAt, faults: two }))).body).used, 3);
   });
 
   it('sem limite (local-server): não lê nem grava contador', async () => {

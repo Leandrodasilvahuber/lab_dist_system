@@ -15,6 +15,9 @@ export const ADMIN_ROUTES = [
   ['POST', /^\/products$/],
   ['DELETE', /^\/products\/[^/]+$/],
   ['POST', /^\/stock\/[^/]+\/adjust$/],
+  // Caos com falha de evento de produto (ProductCreated/ProductDeleted): só admin,
+  // como cadastrar e remover produto. O PUT /chaos comum recusa essas falhas
+  ['PUT', /^\/chaos\/product-events$/],
   // Reprocessar e descartar eventos da DLQ: descartar perde o evento de vez
   // (o inventário do produto nunca seria criado ou removido)
   ['POST', /^\/dlq\/[^/]+\/(?:redrive|discard)$/],

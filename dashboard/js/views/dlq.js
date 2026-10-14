@@ -6,12 +6,13 @@ import { allClear, errorState } from '../components/empty.js';
 import { icon } from '../components/icons.js';
 import { bindRefresh, panel, refreshButton, spacer, status, toolbar } from '../components/layout.js';
 import { showToast } from '../components/toast.js';
+import { confirmDialog } from '../components/confirm-modal.js';
 
 let dlqMessages = [];
 
 const DLQ_ACTIONS = {
-    redrive: { confirm: 'Reprocessar este evento? Ele será republicado e o Stock tentará de novo.', done: 'Evento reprocessado' },
-    discard: { confirm: 'Descartar este evento? Ele será apagado da DLQ e não poderá ser recuperado.', done: 'Evento descartado' }
+    redrive: { title: 'Reprocessar este evento?', message: 'Ele será republicado e o Stock tentará de novo.', label: 'Reprocessar', icon: 'undo', done: 'Evento reprocessado' },
+    discard: { title: 'Descartar este evento?', message: 'Ele será apagado da DLQ e não poderá ser recuperado.', label: 'Descartar', icon: 'trash', danger: true, done: 'Evento descartado' }
 };
 
 export default {
@@ -72,7 +73,8 @@ async function runAction(event) {
     const button = event.target.closest('button[data-action]');
     if (!button) return;
     const { action, id } = button.dataset;
-    if (!confirm(DLQ_ACTIONS[action].confirm)) return;
+    const { title, message, label, icon: iconName, danger } = DLQ_ACTIONS[action];
+    if (!await confirmDialog({ title, message, confirmLabel: label, iconName, danger })) return;
     button.disabled = true;
     try {
         await api(`/dlq/${encodeURIComponent(id)}/${action}`, { method: 'POST' });

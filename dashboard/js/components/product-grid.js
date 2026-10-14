@@ -2,6 +2,7 @@ import { escapeHtml, money } from '../core/format.js';
 import { badge } from './badge.js';
 import { emptyState, errorState } from './empty.js';
 import { icon } from './icons.js';
+import { productIcon } from './product-icons.js';
 
 // Estoque ainda desconhecido: na AWS o inventário de um produto novo é
 // criado de forma assíncrona (ProductCreated -> EventBridge -> Stock), e
@@ -22,7 +23,7 @@ export function productGrid({ products, error, empty, buy = false, remove = fals
     return `<div class="product-grid${compact ? ' compact' : ''}">${products.map(p => `
         <article class="product-card">
             <div class="product-top">
-                <span class="product-thumb">${icon('package', { size: 18 })}</span>
+                <span class="product-thumb">${productIcon(p.name, { size: 44 })}</span>
                 <div>
                     <div class="product-name">${escapeHtml(p.name)}</div>
                     <div class="product-price">${money(p.price)}</div>

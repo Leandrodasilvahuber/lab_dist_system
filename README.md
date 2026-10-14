@@ -192,7 +192,7 @@ gasto do mês passa de 80% ou a previsão passa do teto. Acima do teto, o
 `CostKillSwitchBudget` aciona o interruptor de custo (`CostKillSwitchFunction`),
 que zera o throttling do stage e a API passa a responder 429. Como o Budget vê o
 gasto com horas de atraso, o alarme `api-flood` (`FloodRequestsPer5Min`, padrão
-15000 requisições em 5 min por duas janelas seguidas, ~50 req/s) aciona o mesmo
+4500 requisições em 5 min por duas janelas seguidas, ~15 req/s) aciona o mesmo
 interruptor em ~10 min quando um script martela a API. Religar:
 `{"action":"restore"}` na `CostKillSwitchFunction` (ver `costKillSwitch.js`).
 
@@ -223,7 +223,7 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | POST | `/dlq/{messageId}/redrive` 🔑 | Republica o evento (o Stock tenta de novo) e apaga da DLQ |
 | POST | `/dlq/{messageId}/discard` 🔑 | Apaga o evento da DLQ |
 | GET | `/chaos` | Falhas injetadas em vigor (`enabled`, `active`, `expiresAt`, `faults`); ver [Engenharia de caos](#engenharia-de-caos) |
-| PUT | `/chaos` | Liga falhas `{ expiresAt, faults: [{ service, action?, type, probability?, latencyMs? }] }` (substitui as anteriores). Aberta, até `DailyChaosLimit` ativações por dia (429 depois); desligada em prod |
+| PUT | `/chaos` | Liga falhas `{ expiresAt, faults: [{ service, action?, type, probability?, latencyMs? }] }` (substitui as anteriores). Aberta, até `DailyChaosLimit` ativações por dia (429 depois); editar as falhas em vigor sem estender o `expiresAt` não conta; desligada em prod |
 | DELETE | `/chaos` | Desliga todas as falhas (não conta no limite) |
 | GET | `/reset` | Situação do **Zerar base**: usos hoje e limite |
 | POST | `/reset` | Zera a base e grava o seed (ver [Exposição](#exposição)). Aberta, até `DailyResetLimit` por dia; desligada em prod |
@@ -278,7 +278,8 @@ dentro da página. Filtro numérico inválido (`priceMin=abc`) responde `400`.
   Rastreio, Métricas e Recursos, nas ações da DLQ e no indicador de erros do
   Monitoramento. A aba Caos e o botão **Zerar base** são abertos a todos. Ligar
   o caos (`PUT /chaos`) conta no limite diário `DailyChaosLimit` (padrão 20;
-  cada ativação dura no máximo 60 min; desligar não conta; sem limite no
+  cada ativação dura no máximo 60 min; desligar e editar as falhas em vigor
+  sem estender o prazo não contam; sem limite no
   local-server, por causa do `npm run chaos`).
 - **Zerar base** (botão ao lado do indicador de conexão, `POST /reset`): apaga
   pedidos, pagamentos, reservas, sagas, produtos e estoque e grava de novo os

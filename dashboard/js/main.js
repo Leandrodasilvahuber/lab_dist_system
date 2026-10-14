@@ -15,6 +15,7 @@ import { loadChaos } from './services/chaos.js';
 import { runMonitors } from './views/monitoring.js';
 import { openTrace } from './views/trace.js';
 import { openSagaFlow } from './components/saga-modal.js';
+import { confirmDialog } from './components/confirm-modal.js';
 
 // ---------- Casca: ícones fixos e endpoint ----------
 $('brandMark').innerHTML = icon('bag', { size: 19 });
@@ -109,7 +110,13 @@ async function loadReset() {
 
 $('resetBtn').addEventListener('click', async () => {
     const left = resetState.remaining === null ? '' : `\n\nRestam ${resetState.remaining} de ${resetState.limit} hoje.`;
-    if (!resetState.unfinished && !confirm(`Zerar a base? Apaga pedidos, pagamentos, reservas, sagas, produtos e estoque e grava de novo os produtos do seed.${left}`)) return;
+    if (!resetState.unfinished && !await confirmDialog({
+        title: 'Zerar a base?',
+        message: `Apaga pedidos, pagamentos, reservas, sagas, produtos e estoque e grava de novo os produtos do seed.${left}`,
+        confirmLabel: 'Zerar base',
+        danger: true,
+        iconName: 'refresh'
+    })) return;
     $('resetBtn').disabled = true;
     try {
         // Tabela grande não cabe numa chamada (complete: false): as seguintes continuam sem gastar outra vez
@@ -129,14 +136,15 @@ $('resetBtn').addEventListener('click', async () => {
 
 loadReset();
 
-// ---------- Tema claro/escuro (sem escolha, segue o sistema) ----------
-const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
-const isDark = () => (document.documentElement.dataset.theme || (prefersDark.matches ? 'dark' : 'light')) === 'dark';
+// ---------- Tema claro/escuro (padrão: claro; a escolha fica salva) ----------
+const isDark = () => document.documentElement.dataset.theme === 'dark';
 
 function renderThemeButton() {
     const dark = isDark();
     $('themeBtn').innerHTML = icon(dark ? 'sun' : 'moon', { size: 18 });
-    $('themeBtn').title = dark ? 'Usar tema claro' : 'Usar tema escuro';
+    $('themeBtn').title = dark
+        ? 'Tema claro: fundo branco, melhor com bastante luz. Clique para voltar ao claro.'
+        : 'Tema escuro: fundo escuro que cansa menos a vista em ambientes com pouca luz. Clique para ativar.';
     $('themeBtn').setAttribute('aria-label', $('themeBtn').title);
 }
 
@@ -146,7 +154,6 @@ $('themeBtn').addEventListener('click', () => {
     storage.set('theme', theme);
     renderThemeButton();
 });
-prefersDark.addEventListener('change', renderThemeButton);
 
 // ---------- Login de admin: popover no canto superior direito ----------
 // Na AWS, usuário e senha do Cognito; no local-server, a chave X-Api-Key

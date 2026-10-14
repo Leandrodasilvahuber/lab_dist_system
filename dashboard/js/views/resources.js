@@ -8,6 +8,7 @@ import { icon } from '../components/icons.js';
 import { bindRefresh, panel, PERIODS, refreshButton, select, spacer, status, toolbar } from '../components/layout.js';
 import { statCards } from '../components/stat-card.js';
 import { showToast } from '../components/toast.js';
+import { showNoticeModal } from '../components/notice-modal.js';
 
 const COST_DAYS = [['7', 'últimos 7 dias'], ['14', 'últimos 14 dias'], ['30', 'últimos 30 dias'], ['90', 'últimos 90 dias']];
 // O Cost Explorer lista todos os serviços da conta: o resto vira "Outros"
@@ -153,7 +154,12 @@ async function refreshCostNow() {
         showToast('Custo real lido do Cost Explorer', 'success');
     } catch (error) {
         if (error.body?.code === 'CostRefreshLimitExceeded') {
-            alert(`Total de atualizações do dia excedido (${error.body.limit}). O limite zera às ${hourMinute(error.body.resetsAt)}.`);
+            showNoticeModal({
+                title: 'Limite diário de atualizações atingido',
+                text: `Total de atualizações do dia excedido (${error.body.limit}). O limite zera às ${hourMinute(error.body.resetsAt)}.`,
+                iconName: 'clock',
+                tone: 'warn'
+            });
             return;
         }
         const message = error.status === 429 && error.retryAfter

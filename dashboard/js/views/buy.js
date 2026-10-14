@@ -12,6 +12,7 @@ import { stockLabel } from '../components/product-grid.js';
 import { sagaCard, TERMINAL } from '../components/saga-card.js';
 import { sagaDiagram } from '../components/saga-flow.js';
 import { showToast } from '../components/toast.js';
+import { showNoticeModal } from '../components/notice-modal.js';
 
 // { request, key }: compra ainda sem resposta definitiva
 let pendingPurchase = null;
@@ -43,7 +44,7 @@ export default {
                             <label for="buyQuantity">Quantidade</label>
                             <input type="number" id="buyQuantity" required min="1" max="${MAX_QUANTITY}" step="1" value="1">
                         </div>
-                        <button type="submit" class="btn btn-success btn-block" id="buyButton">${icon('cart', { size: 16 })}<span>Comprar</span></button>
+                        <button type="submit" class="btn btn-primary btn-block" id="buyButton">${icon('cart', { size: 16 })}<span>Comprar</span></button>
                     </form>`
             })}
             ${panel({ title: 'Fluxo da compra', icon: 'workflow', flush: true, body: `<div id="sagaFlow">${sagaDiagram(null)}</div>` })}
@@ -157,7 +158,12 @@ async function startPurchase(event) {
             // Limite diário (PurchaseQuota): a compra não começou; depois das 12:00 é uma compra nova
             pendingPurchase = null;
             const who = error.body.scope === 'client' ? ' para este cliente' : '';
-            alert(`Total de compras do dia excedido${who} (${error.body.limit}). O limite zera às ${hourMinute(error.body.resetsAt)}.`);
+            showNoticeModal({
+                title: 'Limite diário de compras atingido',
+                text: `Total de compras do dia excedido${who} (${error.body.limit}). O limite zera às ${hourMinute(error.body.resetsAt)}.`,
+                iconName: 'clock',
+                tone: 'warn'
+            });
         } else {
             pendingPurchase = null;
             showToast(`Compra recusada: ${error.message}`, 'error');

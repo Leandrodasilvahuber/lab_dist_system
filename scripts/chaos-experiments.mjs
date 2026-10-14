@@ -19,7 +19,7 @@
  *   npm run chaos -- payment-down refund-flaky    # só estes
  *   npm run chaos -- --api https://xxx.execute-api.us-east-1.amazonaws.com --orders 6
  *   npm run chaos -- --product <id>               # produto usado nas compras
- * Admin (PUT/DELETE /chaos, POST /products e POST /dlq/{id}/redrive): local, a chave
+ * Admin (GET /trace, POST /products e POST /dlq/{id}/redrive; /chaos é aberto): local, a chave
  * em ADMIN_API_KEY; na AWS, o login do Cognito em ADMIN_USERNAME (padrão admin) e ADMIN_PASSWORD.
  * Na AWS cada compra gasta o limite diário (PurchaseQuota): faça o deploy com
  * DailyPurchaseLimit=0 e DailyPurchaseLimitPerClient=0 antes; se o limite for
@@ -177,7 +177,8 @@ async function waitFinal(sagaId) {
 }
 
 // Evidência de que a falha foi sorteada: linha CHAOS_INJECTED no rastreio da
-// compra. Na AWS os logs chegam com atraso, então a ausência não reprova
+// compra. Na AWS os logs chegam com atraso, então a ausência não reprova.
+// GET /trace é rota de admin: sem credencial devolve null (não dá para saber)
 async function injectedCount(correlationIds) {
   let count = 0;
   for (const id of correlationIds) {
@@ -187,6 +188,7 @@ async function injectedCount(correlationIds) {
       await sleep(1000);
       ({ status, data } = await request(`/trace/${encodeURIComponent(id)}`));
     }
+    if (status === 401 || status === 403) return null;
     count += (data.logs || []).filter(line => line.event === 'CHAOS_INJECTED').length;
   }
   return count;
@@ -327,7 +329,11 @@ for (const preset of presets) {
     result = { checks: [[`erro ao executar: ${error.message}`, false]], evidence: 0 };
   }
   for (const [label, passed] of result.checks) out(`   ${passed ? ok('✔') : bad('✘')} ${label}`);
-  out(dim(`   falhas injetadas vistas no rastreio: ${result.evidence}${result.evidence ? '' : ' (nenhuma: a falha pode não ter sido sorteada ou o log ainda não chegou)'}`));
+  if (result.evidence === null) {
+    out(dim('   falhas injetadas vistas no rastreio: ? (GET /trace exige admin: defina ADMIN_API_KEY, ou ADMIN_PASSWORD na AWS)'));
+  } else {
+    out(dim(`   falhas injetadas vistas no rastreio: ${result.evidence}${result.evidence ? '' : ' (nenhuma: a falha pode não ter sido sorteada ou o log ainda não chegou)'}`));
+  }
   const passed = result.checks.every(([, p]) => p);
   out(`   ${passed ? ok('Hipótese confirmada') : bad('Hipótese refutada')}\n`);
   results.push({ id: preset.id, passed });

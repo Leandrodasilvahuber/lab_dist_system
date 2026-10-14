@@ -253,6 +253,7 @@ const SECURITY_HEADERS = {
     "style-src 'self'",
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data:",
+    "font-src 'self'",
     ['connect-src', "'self'", 'https://*.execute-api.amazonaws.com',
       ...(process.env.AWS_REGION ? [`https://cognito-idp.${process.env.AWS_REGION}.amazonaws.com`] : [])].join(' '),
     "base-uri 'none'",
@@ -272,7 +273,8 @@ const STATIC_TYPES = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
-  '.webp': 'image/webp'
+  '.webp': 'image/webp',
+  '.woff2': 'font/woff2'
 };
 
 // Os diagramas ficam em diagramas/ na raiz do projeto e aparecem para o
@@ -349,7 +351,9 @@ const server = http.createServer(async (req, res) => {
   if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/') {
     try {
       const result = await helloPage(buildEvent({ method: req.method, url, headers: req.headers }));
-      return send(res, result.statusCode, result.headers || {}, req.method === 'HEAD' ? '' : result.body);
+      // Na AWS o CloudFront guarda a página por 5 min (Cache-Control da Lambda); local não há CDN
+      // e o navegador não deve mostrar uma cópia velha depois de um novo localstack:deploy
+      return send(res, result.statusCode, { ...(result.headers || {}), 'Cache-Control': 'no-cache' }, req.method === 'HEAD' ? '' : result.body);
     } catch (error) {
       console.error(`${req.method} / ->`, error.message);
       return send(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({
