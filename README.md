@@ -192,7 +192,7 @@ gasto do mês passa de 80% ou a previsão passa do teto. Acima do teto, o
 `CostKillSwitchBudget` aciona o interruptor de custo (`CostKillSwitchFunction`),
 que zera o throttling do stage e a API passa a responder 429. Como o Budget vê o
 gasto com horas de atraso, o alarme `api-flood` (`FloodRequestsPer5Min`, padrão
-15000 requisições em 5 min por duas janelas seguidas, ~50 req/s) aciona o mesmo
+4500 requisições em 5 min por duas janelas seguidas, ~15 req/s) aciona o mesmo
 interruptor em ~10 min quando um script martela a API. Religar:
 `{"action":"restore"}` na `CostKillSwitchFunction` (ver `costKillSwitch.js`).
 

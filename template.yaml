@@ -104,11 +104,16 @@ Parameters:
 
   # Requisições à API em 5 min (todas as rotas, inclusive as recusadas com
   # 429) que contam como ataque: duas janelas seguidas acima disso acionam o
-  # interruptor de custo (ApiFloodAlarm). 15000 = ~50 req/s sustentados por
-  # 10 min, muito acima do dashboard e dos testes de caos. 0 = sem alarme
+  # interruptor de custo (ApiFloodAlarm). 4500 = ~15 req/s sustentados por
+  # 10 min: acima do dashboard (1 req/s por compra em andamento e uma rodada
+  # de monitoramento a cada 30 s por aba) e dos testes de caos (concorrência
+  # 4). Com 15000 (~50 req/s) um script podia ficar um dia inteiro logo abaixo
+  # do alarme (~4 milhões de requisições, dezenas de dólares). Teste de carga
+  # contra a AWS (k6 com TARGET=aws) passa disso: use 0 durante o teste.
+  # 0 = sem alarme
   FloodRequestsPer5Min:
     Type: Number
-    Default: 15000
+    Default: 4500
     MinValue: 0
 
 Conditions:
