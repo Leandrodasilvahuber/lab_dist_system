@@ -4,6 +4,7 @@ import { escapeHtml } from '../core/format.js';
 import { emptyState, errorState, loading } from '../components/empty.js';
 import { panel } from '../components/layout.js';
 import { stockBadge } from '../components/product-grid.js';
+import { productIcon } from '../components/product-icons.js';
 
 export default {
     id: 'stock',
@@ -30,9 +31,12 @@ async function fetchStock() {
         stock.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         list.innerHTML = stock.length ? stock.map(item => `
             <div class="stock-row">
-                <div>
-                    <div class="stock-name">${escapeHtml(item.name)}</div>
-                    <div class="muted">Reservado (compras em andamento): ${escapeHtml(item.reserved ?? '— (indisponível)')} · ${stockBadge(item.available)}</div>
+                <div class="stock-item">
+                    <span class="product-thumb">${productIcon(item.name, { size: 44 })}</span>
+                    <div>
+                        <div class="stock-name">${escapeHtml(item.name)}</div>
+                        <div class="muted">${stockBadge(item.available)}<span>Reservado (compras em andamento): ${escapeHtml(item.reserved ?? '— (indisponível)')}</span></div>
+                    </div>
                 </div>
                 <div class="stock-qty"><strong>${escapeHtml(item.available)}</strong><span>disponíveis</span></div>
                 ${stockBar(item.available, item.reserved)}

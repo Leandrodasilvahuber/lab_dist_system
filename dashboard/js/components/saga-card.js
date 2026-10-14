@@ -2,6 +2,7 @@ import { escapeHtml, time } from '../core/format.js';
 import { SAGA_STATUS, statusBadge } from './badge.js';
 import { icon } from './icons.js';
 import { productLabel } from '../services/catalog.js';
+import { productIcon } from './product-icons.js';
 
 export const TERMINAL = ['COMPLETED', 'COMPENSATED', 'FAILED', 'COMPENSATION_FAILED'];
 // Erro gravado quando o StartExecution falhou (SagaService, START_FAILED)
@@ -16,6 +17,8 @@ export const STEP_LABELS = {
     releaseStock: 'Libera estoque',
     cancelOrder: 'Cancela pedido'
 };
+// Carinha da fruta no cartão: alegre ao concluir, triste se a compra foi desfeita
+const CARD_MOOD = { COMPLETED: 'joy', COMPENSATED: 'sad', COMPENSATION_FAILED: 'sad', FAILED: 'sad', COMPENSATING: 'wow' };
 const FORWARD = ['createOrder', 'reserveStock', 'processPayment', 'commitReservation', 'confirmOrder'];
 const COMPENSATIONS = ['refundPayment', 'releaseStock', 'cancelOrder'];
 export function traceButton(id) {
@@ -67,7 +70,7 @@ export function sagaCard(saga, productNames, { selectable = false, selected = fa
     return `
         <article class="saga-card tone-${tone}${selectable ? ' selectable' : ''}${selected ? ' selected' : ''}" id="saga-${escapeHtml(saga.id)}"${selectable ? ` data-saga="${escapeHtml(saga.id)}" tabindex="0" aria-pressed="${selected}"` : ''}>
             <div class="saga-header">
-                <h3>${escapeHtml(productLabel(productNames, saga))} × ${escapeHtml(saga.quantity)}</h3>
+                <h3>${productIcon(productLabel(productNames, saga), { size: 26, mood: CARD_MOOD[saga.status] || 'happy' })}<span>${escapeHtml(productLabel(productNames, saga))} × ${escapeHtml(saga.quantity)}</span></h3>
                 ${statusBadge(SAGA_STATUS, saga.status, { pulse: running })}
             </div>
             <div class="saga-meta"><span>${time(saga.createdAt)}</span><span class="mono" title="${escapeHtml(saga.id)}">${escapeHtml(saga.id)}</span><span class="saga-actions">${selectable ? '' : flowButton(saga.id)}${traceButton(saga.id)}</span></div>

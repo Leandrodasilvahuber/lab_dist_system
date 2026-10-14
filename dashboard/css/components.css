@@ -500,7 +500,7 @@
 .saga-card.selected { border-color: var(--brand); background: var(--brand-soft); }
 
 .saga-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.saga-header h3 { font-size: 14px; font-weight: 600; }
+.saga-header h3 { font-size: 14px; font-weight: 650; }
 .saga-meta { display: flex; align-items: center; gap: 8px; margin: 2px 0 9px; color: var(--text-3); font-size: 12px; }
 /* O id da saga é longo: corta com reticências (inteiro no título) */
 .saga-meta .mono { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -873,9 +873,148 @@ a.btn { text-decoration: none; }
 .diagram-frame { background: #ffffff; border: 1px solid var(--border); border-radius: 10px; overflow: auto; max-height: 80vh; }
 .diagram-frame img { display: block; width: 100%; height: auto; }
 .diagram-frame.is-actual img { width: auto; max-width: none; }
+/* Frutinhas: produto, estoque, pedido, compra */
+.pico { display: block; flex-shrink: 0; overflow: visible; filter: drop-shadow(0 3px 3px rgba(60, 40, 120, 0.15)); }
+.product-thumb {
+    display: grid;
+    place-items: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    color: inherit;
+    background: radial-gradient(circle at 30% 25%, #fff, var(--store-soft) 75%);
+    box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--store) 22%, transparent);
+}
+.product-grid { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 18px; }
+.product-card { align-items: stretch; padding: 20px; text-align: left; }
+.product-grid:not(.compact) .product-top { flex-direction: row; gap: 14px; }
+.product-grid:not(.compact) .product-card:hover { transform: translateY(-5px) rotate(-0.6deg); }
+.product-card:hover .pico { animation: wiggle 0.6s ease-in-out; }
+.product-grid.compact .product-thumb { width: 48px; height: 48px; }
+.product-grid.compact .product-thumb .pico { width: 34px; height: 34px; }
+.product-name { font-size: 16px; font-weight: 800; }
+.product-price { font-size: 15px; font-weight: 700; color: var(--brand); }
+
+@keyframes wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-9deg) scale(1.06); } 75% { transform: rotate(9deg) scale(1.06); } }
+
+.stock-item { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.stock-item .product-thumb { width: 56px; height: 56px; }
+.stock-row { padding: 16px 22px; }
+.stock-bar { height: 12px; background: var(--neutral-soft); box-shadow: inset 0 1px 2px rgba(60, 40, 120, 0.12); }
+.stock-bar i { background: linear-gradient(90deg, color-mix(in srgb, var(--store) 55%, #fff), var(--store)); }
+.order-product { display: inline-flex; align-items: center; gap: 10px; }
+.saga-header h3 { display: flex; align-items: center; gap: 8px; }
+.saga-card { border-width: 1.5px; border-radius: 16px; padding: 13px 16px 14px; }
+.saga-card.selectable:hover { transform: translateY(-2px); }
+.saga-card.selectable { transition: background 0.15s, border-color 0.15s, transform 0.15s; }
+.seg { height: 7px; }
+
 /* Avisos e janelas */
 .toast { border-radius: 18px; }
 .modal { border-radius: 26px; }
 .alert-modal-icon { border-radius: 50%; }
 .callout { border-radius: 14px; }
 
+/* ---------- Trilha da fruta (topo do diagrama da compra) ---------- */
+.trail {
+    --stop: 18px;
+    position: relative;
+    padding: 14px 72px 32px 40px;
+    border-bottom: 1.5px solid var(--border);
+    background:
+        radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent, var(--brand)) 14%, transparent) 1.2px, transparent 0) 0 0 / 18px 18px,
+        linear-gradient(180deg, var(--accent-soft, var(--brand-soft)), var(--surface) 90%);
+}
+.trail-lane { position: relative; height: 112px; }
+
+.trail-track { position: absolute; inset: auto 0 18px 0; height: 10px; border-radius: 999px; background: var(--neutral-soft); box-shadow: inset 0 1px 2px rgba(60, 40, 120, 0.15); }
+.trail-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: calc(var(--to) * 100%);
+    border-radius: inherit;
+    background: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.28) 0 6px, transparent 6px 12px), var(--accent, var(--brand));
+    animation: fill-x 1.8s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.trail-done .trail-fill { background-color: var(--ok); }
+.trail-bad .trail-fill { background-color: var(--bad); }
+
+@keyframes fill-x { from { width: calc(var(--from) * 100%); } to { width: calc(var(--to) * 100%); } }
+@keyframes walk-x { from { left: calc(var(--from) * 100%); } to { left: calc(var(--to) * 100%); } }
+
+.trail-stop { position: absolute; bottom: 14px; width: var(--stop); height: var(--stop); margin-left: calc(var(--stop) / -2); }
+.trail-stop i { display: block; width: 100%; height: 100%; border: 3px solid var(--border-strong); border-radius: 50%; background: var(--surface); transition: background 0.3s, border-color 0.3s; }
+.trail-stop.on i { border-color: var(--surface); background: var(--accent, var(--brand)); box-shadow: 0 0 0 2px var(--accent, var(--brand)); }
+.trail-stop b, .trail-goal b { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); color: var(--text-3); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.trail-stop.on b { color: var(--text-2); }
+
+.trail-goal { position: absolute; left: calc(100% + 34px); bottom: 24px; width: 40px; height: 40px; margin-left: -20px; filter: drop-shadow(0 4px 4px rgba(255, 92, 138, 0.3)); }
+.trail-goal b { top: calc(100% + 12px); }
+.trail-done .trail-goal { animation: wiggle 1.2s ease-in-out infinite; }
+
+/* A fruta */
+.walker { position: absolute; z-index: 2; bottom: 30px; left: calc(var(--to) * 100%); width: 46px; height: 46px; margin-left: -23px; animation: walk-x 1.8s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.walker-body { display: block; width: 46px; height: 46px; transform-origin: 50% 100%; }
+.is-back .walker-body { transform: scaleX(-1); }
+.foot { position: absolute; bottom: -3px; width: 11px; height: 7px; border-radius: 50% 50% 40% 40%; background: #5b4242; }
+.f1 { left: 9px; }
+.f2 { left: 26px; }
+
+.bubble {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 3px 11px;
+    border: 1.5px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text-2);
+    font-size: 11.5px;
+    font-weight: 800;
+    white-space: nowrap;
+    box-shadow: 0 4px 10px -4px rgba(60, 40, 120, 0.25);
+}
+.bubble::after { content: ''; position: absolute; top: 100%; left: 50%; width: 8px; height: 8px; margin: -5px 0 0 -4px; border: solid var(--border-strong); border-width: 0 1.5px 1.5px 0; background: var(--surface); transform: rotate(45deg); }
+.trail-done .bubble { border-color: var(--ok); color: var(--ok-text); background: var(--ok-soft); }
+.trail-done .bubble::after { border-color: var(--ok); background: var(--ok-soft); }
+.trail-bad .bubble { border-color: var(--bad); color: var(--bad-text); background: var(--bad-soft); }
+.trail-bad .bubble::after { border-color: var(--bad); background: var(--bad-soft); }
+.trail-walk .bubble, .trail-back .bubble { animation: bubble-pop 1.4s ease-in-out infinite alternate; }
+
+/* Andando: pulinhos e passinhos */
+.trail-walk .walker-body, .trail-back .walker-body { animation: hop 0.42s ease-in-out infinite alternate; }
+.trail-walk .foot, .trail-back .foot { animation: step 0.42s ease-in-out infinite alternate; }
+.is-moving:not(.trail-walk):not(.trail-back) .walker-body { animation: hop 0.42s ease-in-out 4 alternate; }
+.is-moving:not(.trail-walk):not(.trail-back) .foot { animation: step 0.42s ease-in-out 4 alternate; }
+.f2 { animation-delay: -0.21s !important; }
+.trail-done .walker-body { animation: celebrate 0.8s ease-in-out infinite; }
+.trail-bad .walker-body { animation: sulk 2.4s ease-in-out infinite; }
+.trail-idle .walker-body { animation: breathe 3s ease-in-out infinite; }
+
+@keyframes hop { from { transform: translateY(0) rotate(-4deg); } to { transform: translateY(-6px) rotate(4deg); } }
+.is-back .walker-body { animation-name: hop-back; }
+@keyframes hop-back { from { transform: scaleX(-1) translateY(0) rotate(-4deg); } to { transform: scaleX(-1) translateY(-6px) rotate(4deg); } }
+@keyframes step { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+@keyframes celebrate { 0%, 100% { transform: translateY(0) scale(1, 1); } 30% { transform: translateY(0) scale(1.1, 0.88); } 60% { transform: translateY(-16px) scale(0.94, 1.08) rotate(6deg); } }
+@keyframes sulk { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg) translateY(1px); } }
+@keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04, 0.97); } }
+@keyframes bubble-pop { from { transform: translateX(-50%) translateY(0); } to { transform: translateX(-50%) translateY(-3px); } }
+
+.heart { position: absolute; bottom: 36px; color: #ff5c8a; font-size: 14px; font-style: normal; opacity: 0; animation: heart-up 1.8s ease-out infinite; }
+.h1 { left: -6px; }
+.h2 { left: 18px; animation-delay: 0.6s; }
+.h3 { left: 40px; animation-delay: 1.2s; }
+@keyframes heart-up { 0% { opacity: 0; transform: translateY(0) scale(0.6); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-34px) scale(1.15); } }
+
+/* Fruta perto da borda: o balão abre para dentro do painel */
+.trail-edge-end .bubble { left: auto; right: -12px; transform: none; animation: none; }
+.trail-edge-end .bubble::after { left: auto; right: 22px; }
+.trail-edge-start .bubble { left: -12px; transform: none; animation: none; }
+.trail-edge-start .bubble::after { left: 22px; }
+
+@container (max-width: 560px) {
+    .trail { padding: 12px 60px 16px 28px; }
+    .trail-stop b, .trail-goal b { display: none; }
+    .trail-lane { height: 108px; }
+}
