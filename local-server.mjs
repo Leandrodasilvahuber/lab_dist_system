@@ -351,7 +351,9 @@ const server = http.createServer(async (req, res) => {
   if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/') {
     try {
       const result = await helloPage(buildEvent({ method: req.method, url, headers: req.headers }));
-      return send(res, result.statusCode, result.headers || {}, req.method === 'HEAD' ? '' : result.body);
+      // Na AWS o CloudFront guarda a página por 5 min (Cache-Control da Lambda); local não há CDN
+      // e o navegador não deve mostrar uma cópia velha depois de um novo localstack:deploy
+      return send(res, result.statusCode, { ...(result.headers || {}), 'Cache-Control': 'no-cache' }, req.method === 'HEAD' ? '' : result.body);
     } catch (error) {
       console.error(`${req.method} / ->`, error.message);
       return send(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({

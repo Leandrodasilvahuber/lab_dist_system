@@ -2106,10 +2106,14 @@ Resources:
         </body>
         </html>`;
 
+        // Página pública e igual para todos: o CloudFront guarda por 5 min e a
+        // Lambda só roda uma vez por local de borda a cada 5 min (antes, com
+        // no-cache, toda requisição executava a Lambda: um script gastava
+        // execuções e a concorrência da conta, e o interruptor de custo não via)
         // InlineCode vira index.js (CommonJS): exports, não export
         exports.handler = async () => ({
           statusCode: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' },
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
           body: html
         });
 
@@ -2160,6 +2164,24 @@ Resources:
   # Certificado do domínio próprio. O CloudFront só aceita certificado de
   # us-east-1 (a região deste stack); a validação por DNS na hosted zone é
   # automática e o deploy espera ela terminar (alguns minutos)
+  # Qualquer caminho fora de /laboratory* e /dashboard/* devolve a mesma página
+  # inicial. A chave de cache inclui o caminho: sem isto, cada caminho inventado
+  # (/a, /b, ...) seria um erro de cache e chamaria a Lambda de novo
+  HomeRewriteFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub '${Environment}-ecommerce-home-rewrite'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: qualquer caminho -> / (uma só chave de cache da página inicial)
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          request.uri = '/';
+          return request;
+        }
+
   SiteCertificate:
     Type: AWS::CertificateManager::Certificate
     Condition: HasCustomDomain
@@ -2227,11 +2249,16 @@ Resources:
           AllowedMethods: [GET, HEAD]
           CachedMethods: [GET, HEAD]
           Compress: true
-          # Managed-CachingDisabled e Managed-AllViewerExceptHostHeader (a
-          # Function URL precisa receber o próprio Host, não o do site)
-          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          # Managed-CachingOptimized (respeita o Cache-Control da Lambda, 5 min, e
+          # ignora query string, cookies e cabeçalhos na chave de cache) e
+          # Managed-AllViewerExceptHostHeader (a Function URL precisa receber o
+          # próprio Host, não o do site)
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
           OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
           ResponseHeadersPolicyId: !Ref DashboardSecurityHeaders
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt HomeRewriteFunction.FunctionMetadata.FunctionARN
         CacheBehaviors:
           # Página do dashboard
           - PathPattern: /laboratory*
