@@ -45,12 +45,23 @@ echo "🚀 Fazendo deploy na AWS..."
 if [ -z "$ALERT_EMAIL" ] && [ -f .env ]; then
     ALERT_EMAIL=$(sed -n 's/^ALERT_EMAIL=//p' .env | tail -1 | tr -d "\"' \r")
 fi
-OVERRIDES="Environment=$ENVIRONMENT"
+# MONTHLY_BUDGET_USD: teto mensal (US$) do AWS Budget; ao passar dele manda
+# e-mail e aciona o interruptor de custo (padrão 15)
+OVERRIDES="Environment=$ENVIRONMENT MonthlyBudgetUSD=${MONTHLY_BUDGET_USD:-15}"
 [ -n "$ALERT_EMAIL" ] && OVERRIDES="$OVERRIDES AlertEmail=$ALERT_EMAIL"
 # Domínio próprio (opcional): DOMAIN_NAME (ex.: www.meulab.com.br) e o ID da
 # hosted zone dele no Route 53. Sem os dois, o site fica só no *.cloudfront.net
 if [ -n "$DOMAIN_NAME" ] && [ -n "$HOSTED_ZONE_ID" ]; then
     OVERRIDES="$OVERRIDES DomainName=$DOMAIN_NAME HostedZoneId=$HOSTED_ZONE_ID"
+fi
+# DNS fora do Route 53 (produção: freedns): DOMAIN_NAME + CERTIFICATE_ARN (ACM
+# em us-east-1, já emitido). Sem isso o deploy tira o alias e o certificado do
+# CloudFront e o site volta a dar erro de certificado. Os valores abaixo são os
+# de produção; sobrescreva as variáveis para outro domínio
+if [ -z "$HOSTED_ZONE_ID" ]; then
+    DOMAIN_NAME=${DOMAIN_NAME:-www.leandrohuber.freeddns.org}
+    CERTIFICATE_ARN=${CERTIFICATE_ARN:-arn:aws:acm:us-east-1:375243950020:certificate/5bf85a74-d140-40f3-a1c5-c1c608e9366f}
+    OVERRIDES="$OVERRIDES DomainName=$DOMAIN_NAME CertificateArn=$CERTIFICATE_ARN"
 fi
 # No GitHub Actions (CI=true) não há quem confirme o changeset, e um merge que
 # não muda o stack (só docs, dashboard) não é erro

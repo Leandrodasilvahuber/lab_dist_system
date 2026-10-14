@@ -33,6 +33,13 @@ Parameters:
     Type: String
     Default: ''
     Description: 'ID da hosted zone do Route 53 que contém o DomainName (ex.: Z0123456789ABC)'
+  # DNS fora do Route 53 (ex.: freedns): emita o certificado no ACM (us-east-1),
+  # valide por DNS no seu provedor e informe o ARN aqui junto com o DomainName.
+  # O stack só põe o alias e o certificado no CloudFront; o CNAME é por sua conta
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: 'ARN de um certificado ACM já emitido em us-east-1 para o DomainName. Vazio = o stack cria o certificado (exige HostedZoneId)'
 
   # Bulkhead: teto de execuções simultâneas da GatewayFunction (observabilidade:
   # logs, métricas, DLQ), para que ela não consuma a concorrência das Lambdas da
@@ -96,10 +103,11 @@ Parameters:
     MinValue: 0
 
   # Teto mensal (US$) do AWS Budget: avisa no AlarmTopic com 80% gasto e
-  # quando a previsão do mês passa de 100%. É o custo da conta inteira
+  # quando a previsão do mês passa de 100%. Ao gastar 100% manda e-mail e aciona
+  # o interruptor de custo (API para de responder). É o custo da conta inteira
   MonthlyBudgetUSD:
     Type: Number
-    Default: 5
+    Default: 15
     MinValue: 1
 
   # Requisições à API em 5 min (todas as rotas, inclusive as recusadas com
@@ -129,6 +137,16 @@ Conditions:
   HasCustomDomain: !And
     - !Not [!Equals [!Ref DomainName, '']]
     - !Not [!Equals [!Ref HostedZoneId, '']]
+  # Domínio próprio com certificado já emitido (DNS fora do Route 53)
+  HasExternalCertificate: !And
+    - !Not [!Equals [!Ref DomainName, '']]
+    - !Not [!Equals [!Ref CertificateArn, '']]
+  HasDomainAlias: !Or
+    - !Condition HasCustomDomain
+    - !Condition HasExternalCertificate
+  CreatesSiteCertificate: !And
+    - !Condition HasCustomDomain
+    - !Equals [!Ref CertificateArn, '']
 
 # Todas as funções são empacotadas com esbuild a partir da raiz do projeto,
 # o que inclui automaticamente o código compartilhado de src/common.
@@ -293,7 +311,7 @@ Resources:
           - !Sub 'https://${DashboardDistribution.DomainName}'
           - 'http://localhost:3001'
           - !If [HasAllowedOrigin, !Ref AllowedOrigin, !Ref AWS::NoValue]
-          - !If [HasCustomDomain, !Sub 'https://${DomainName}', !Ref AWS::NoValue]
+          - !If [HasDomainAlias, !Sub 'https://${DomainName}', !Ref AWS::NoValue]
         AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
         AllowHeaders: [content-type, authorization, idempotency-key, x-idempotency-key, x-correlation-id]
         ExposeHeaders: [retry-after]
@@ -2193,7 +2211,7 @@ Resources:
   # automática e o deploy espera ela terminar (alguns minutos)
   SiteCertificate:
     Type: AWS::CertificateManager::Certificate
-    Condition: HasCustomDomain
+    Condition: CreatesSiteCertificate
     Properties:
       DomainName: !Ref DomainName
       ValidationMethod: DNS
@@ -2233,7 +2251,7 @@ Resources:
       DistributionConfig:
         Enabled: true
         Comment: !Sub 'Site e dashboard do ${Environment}-ecommerce'
-        Aliases: !If [HasCustomDomain, [!Ref DomainName], !Ref AWS::NoValue]
+        Aliases: !If [HasDomainAlias, [!Ref DomainName], !Ref AWS::NoValue]
         HttpVersion: http2and3
         IPV6Enabled: true
         # Só América do Norte e Europa (mais barato); o Brasil é servido de lá
@@ -2293,8 +2311,8 @@ Resources:
             CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
             ResponseHeadersPolicyId: !Ref DashboardSecurityHeaders
         ViewerCertificate: !If
-          - HasCustomDomain
-          - AcmCertificateArn: !Ref SiteCertificate
+          - HasDomainAlias
+          - AcmCertificateArn: !If [CreatesSiteCertificate, !Ref SiteCertificate, !Ref CertificateArn]
             SslSupportMethod: sni-only
             MinimumProtocolVersion: TLSv1.2_2021
           - CloudFrontDefaultCertificate: true
@@ -2682,11 +2700,11 @@ Outputs:
 
   SiteUrl:
     Description: "Página inicial (Lambda hello world), com link para o dashboard"
-    Value: !If [HasCustomDomain, !Sub 'https://${DomainName}', !Sub 'https://${DashboardDistribution.DomainName}']
+    Value: !If [HasDomainAlias, !Sub 'https://${DomainName}', !Sub 'https://${DashboardDistribution.DomainName}']
 
   DashboardUrl:
     Description: "Dashboard (front) publicado no CloudFront"
-    Value: !If [HasCustomDomain, !Sub 'https://${DomainName}/laboratory', !Sub 'https://${DashboardDistribution.DomainName}/laboratory']
+    Value: !If [HasDomainAlias, !Sub 'https://${DomainName}/laboratory', !Sub 'https://${DashboardDistribution.DomainName}/laboratory']
 
   DashboardBucketName:
     Description: "Bucket com os arquivos do dashboard (scripts/deploy.sh faz o upload)"
