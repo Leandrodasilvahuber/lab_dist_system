@@ -2244,9 +2244,10 @@ Resources:
           ['Ambos', 'As duas opções ficam disponíveis e o gerente escolhe a cada tarefa. É o padrão.']
         ];
 
+        // href: pacote já publicado em /dashboard/downloads; sem href, o card fica "em breve"
         const packages = [
-          ['.deb', 'Debian · Ubuntu · Mint'],
-          ['.rpm', 'Fedora · openSUSE · RHEL'],
+          ['.deb', 'Debian · Ubuntu · Mint', '/dashboard/downloads/huberclaude_0.31.0_amd64.deb'],
+          ['.rpm', 'Fedora · openSUSE · RHEL', '/dashboard/downloads/huberclaude-0.31.0-1.x86_64.rpm'],
           ['AppImage', 'Qualquer distro, sem instalar'],
           ['.tar.gz', 'Binário portátil']
         ];
@@ -2285,8 +2286,8 @@ Resources:
             <section class="hero wrap">
               <img class="wordmark" src="/dashboard/img/huberclaude/wordmark.png" alt="HüberClaude" width="1498" height="286">
               <p class="eyebrow"${i('hero.eyebrow')}>Open source · Linux · feito para o OpenRouter</p>
-              <h1${i('hero.title')}>Um agente de código no seu terminal, com todos os modelos por uma só chave.</h1>
-              <p class="lead"${i('hero.lead')}>O HüberClaude é um CLI de agente de código dedicado ao OpenRouter: uma chave de API, milhares de modelos e um fluxo pensado para o terminal. E o modo Enxame cuida do trabalho braçal com workers baratos, para você gastar o mínimo de tokens.</p>
+              <h1${i('hero.title')}>Duas contas, OpenRouter e z.ai, para gastar menos tokens e ter muito mais poder computacional.</h1>
+              <p class="lead"${i('hero.lead')}>O HüberClaude é um CLI de agente de código no seu terminal. A ideia central não é usar uma chave só: é combinar uma conta OpenRouter (o cérebro, com milhares de modelos) com uma conta z.ai (o enxame de workers baratos que faz o trabalho braçal).</p>
               <div class="actions">
                 <a class="btn btn-primary" href="#download"${i('hero.download')}>Baixar para Linux</a>
                 <a class="btn btn-ghost" href="${GITHUB}" rel="noopener"${i('hero.github')}>Ver no GitHub</a>
@@ -2299,7 +2300,7 @@ Resources:
 
             <section class="section wrap" id="ideia">
               <h2><span class="hash">#</span> <span${i('sec.idea')}>A ideia por trás</span></h2>
-              <p class="section-lead"${i('idea.lead')}>O HüberClaude nasceu para ser um CLI enxuto: ele fala só com o OpenRouter. Sem camadas para dezenas de provedores, o código do CLI fica menor, mais simples de manter e mais fácil de entender.</p>
+              <p class="section-lead"${i('idea.lead')}>A ideia central não é usar uma chave só: é usar duas contas, OpenRouter e z.ai, ao mesmo tempo. Uma conta paga o cérebro e a outra paga o braço, e assim você economiza tokens e ganha muito mais poder computacional. O CLI fala só com esses dois serviços, sem camadas para dezenas de provedores, e por isso é enxuto e fácil de manter.</p>
               <div class="idea">
                 <article class="card">
                   <span class="card-emoji" aria-hidden="true">🧠</span>
@@ -2310,13 +2311,13 @@ Resources:
                 <article class="card">
                   <span class="card-emoji" aria-hidden="true">🐝</span>
                   <h3${i('idea.b.title')}>z.ai: o enxame</h3>
-                  <p${i('idea.b.text')}>Em paralelo, você cadastra uma chave de API da z.ai e ganha um enxame de agentes rápidos e baratos, que trabalham em vários modos: Ferramenta, Agente ou Ambos.</p>
+                  <p${i('idea.b.text')}>Em paralelo, você cadastra a sua segunda conta, a chave de API da z.ai, e ganha um enxame de agentes rápidos e baratos, que trabalham em vários modos: Ferramenta, Agente ou Ambos.</p>
                 </article>
                 <span class="idea-op" aria-hidden="true">=</span>
                 <article class="card card-result">
                   <span class="card-emoji" aria-hidden="true">⚡</span>
                   <h3${i('idea.c.title')}>Menos tokens, mais força</h3>
-                  <p${i('idea.c.text')}>Combinar os dois serviços economiza os tokens do modelo caro e multiplica o poder de processamento, com até 10 workers trabalhando ao mesmo tempo.</p>
+                  <p${i('idea.c.text')}>Combinar as duas contas economiza os tokens do modelo caro e multiplica o poder de processamento, com até 10 workers trabalhando ao mesmo tempo.</p>
                 </article>
               </div>
             </section>
@@ -2362,8 +2363,13 @@ Resources:
 
             <section class="section wrap" id="download">
               <h2><span class="hash">#</span> <span${i('sec.download')}>Download para Linux</span></h2>
-              <p class="section-lead"${i('download.lead')}>Os pacotes para Linux estão a caminho. Enquanto isso, dá para compilar direto do código-fonte.</p>
-              <div class="packages">${packages.map(([name, where], n) => `
+              <p class="section-lead"${i('download.lead')}>Já dá para baixar o .deb e o .rpm (v0.31.0). Os demais pacotes estão a caminho; enquanto isso, dá para compilar direto do código-fonte.</p>
+              <div class="packages">${packages.map(([name, where, href], n) => href ? `
+                <a class="pkg" href="${href}" download>
+                  <strong>${name}</strong>
+                  <span${i(`pkg.${n}`)}>${where}</span>
+                  <em class="soon"${i('pkg.get')}>baixar v0.31.0</em>
+                </a>` : `
                 <div class="pkg" aria-disabled="true">
                   <strong>${name}</strong>
                   <span${i(`pkg.${n}`)}>${where}</span>

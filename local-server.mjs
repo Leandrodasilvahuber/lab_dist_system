@@ -276,7 +276,9 @@ const STATIC_TYPES = {
   '.webp': 'image/webp',
   '.png': 'image/png',
   '.woff2': 'font/woff2',
-  '.pdf': 'application/pdf'
+  '.pdf': 'application/pdf',
+  '.deb': 'application/vnd.debian.binary-package',
+  '.rpm': 'application/x-rpm'
 };
 
 // Os diagramas ficam em diagramas/ na raiz do projeto e aparecem para o
