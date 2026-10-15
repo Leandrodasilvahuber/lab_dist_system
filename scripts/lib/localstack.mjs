@@ -70,14 +70,16 @@ export function templateMemoryMb() {
 // Página inicial (HelloFunction do template.yaml): na AWS o CloudFront manda
 // '/' para ela; no local quem faz esse papel é o local-server
 export const LOCAL_HELLO_FUNCTION = 'local-HelloFunction';
+// Site do HüberClaude (HuberclaudeFunction do template.yaml), em /huberclaude
+export const LOCAL_HUBERCLAUDE_FUNCTION = 'local-HuberclaudeFunction';
 
-// Código inline da HelloFunction, sem a indentação do YAML: o LocalStack roda
-// exatamente o código da produção, sem cópia para manter em dia
-export function templateHelloCode() {
+// Código inline de uma função de página (HelloFunction por padrão), sem a indentação
+// do YAML: o LocalStack roda exatamente o código da produção, sem cópia para manter em dia
+export function templateHelloCode(logicalId = 'HelloFunction') {
   const lines = fs.readFileSync(path.join(ROOT, 'template.yaml'), 'utf8').split('\n');
-  const fn = lines.findIndex(line => line.trim() === 'HelloFunction:');
+  const fn = lines.findIndex(line => line.trim() === `${logicalId}:`);
   const start = lines.findIndex((line, i) => i > fn && line.replaceAll(' ', '') === 'InlineCode:|');
-  if (fn === -1 || start === -1) throw new Error('InlineCode da HelloFunction não encontrado no template.yaml');
+  if (fn === -1 || start === -1) throw new Error(`InlineCode da ${logicalId} não encontrado no template.yaml`);
   const indent = lines[start].search(/\S/);
   const end = lines.findIndex((line, i) => i > start && line.trim() && line.search(/\S/) <= indent);
   const block = lines.slice(start + 1, end === -1 ? undefined : end);
@@ -177,10 +179,10 @@ export async function deploySaga({ L, F }, { prefix, tables, environment = {} })
  * Cria (ou recria) a página inicial a partir do InlineCode do template.yaml.
  * O SAM grava InlineCode como index.js (CommonJS); aqui é igual.
  */
-export async function deployHello({ L }, FunctionName = LOCAL_HELLO_FUNCTION) {
+export async function deployHello({ L }, FunctionName = LOCAL_HELLO_FUNCTION, logicalId = 'HelloFunction') {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hello-deploy-'));
   try {
-    fs.writeFileSync(path.join(tmp, 'index.js'), templateHelloCode());
+    fs.writeFileSync(path.join(tmp, 'index.js'), templateHelloCode(logicalId));
     execSync('python3 -m zipfile -c hello.zip index.js', { cwd: tmp });
     await L.send(new lambda.DeleteFunctionCommand({ FunctionName })).catch(() => {});
     await L.send(new lambda.CreateFunctionCommand({

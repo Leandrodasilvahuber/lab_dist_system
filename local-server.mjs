@@ -26,8 +26,8 @@
  * na rede local, defina HOST=0.0.0.0 junto com a chave de admin.
  *
  * Mesmo roteamento do CloudFront da AWS: '/' é a página inicial (HelloFunction,
- * invocada no LocalStack) e o dashboard fica em /laboratory, com os assets em
- * /dashboard/*.
+ * invocada no LocalStack), /huberclaude é o site do HüberClaude (HuberclaudeFunction)
+ * e o dashboard fica em /laboratory, com os assets em /dashboard/*.
  *
  * O dashboard é servido daqui (mesma origem), então o servidor não manda
  * Access-Control-Allow-Origin: outro site aberto no navegador não consegue
@@ -48,7 +48,7 @@ import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
 import { createLogBuffer, parseLogLine, isTraceId } from './src/common/log-query.mjs';
 import { createEmfAgent } from './scripts/lib/emf-agent.mjs';
 import { createLocalstackHealth } from './scripts/lib/localstack-health.mjs';
-import { LOCAL_CHAOS_PARAM, LOCAL_HELLO_FUNCTION, templateMemoryMb } from './scripts/lib/localstack.mjs';
+import { LOCAL_CHAOS_PARAM, LOCAL_HELLO_FUNCTION, LOCAL_HUBERCLAUDE_FUNCTION, templateMemoryMb } from './scripts/lib/localstack.mjs';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from './src/common/database.mjs';
 import { SAGAS_BY_DAY_INDEX, dayShardsInWindow } from './src/common/saga-day-index.mjs';
@@ -274,7 +274,8 @@ const STATIC_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
-  '.woff2': 'font/woff2'
+  '.woff2': 'font/woff2',
+  '.pdf': 'application/pdf'
 };
 
 // Os diagramas ficam em diagramas/ na raiz do projeto e aparecem para o
@@ -307,12 +308,12 @@ function dashboardFile(pathname) {
 // aqui ela é invocada direto no LocalStack, com o mesmo evento da Function URL
 const helloLambda = new LambdaClient({ region: process.env.AWS_REGION, endpoint: process.env.AWS_ENDPOINT });
 
-async function helloPage(event) {
+async function helloPage(event, FunctionName = LOCAL_HELLO_FUNCTION) {
   const { Payload, FunctionError } = await helloLambda.send(new InvokeCommand({
-    FunctionName: LOCAL_HELLO_FUNCTION,
+    FunctionName,
     Payload: JSON.stringify(event)
   }));
-  if (FunctionError) throw new Error(`${LOCAL_HELLO_FUNCTION}: ${FunctionError}`);
+  if (FunctionError) throw new Error(`${FunctionName}: ${FunctionError}`);
   return JSON.parse(Buffer.from(Payload).toString('utf8'));
 }
 
@@ -348,14 +349,17 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { 'Content-Type': STATIC_TYPES[path.extname(staticFile)], 'Cache-Control': 'no-store' }, body);
   }
 
-  if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/') {
+  // /huberclaude* é a Lambda do site do HüberClaude (PathPattern + HuberclaudeRewriteFunction no CloudFront)
+  const pagePath = url.pathname === '/' ? '/' : url.pathname.startsWith('/huberclaude') ? '/huberclaude' : null;
+  if ((req.method === 'GET' || req.method === 'HEAD') && pagePath) {
     try {
-      const result = await helloPage(buildEvent({ method: req.method, url, headers: req.headers }));
+      const result = await helloPage(buildEvent({ method: req.method, url, headers: req.headers }),
+        pagePath === '/' ? LOCAL_HELLO_FUNCTION : LOCAL_HUBERCLAUDE_FUNCTION);
       // Na AWS o CloudFront guarda a página por 5 min (Cache-Control da Lambda); local não há CDN
       // e o navegador não deve mostrar uma cópia velha depois de um novo localstack:deploy
       return send(res, result.statusCode, { ...(result.headers || {}), 'Cache-Control': 'no-cache' }, req.method === 'HEAD' ? '' : result.body);
     } catch (error) {
-      console.error(`${req.method} / ->`, error.message);
+      console.error(`${req.method} ${pagePath} ->`, error.message);
       return send(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({
         error: 'Página inicial indisponível',
         hint: 'Rode npm run localstack:deploy (dashboard em /laboratory)'

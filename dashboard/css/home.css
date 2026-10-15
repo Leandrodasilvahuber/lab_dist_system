@@ -448,7 +448,7 @@ code { font-family: var(--mono); }
 }
 
 @media (max-width: 600px) {
-    .topnav-links a:not(.btn) { display: none; }
+    .topnav-links a:not(.btn), .topnav-links .btn-sm { display: none; }
     .hero-id { gap: 14px; }
     .avatar { width: 72px; height: 72px; }
     .section, .stats { margin-bottom: 64px; }
@@ -481,3 +481,26 @@ code { font-family: var(--mono); }
 }
 .theme-btn:hover { background: var(--ov-strong); }
 .theme-btn:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+
+/* ---------- Seletor de idioma ---------- */
+.lang { display: inline-flex; gap: 4px; margin-left: 4px; }
+.lang button {
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--ov);
+    cursor: pointer;
+    opacity: .6;
+}
+.lang button img { display: block; width: 22px; height: 16px; border-radius: 2px; box-shadow: 0 0 0 1px var(--line-strong); }
+.lang button:hover { background: var(--ov-strong); opacity: 1; }
+.lang button[aria-pressed="true"] { opacity: 1; border-color: var(--green); }
+.lang button:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+@media (max-width: 600px) {
+    .lang button { width: 32px; height: 32px; }
+    .lang button img { width: 20px; height: 14px; }
+}

@@ -1974,7 +1974,13 @@ Resources:
         // A animação do terminal fica num SVG em data URI (img-src aceita data:), que tem CSS próprio
         const C = { card: '#12151c', line: '#262b36', text: '#e6e8ef', muted: '#9aa0ae', green: '#4ade80', yellow: '#facc15' };
 
-        const terminal = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 200' font-family='ui-monospace,Menlo,Consolas,monospace' font-size='14'>
+        const terminalLines = {
+          pt: ['✔ carregando 15+ anos de experiência...', '✔ conectando Kafka, Saga e DynamoDB...', '✔ esquentando o café ☕', 'Olá! Bora construir algo distribuído? 🚀'],
+          en: ['✔ loading 15+ years of experience...', '✔ connecting Kafka, Saga and DynamoDB...', '✔ warming up the coffee ☕', 'Hi! Shall we build something distributed? 🚀'],
+          es: ['✔ cargando 15+ años de experiencia...', '✔ conectando Kafka, Saga y DynamoDB...', '✔ calentando el café ☕', '¡Hola! ¿Construimos algo distribuido? 🚀']
+        };
+
+        const terminal = ([l1, l2, l3, hi]) => `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 200' font-family='ui-monospace,Menlo,Consolas,monospace' font-size='14'>
           <style>
             .l{opacity:0;animation:show .2s forwards}
             .l2{animation-delay:.9s}.l3{animation-delay:1.8s}.l4{animation-delay:2.4s}.l5{animation-delay:3s}.l6{animation-delay:3.8s}
@@ -1987,19 +1993,23 @@ Resources:
           <circle cx='22' cy='18' r='5.5' fill='#f87171'/><circle cx='40' cy='18' r='5.5' fill='${C.yellow}'/><circle cx='58' cy='18' r='5.5' fill='${C.green}'/>
           <text x='210' y='22' fill='${C.muted}' font-size='11' text-anchor='middle'>leandro@floripa: ~</text>
           <text x='20' y='68' fill='${C.text}' class='l'><tspan fill='${C.green}'>$</tspan> npx leandro --whoami</text>
-          <text x='20' y='94' fill='${C.muted}' class='l l2'>✔ carregando 15+ anos de experiência...</text>
-          <text x='20' y='116' fill='${C.muted}' class='l l3'>✔ conectando Kafka, Saga e DynamoDB...</text>
-          <text x='20' y='138' fill='${C.muted}' class='l l4'>✔ esquentando o café ☕</text>
-          <text x='20' y='166' fill='${C.green}' class='l l5'>Olá! Bora construir algo distribuído? 🚀</text>
+          <text x='20' y='94' fill='${C.muted}' class='l l2'>${l1}</text>
+          <text x='20' y='116' fill='${C.muted}' class='l l3'>${l2}</text>
+          <text x='20' y='138' fill='${C.muted}' class='l l4'>${l3}</text>
+          <text x='20' y='166' fill='${C.green}' class='l l5'>${hi}</text>
           <rect x='20' y='176' width='9' height='3' fill='${C.green}' class='l l6 cur'/>
         </svg>`;
 
         const favicon = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='#12151c'/><text x='16' y='22' font-family='ui-monospace,monospace' font-size='15' font-weight='700' fill='${C.green}' text-anchor='middle'>LH</text></svg>`;
         const dataUri = svg => `data:image/svg+xml,${encodeURIComponent(svg)}`;
 
+        // Português é o texto do HTML (reserva sem JS); /dashboard/js/home.js troca pelos
+        // idiomas de /dashboard/js/home-i18n.js usando estes atributos
+        const i = key => ` data-i18n="${key}"`;
+
         const labs = [
           { emoji: '🛒', title: 'Sistemas Distribuídos', text: 'E-commerce serverless com saga no Step Functions, idempotência ponta a ponta, caos e SLOs. Rodando ao vivo.', href: '/laboratory' },
-          { emoji: '🦎', title: 'HüberClaude', text: 'CLI de agente de código open-source dedicado ao OpenRouter, com modo Enxame: workers GLM baratos fazem o trabalho braçal pra economizar tokens.', href: 'https://github.com/Leandrodasilvahuber/huberclaude', tag: 'OPEN SOURCE', cta: 'Ver no GitHub', external: true },
+          { emoji: '🦎', title: 'HüberClaude', text: 'CLI de agente de código open-source dedicado ao OpenRouter, com modo Enxame: workers GLM baratos fazem o trabalho braçal pra economizar tokens.', href: '/huberclaude', tag: 'OPEN SOURCE', cta: 'Conhecer o projeto' },
           { emoji: '🧠', title: 'Fine-tuning', text: 'Ensinando modelos a falar a língua do domínio. Os GPUs ainda estão esquentando.' },
           { emoji: '📚', title: 'RAG', text: 'Busca vetorial + LLM respondendo com as fontes certas, sem alucinar (muito).' }
         ];
@@ -2035,17 +2045,17 @@ Resources:
               ${body}
             </section>`;
 
-        const labCard = ({ emoji, title, text, href, tag = 'AO VIVO', cta = 'Entrar no laboratório', external }) => {
+        const labCard = ({ emoji, title, text, href, tag = 'AO VIVO', cta = 'Entrar no laboratório', external }, n) => {
           const inner = `
                 <div class="lab-top"><span class="lab-emoji" aria-hidden="true">${emoji}</span>${href
-                  ? `<span class="tag tag-live">${tag}</span>`
-                  : '<span class="tag tag-soon">🚧 em breve</span>'}</div>
-                <h3>Laboratório de ${title}</h3>
-                <p>${text}</p>
-                <span class="lab-cta">${href ? `${cta} <span aria-hidden="true">→</span>` : 'Porta trancada 🔒'}</span>`;
+                  ? `<span class="tag tag-live"${i(`lab.${n}.tag`)}>${tag}</span>`
+                  : `<span class="tag tag-soon"${i('lab.soon')}>🚧 em breve</span>`}</div>
+                <h3${i(`lab.${n}.title`)}>Laboratório de ${title}</h3>
+                <p${i(`lab.${n}.text`)}>${text}</p>
+                <span class="lab-cta">${href ? `<span${i(`lab.${n}.cta`)}>${cta}</span> <span aria-hidden="true">→</span>` : `<span${i('lab.locked')}>Porta trancada 🔒</span>`}</span>`;
           return href
             ? `<a class="lab lab-live" href="${href}"${external ? ' target="_blank" rel="noopener noreferrer"' : ''}>${inner}</a>`
-            : `<div class="lab lab-locked" aria-disabled="true" title="Em construção">${inner}</div>`;
+            : `<div class="lab lab-locked" aria-disabled="true" title="Em construção" data-i18n-title="lab.lockedTitle">${inner}</div>`;
         };
 
         const html = `<!doctype html>
@@ -2054,7 +2064,7 @@ Resources:
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>Leandro Huber · Laboratórios</title>
-          <meta name="description" content="Leandro Huber, engenheiro de software sênior: Node.js, TypeScript, AWS e sistemas distribuídos.">
+          <meta name="description" content="Leandro Huber, engenheiro de software sênior: Node.js, TypeScript, AWS e sistemas distribuídos." data-i18n-content="meta.desc">
           <meta name="theme-color" content="#f6f7fb">
           <link rel="icon" href="${dataUri(favicon)}">
           <script src="/dashboard/js/theme-init.js"></script>
@@ -2065,11 +2075,16 @@ Resources:
           <header class="topnav">
             <div class="wrap topnav-inner">
               <a class="logo" href="/"><span class="logo-mark">LH</span><span>leandro<span class="logo-dim">.huber</span></span></a>
-              <nav class="topnav-links" aria-label="Seções">
-                <a href="#labs">Laboratórios</a>
-                <a href="#carreira">Carreira</a>
-                <a href="#faq">FAQ</a>
-                <a class="btn btn-sm btn-primary" href="/laboratory">Abrir laboratório</a>
+              <nav class="topnav-links" aria-label="Seções" data-i18n-aria-label="nav.aria">
+                <a href="#labs"${i('nav.labs')}>Laboratórios</a>
+                <a href="#carreira"${i('nav.career')}>Carreira</a>
+                <a href="#faq"${i('nav.faq')}>FAQ</a>
+                <a class="btn btn-sm btn-primary" href="/laboratory"${i('nav.open')}>Abrir laboratório</a>
+                <div class="lang" role="group" aria-label="Idioma" data-i18n-aria-label="lang.label">
+                  <button type="button" data-lang="pt" title="Português" aria-label="Português" aria-pressed="true"><img src="/dashboard/img/flags/br.svg" alt="" width="22" height="16"></button>
+                  <button type="button" data-lang="en" title="English" aria-label="English" aria-pressed="false"><img src="/dashboard/img/flags/us.svg" alt="" width="22" height="16"></button>
+                  <button type="button" data-lang="es" title="Español" aria-label="Español" aria-pressed="false"><img src="/dashboard/img/flags/es.svg" alt="" width="22" height="16"></button>
+                </div>
                 <button type="button" class="theme-btn" id="themeBtn"></button>
               </nav>
             </div>
@@ -2079,57 +2094,58 @@ Resources:
             <section class="hero">
               <div class="hero-text">
                 <div class="hero-id">
-                  <img class="avatar" src="/dashboard/img/leandro.webp" alt="Foto do Leandro Huber" width="88" height="88">
+                  <img class="avatar" src="/dashboard/img/leandro.webp" alt="Foto do Leandro Huber" data-i18n-alt="hero.avatarAlt" width="88" height="88">
                   <div>
-                    <p class="hello">Hello World 👋, eu sou o</p>
-                    <span class="status"><span class="status-dot"></span>Disponível para novos projetos</span>
+                    <p class="hello"${i('hero.hello')}>Hello World 👋, eu sou o</p>
+                    <span class="status"><span class="status-dot"></span><span${i('hero.status')}>Disponível para novos projetos</span></span>
                   </div>
                 </div>
                 <h1>Leandro Huber</h1>
-                <p class="role">Engenheiro de Software Sênior <span>·</span> Node.js <span>·</span> TypeScript <span>·</span> AWS <span>·</span> Sistemas Distribuídos</p>
-                <p class="lead">Há mais de 15 anos transformando café em APIs e eventos em sistemas que não vendem o mesmo estoque duas vezes. Moro em Florianópolis, onde os sistemas são distribuídos e as praias também. 🏝️</p>
+                <p class="role"><span${i('hero.role')}>Engenheiro de Software Sênior</span> <span>·</span> Node.js <span>·</span> TypeScript <span>·</span> AWS <span>·</span> <span${i('hero.roleTail')}>Sistemas Distribuídos</span></p>
+                <p class="lead"${i('hero.lead')}>Há mais de 15 anos transformando café em APIs e eventos em sistemas que não vendem o mesmo estoque duas vezes. Moro em Florianópolis, onde os sistemas são distribuídos e as praias também. 🏝️</p>
                 <div class="actions">
-                  <a class="btn btn-primary" href="/laboratory">Abrir o laboratório 🧪</a>
+                  <a class="btn btn-primary" href="/laboratory"${i('hero.cta')}>Abrir o laboratório 🧪</a>
+                  <a class="btn btn-ghost" href="/dashboard/cv/Leandro_Huber_CV_Sistemas_Distribuidos_PT.pdf" download data-href-pt="/dashboard/cv/Leandro_Huber_CV_Sistemas_Distribuidos_PT.pdf" data-href-en="/dashboard/cv/Leandro_Huber_CV_Distributed_Systems_EN.pdf" data-href-es="/dashboard/cv/Leandro_Huber_CV_Sistemas_Distribuidos_ES.pdf"${i('hero.cv')}>📄 Baixar CV</a>
                   <a class="btn btn-ghost" href="https://www.linkedin.com/in/leandrohuber" rel="noopener">LinkedIn</a>
                   <a class="btn btn-ghost" href="https://github.com/Leandrodasilvahuber" rel="noopener">GitHub</a>
                 </div>
               </div>
               <div class="hero-art">
-                <img class="terminal" src="${dataUri(terminal)}" alt="Terminal rodando npx leandro --whoami" width="420" height="200">
+                <img class="terminal" src="${dataUri(terminal(terminalLines.pt))}" data-src-pt="${dataUri(terminal(terminalLines.pt))}" data-src-en="${dataUri(terminal(terminalLines.en))}" data-src-es="${dataUri(terminal(terminalLines.es))}" alt="Terminal rodando npx leandro --whoami" data-i18n-alt="hero.termAlt" width="420" height="200">
               </div>
             </section>
 
-            <ul class="stats" aria-label="Métricas de produção">${stats.map(([value, label]) => `
-              <li class="stat"><strong>${value}</strong><span>${label}</span></li>`).join('')}
+            <ul class="stats" aria-label="Métricas de produção" data-i18n-aria-label="stats.aria">${stats.map(([value, label], n) => `
+              <li class="stat"><strong>${value}</strong><span${i(`stat.${n}`)}>${label}</span></li>`).join('')}
             </ul>
-        ${section('labs', '<span class="hash">#</span> Laboratórios', `<div class="labs">${labs.map(labCard).join('')}</div>`)}
+        ${section('labs', `<span class="hash">#</span> <span${i('sec.labs')}>Laboratórios</span>`, `<div class="labs">${labs.map(labCard).join('')}</div>`)}
         ${section('stack', '<code>$ npm ls --depth=0</code>', `<ul class="chips">${stack.map(item => `<li>${item}</li>`).join('')}</ul>`)}
-        ${section('carreira', '<code>$ git log --oneline carreira</code>', `<ol class="timeline">${career.map(([when, where, what]) => `
+        ${section('carreira', `<code>$ <span${i('sec.career')}>git log --oneline carreira</span></code>`, `<ol class="timeline">${career.map(([when, where, what], n) => `
               <li>
                 <span class="when">${when}</span>
-                <strong>${where}</strong>
-                <p>${what}</p>
+                <strong${n === 4 ? i('career.beginning') : ''}>${where}</strong>
+                <p${i(`career.${n}`)}>${what}</p>
               </li>`).join('')}</ol>`)}
-        ${section('faq', '<span class="hash">#</span> Perguntas frequentes <span class="muted">(e algumas nem tanto)</span>', `<div class="faq">${faq.map(([q, a]) => `
+        ${section('faq', `<span class="hash">#</span> <span${i('sec.faq')}>Perguntas frequentes</span> <span class="muted"${i('sec.faqNote')}>(e algumas nem tanto)</span>`, `<div class="faq">${faq.map(([q, a], n) => `
               <details>
-                <summary>${q}</summary>
-                <p>${a}</p>
+                <summary${i(`faq.${n}.q`)}>${q}</summary>
+                <p${i(`faq.${n}.a`)}>${a}</p>
               </details>`).join('')}</div>`)}
 
             <section class="cta">
               <div>
-                <h2>Bora conversar?</h2>
-                <p>Sistemas distribuídos, serverless, mensageria ou só um café virtual.</p>
+                <h2${i('cta.title')}>Bora conversar?</h2>
+                <p${i('cta.text')}>Sistemas distribuídos, serverless, mensageria ou só um café virtual.</p>
               </div>
               <a class="btn btn-primary" href="mailto:emaildohuber@gmail.com">📬 emaildohuber@gmail.com</a>
             </section>
           </main>
 
           <footer class="wrap footer">
-            <span>Florianópolis (SC)</span>
-            <span>Servido por uma AWS Lambda atrás do CloudFront ⚡</span>
+            <span${i('footer.place')}>Florianópolis (SC)</span>
+            <span${i('footer.served')}>Servido por uma AWS Lambda atrás do CloudFront ⚡</span>
           </footer>
-          <script src="/dashboard/js/home.js"></script>
+          <script type="module" src="/dashboard/js/home.js"></script>
         </body>
         </html>`;
 
@@ -2171,6 +2187,228 @@ Resources:
         OriginAccessControlOriginType: lambda
         SigningBehavior: always
         SigningProtocol: sigv4
+
+  # ---------- Site do HüberClaude (Lambda própria, em /huberclaude) ----------
+  # Mesmo esquema da página inicial: Function URL com AWS_IAM, só o CloudFront chama
+  HuberclaudeFunction:
+    Type: AWS::Serverless::Function
+    # checkov:skip=CKV_AWS_116:página estática sem evento assíncrono, DLQ não se aplica
+    # checkov:skip=CKV_AWS_117:não acessa recursos de VPC
+    # checkov:skip=CKV_AWS_173:as variáveis de ambiente vêm do Globals e não são segredos
+    # checkov:skip=CKV_AWS_115:contas novas não aceitam reserva de concorrência; reserva só com GatewayConcurrencyLimit
+    Properties:
+      Handler: index.handler
+      MemorySize: 128
+      Timeout: 3
+      ReservedConcurrentExecutions: !If [LimitGatewayConcurrency, 2, !Ref AWS::NoValue]
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
+      InlineCode: |
+        // Site do HüberClaude (CLI de agente de código para Linux, dedicado ao OpenRouter).
+        // Mesmo esquema da página inicial: o visual fica em /dashboard/css/huberclaude.css e o
+        // idioma em /dashboard/js/huberclaude.js (a CSP só aceita arquivos da mesma origem, nada
+        // inline). O HTML vem em português e o JS troca para inglês/espanhol com os atributos data-i18n.
+        const GITHUB = 'https://github.com/Leandrodasilvahuber/huberclaude';
+        const RELEASES = `${GITHUB}/releases`;
+        // Chave PIX para doações (CPF, e-mail, telefone ou chave aleatória). Vazia: a seção mostra "em breve"
+        const PIX_KEY = '';
+        const INSTALL = 'git clone https://github.com/Leandrodasilvahuber/huberclaude\ncd huberclaude\nbun install && bun run build\nnpm install -g .';
+
+        const mark = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='#15191e'/><g fill='#96af4c'><rect x='6' y='6' width='7' height='3'/><rect x='19' y='6' width='7' height='3'/><rect x='6' y='11' width='7' height='3'/><rect x='19' y='11' width='7' height='3'/><rect x='6' y='15' width='20' height='3'/><rect x='6' y='20' width='7' height='3'/><rect x='19' y='20' width='7' height='3'/><rect x='6' y='25' width='7' height='2'/><rect x='19' y='25' width='7' height='2'/></g></svg>`;
+        const dataUri = svg => `data:image/svg+xml,${encodeURIComponent(svg)}`;
+        const i = key => ` data-i18n="${key}"`;
+        const esc = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+        const features = [
+          ['🔑', 'Só OpenRouter, sem configurar provedor', 'Rode /login, cole sua chave e pronto. Sem perfis de provedor, URLs base para ajustar ou comportamentos específicos para aprender.'],
+          ['🧠', 'Todos os modelos, uma chave', 'Claude, GPT, Gemini, DeepSeek, Qwen, GLM, Kimi e o resto do catálogo, escolhidos no /model com os preços à vista.'],
+          ['🐝', 'Modo Enxame', 'Até 10 workers baratos da z.ai fazem o trabalho braçal. Seu modelo principal só planeja e decide.'],
+          ['⛽', 'Gasto à vista', 'O /usage mostra seu saldo no OpenRouter como um marcador de combustível, na escala da sua última recarga.'],
+          ['🛠️', 'Um agente completo', 'Bash, leitura e edição de arquivos, grep, subagentes, tarefas, MCP, skills, hooks e busca na web.'],
+          ['🐧', 'Feito para o terminal Linux', 'Streaming, comandos de barra, sessões em segundo plano e um visual verde com o mascote H em blocos.']
+        ];
+
+        const steps = [
+          ['/login', 'Cole sua chave', 'Crie uma chave no OpenRouter e cole no /login. Ela fica salva só para o seu usuário.', 'login', 'Tela de configuração da chave do OpenRouter'],
+          ['/model', 'Escolha o modelo', 'Navegue pelo catálogo, filtre por nome e compare contexto e preço por 1M de tokens.', 'model', 'Seletor de modelos do OpenRouter com preços'],
+          ['/enxame', 'Ligue o enxame (opcional)', 'Cadastre uma chave da z.ai, escolha o modo e quantos workers rodam ao mesmo tempo.', 'enxame', 'Menu do modo Enxame']
+        ];
+
+        const modes = [
+          ['Ferramenta', 'O mais barato: o gerente dispara vários prompts sem estado em paralelo e lê só respostas curtas. Ideal para resumir, extrair, classificar e traduzir.'],
+          ['Agente', 'Subagentes na z.ai com ferramentas: leem e buscam arquivos, rodam um comando ou fazem uma edição pequena.'],
+          ['Ambos', 'As duas opções ficam disponíveis e o gerente escolhe a cada tarefa. É o padrão.']
+        ];
+
+        const packages = [
+          ['.deb', 'Debian · Ubuntu · Mint'],
+          ['.rpm', 'Fedora · openSUSE · RHEL'],
+          ['AppImage', 'Qualquer distro, sem instalar'],
+          ['.tar.gz', 'Binário portátil']
+        ];
+
+        const html = `<!doctype html>
+        <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>HüberClaude · Agente de código para Linux</title>
+          <meta name="description" content="HüberClaude: CLI de agente de código open source para Linux, dedicado ao OpenRouter. Uma chave, milhares de modelos e o modo Enxame para gastar menos tokens." data-i18n-content="meta.desc">
+          <meta name="theme-color" content="#15191e">
+          <link rel="icon" href="${dataUri(mark)}">
+          <link rel="preload" href="/dashboard/fonts/inter-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
+          <link rel="stylesheet" href="/dashboard/css/huberclaude.css">
+        </head>
+        <body>
+          <header class="topnav">
+            <div class="wrap topnav-inner">
+              <a class="logo" href="/huberclaude/"><img src="${dataUri(mark)}" alt="" width="28" height="28"><span>Hüber<b>Claude</b></span></a>
+              <nav class="topnav-links" aria-label="Seções" data-i18n-aria-label="nav.aria">
+                <a href="#comecar"${i('nav.start')}>Como começar</a>
+                <a href="#enxame"${i('nav.swarm')}>Enxame</a>
+                <a href="#download"${i('nav.download')}>Download</a>
+                <a href="#apoie"${i('nav.support')}>Apoie</a>
+                <div class="lang" role="group" aria-label="Idioma" data-i18n-aria-label="lang.label">
+                  <button type="button" data-lang="pt" title="Português" aria-label="Português" aria-pressed="true"><img src="/dashboard/img/flags/br.svg" alt="" width="22" height="16"></button>
+                  <button type="button" data-lang="en" title="English" aria-label="English" aria-pressed="false"><img src="/dashboard/img/flags/us.svg" alt="" width="22" height="16"></button>
+                  <button type="button" data-lang="es" title="Español" aria-label="Español" aria-pressed="false"><img src="/dashboard/img/flags/es.svg" alt="" width="22" height="16"></button>
+                </div>
+              </nav>
+            </div>
+          </header>
+
+          <main>
+            <section class="hero wrap">
+              <img class="wordmark" src="/dashboard/img/huberclaude/wordmark.png" alt="HüberClaude" width="1498" height="286">
+              <p class="eyebrow"${i('hero.eyebrow')}>Open source · Linux · feito para o OpenRouter</p>
+              <h1${i('hero.title')}>Um agente de código no seu terminal, com todos os modelos por uma só chave.</h1>
+              <p class="lead"${i('hero.lead')}>O HüberClaude é um CLI de agente de código dedicado ao OpenRouter: uma chave de API, milhares de modelos e um fluxo pensado para o terminal. E o modo Enxame cuida do trabalho braçal com workers baratos, para você gastar o mínimo de tokens.</p>
+              <div class="actions">
+                <a class="btn btn-primary" href="#download"${i('hero.download')}>Baixar para Linux</a>
+                <a class="btn btn-ghost" href="${GITHUB}" rel="noopener"${i('hero.github')}>Ver no GitHub</a>
+              </div>
+              <figure class="shot hero-shot">
+                <img src="/dashboard/img/huberclaude/inicio.png" alt="Tela inicial do HüberClaude no terminal" data-i18n-alt="shot.homeAlt" width="904" height="597">
+              </figure>
+            </section>
+
+            <section class="section wrap" id="recursos">
+              <h2><span class="hash">#</span> <span${i('sec.features')}>O que ele faz</span></h2>
+              <div class="grid">${features.map(([emoji, title, text], n) => `
+                <article class="card">
+                  <span class="card-emoji" aria-hidden="true">${emoji}</span>
+                  <h3${i(`feat.${n}.title`)}>${title}</h3>
+                  <p${i(`feat.${n}.text`)}>${text}</p>
+                </article>`).join('')}
+              </div>
+            </section>
+
+            <section class="section wrap" id="comecar">
+              <h2><span class="hash">#</span> <span${i('sec.start')}>Como começar</span></h2>
+              <p class="section-lead"${i('start.lead')}>Três comandos e você já está programando com o modelo que quiser.</p>
+              <div class="steps">${steps.map(([cmd, title, text, img, alt], n) => `
+                <article class="step">
+                  <code class="cmd">${cmd}</code>
+                  <h3${i(`step.${n}.title`)}>${title}</h3>
+                  <p${i(`step.${n}.text`)}>${text}</p>
+                  <figure class="shot"><img src="/dashboard/img/huberclaude/${img}.png" alt="${alt}"${' data-i18n-alt="step.' + n + '.alt"'} loading="lazy"></figure>
+                </article>`).join('')}
+              </div>
+            </section>
+
+            <section class="section wrap" id="enxame">
+              <h2><span class="hash">#</span> <span${i('sec.swarm')}>Enxame: gaste menos tokens</span></h2>
+              <div class="split">
+                <div>
+                  <p class="section-lead"${i('swarm.lead')}>O modelo caro do OpenRouter é o gerente; os workers da z.ai são o enxame. O gerente fica com o planejamento e as decisões finais e distribui o trabalho barato e bem delimitado para modelos GLM flash, lendo de volta só resultados curtos.</p>
+                  <ul class="modes">${modes.map(([name, text], n) => `
+                    <li><strong${i(`mode.${n}.name`)}>${name}</strong><span${i(`mode.${n}.text`)}>${text}</span></li>`).join('')}
+                  </ul>
+                  <p class="note"${i('swarm.note')}>Workers são modelos mais fracos: o gerente confere a saída antes de confiar nela. Nunca coloque segredos no prompt de um worker.</p>
+                </div>
+                <figure class="shot"><img src="/dashboard/img/huberclaude/usage.png" alt="Saldo do OpenRouter como marcador de combustível" data-i18n-alt="swarm.shotAlt" loading="lazy"><figcaption${i('swarm.caption')}>/usage: seu saldo como um marcador de combustível</figcaption></figure>
+              </div>
+            </section>
+
+            <section class="section wrap" id="download">
+              <h2><span class="hash">#</span> <span${i('sec.download')}>Download para Linux</span></h2>
+              <p class="section-lead"${i('download.lead')}>Os pacotes para Linux estão a caminho. Enquanto isso, dá para compilar direto do código-fonte.</p>
+              <div class="packages">${packages.map(([name, where], n) => `
+                <div class="pkg" aria-disabled="true">
+                  <strong>${name}</strong>
+                  <span${i(`pkg.${n}`)}>${where}</span>
+                  <em class="soon"${i('pkg.soon')}>em breve</em>
+                </div>`).join('')}
+              </div>
+              <div class="install">
+                <div class="install-head"><span${i('install.title')}>Compilar do código-fonte</span><button type="button" class="copy" data-copy="${esc(INSTALL).replace(/\n/g, '&#10;')}"${i('copy.label')}>Copiar</button></div>
+                <pre><code>${esc(INSTALL)}</code></pre>
+                <p class="note"${i('install.note')}>Precisa de Node.js 22 ou mais novo para rodar e de Bun 1.3.13 ou mais novo para compilar. Depois é só rodar huberclaude dentro do seu projeto.</p>
+              </div>
+              <p><a class="link" href="${RELEASES}" rel="noopener"${i('download.releases')}>Acompanhar os lançamentos no GitHub →</a></p>
+            </section>
+
+            <section class="section wrap" id="apoie">
+              <div class="support">
+                <h2><span${i('support.title')}>Um projeto sem fins lucrativos 💚</span></h2>
+                <p${i('support.text')}>O HüberClaude é uma iniciativa sem fins lucrativos, criada para tornar o uso de inteligência artificial mais acessível. Ele é gratuito e open source. Se ele te ajuda, considere apoiar o projeto com uma doação via PIX.</p>
+                ${PIX_KEY
+                  ? `<div class="pix"><span class="pix-label"${i('support.pixLabel')}>Chave PIX</span><code id="pixKey">${esc(PIX_KEY)}</code><button type="button" class="copy" data-copy="${esc(PIX_KEY)}"${i('copy.label')}>Copiar</button></div>`
+                  : `<p class="pix pix-soon"${i('support.pixSoon')}>Chave PIX em breve.</p>`}
+              </div>
+            </section>
+          </main>
+
+          <footer class="wrap footer">
+            <span${i('footer.fork')}>Fork do OpenClaude · Licença MIT · Sem vínculo com Anthropic, OpenRouter ou Z.ai</span>
+            <a href="/"${i('footer.back')}>← leandro.huber</a>
+          </footer>
+          <script type="module" src="/dashboard/js/huberclaude.js"></script>
+        </body>
+        </html>`;
+
+        // Página pública e igual para todos: o CloudFront guarda por 5 min (s-maxage) e o
+        // navegador não guarda, para um deploy novo aparecer na hora
+        // InlineCode vira index.js (CommonJS): exports, não export
+        exports.handler = async () => ({
+          statusCode: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=0, s-maxage=300' },
+          body: html
+        });
+
+  HuberclaudeFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref HuberclaudeFunction
+      FunctionUrlAuthType: AWS_IAM
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${DashboardDistribution}'
+
+  HuberclaudeFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref HuberclaudeFunction
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${DashboardDistribution}'
+
+  # /huberclaude e /huberclaude/... viram um só caminho: uma só chave de cache (e
+  # diferente da página inicial, que também chega à Lambda como '/')
+  HuberclaudeRewriteFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub '${Environment}-ecommerce-huberclaude-rewrite'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: /huberclaude* -> /huberclaude (uma só chave de cache)
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          request.uri = '/huberclaude';
+          return request;
+        }
 
   # /laboratory e /laboratory/... devolvem o index.html do dashboard (o
   # roteamento do dashboard fica no hash, #/slo, então o caminho não importa)
@@ -2270,6 +2508,12 @@ Resources:
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
               OriginSSLProtocols: [TLSv1.2]
+          - Id: huberclaude-lambda
+            DomainName: !Select [2, !Split ['/', !GetAtt HuberclaudeFunctionUrl.FunctionUrl]]
+            OriginAccessControlId: !GetAtt HelloOriginAccessControl.Id
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
         # Raiz e qualquer outro caminho: a Lambda hello world (sem cache)
         DefaultCacheBehavior:
           TargetOriginId: hello-lambda
@@ -2300,6 +2544,19 @@ Resources:
             FunctionAssociations:
               - EventType: viewer-request
                 FunctionARN: !GetAtt LaboratoryRewriteFunction.FunctionMetadata.FunctionARN
+          # Site do HüberClaude (Lambda própria)
+          - PathPattern: /huberclaude*
+            TargetOriginId: huberclaude-lambda
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            ResponseHeadersPolicyId: !Ref DashboardSecurityHeaders
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt HuberclaudeRewriteFunction.FunctionMetadata.FunctionARN
           # Assets do dashboard (js, css)
           - PathPattern: /dashboard/*
             TargetOriginId: dashboard-s3

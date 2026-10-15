@@ -6,7 +6,7 @@
  *
  * Uso: npm run build && npm run localstack:deploy
  */
-import { clients, ensureTables, deploySaga, deployHello, ensureChaosParameter, LOCAL_CHAOS_ENV, LOCAL_HELLO_FUNCTION } from './lib/localstack.mjs';
+import { clients, ensureTables, deploySaga, deployHello, ensureChaosParameter, LOCAL_CHAOS_ENV, LOCAL_HELLO_FUNCTION, LOCAL_HUBERCLAUDE_FUNCTION } from './lib/localstack.mjs';
 
 const endpoint = process.env.LOCALSTACK_ENDPOINT || 'http://localhost:4566';
 export const LOCAL_PREFIX = 'local';
@@ -29,6 +29,8 @@ try {
   console.log(`✅ Saga publicada (${runtime}): ${stateMachineArn}`);
   await deployHello(c);
   console.log(`✅ Página inicial publicada: ${LOCAL_HELLO_FUNCTION}`);
+  await deployHello(c, LOCAL_HUBERCLAUDE_FUNCTION, 'HuberclaudeFunction');
+  console.log(`✅ Site do HüberClaude publicado: ${LOCAL_HUBERCLAUDE_FUNCTION}`);
   console.log('\nPróximos passos:');
   console.log('   npm run local-server    # e abra http://localhost:3001 (dashboard em /laboratory)');
   console.log('   npm run seed:local      # dev: produtos e estoque (prod: seed:local:prod)');
