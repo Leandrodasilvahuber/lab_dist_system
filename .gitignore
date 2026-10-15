@@ -41,3 +41,10 @@ localstack-data/
 
 # Relatórios do ZAP (npm run dast:zap)
 reports/
+
+# Credenciais e configuração local (nunca versionar)
+.claude/
+CLAUDE.local.md
+.aws/
+*.pem
+*.key

@@ -1999,6 +1999,7 @@ Resources:
 
         const labs = [
           { emoji: '🛒', title: 'Sistemas Distribuídos', text: 'E-commerce serverless com saga no Step Functions, idempotência ponta a ponta, caos e SLOs. Rodando ao vivo.', href: '/laboratory' },
+          { emoji: '🦎', title: 'HüberClaude', text: 'CLI de agente de código open-source dedicado ao OpenRouter, com modo Enxame: workers GLM baratos fazem o trabalho braçal pra economizar tokens.', href: 'https://github.com/Leandrodasilvahuber/huberclaude', tag: 'OPEN SOURCE', cta: 'Ver no GitHub', external: true },
           { emoji: '🧠', title: 'Fine-tuning', text: 'Ensinando modelos a falar a língua do domínio. Os GPUs ainda estão esquentando.' },
           { emoji: '📚', title: 'RAG', text: 'Busca vetorial + LLM respondendo com as fontes certas, sem alucinar (muito).' }
         ];
@@ -2034,16 +2035,16 @@ Resources:
               ${body}
             </section>`;
 
-        const labCard = ({ emoji, title, text, href }) => {
+        const labCard = ({ emoji, title, text, href, tag = 'AO VIVO', cta = 'Entrar no laboratório', external }) => {
           const inner = `
                 <div class="lab-top"><span class="lab-emoji" aria-hidden="true">${emoji}</span>${href
-                  ? '<span class="tag tag-live">AO VIVO</span>'
+                  ? `<span class="tag tag-live">${tag}</span>`
                   : '<span class="tag tag-soon">🚧 em breve</span>'}</div>
                 <h3>Laboratório de ${title}</h3>
                 <p>${text}</p>
-                <span class="lab-cta">${href ? 'Entrar no laboratório <span aria-hidden="true">→</span>' : 'Porta trancada 🔒'}</span>`;
+                <span class="lab-cta">${href ? `${cta} <span aria-hidden="true">→</span>` : 'Porta trancada 🔒'}</span>`;
           return href
-            ? `<a class="lab lab-live" href="${href}">${inner}</a>`
+            ? `<a class="lab lab-live" href="${href}"${external ? ' target="_blank" rel="noopener noreferrer"' : ''}>${inner}</a>`
             : `<div class="lab lab-locked" aria-disabled="true" title="Em construção">${inner}</div>`;
         };
 
