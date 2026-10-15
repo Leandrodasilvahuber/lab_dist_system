@@ -4,7 +4,7 @@ import { QUOTA_ID_PREFIX, isQuotaItem, limitFromEnv, quotaDay, quotaExpiresAt } 
 
 // Teto padrão de compras novas por dia (DailyPurchaseLimit no template.yaml).
 // 0 desliga o limite
-export const DEFAULT_DAILY_PURCHASE_LIMIT = 150;
+export const DEFAULT_DAILY_PURCHASE_LIMIT = 500;
 // Teto por cliente (IP de origem; DailyPurchaseLimitPerClient): sem ele, um
 // script esgotaria o limite do dia para todos. 0 desliga
 export const DEFAULT_DAILY_PURCHASE_LIMIT_PER_CLIENT = 20;

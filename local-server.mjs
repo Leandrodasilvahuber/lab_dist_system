@@ -100,10 +100,10 @@ process.env.CHAOS_PARAM ||= LOCAL_CHAOS_PARAM;
 process.env.CHAOS_ENABLED ||= 'true';
 // Sem limite diário de ativações de caos: o npm run chaos liga várias por rodada
 process.env.CHAOS_DAILY_LIMIT ||= '0';
-// Zerar a base (botão ao lado de Conectado): até RESET_DAILY_LIMIT vezes por dia (padrão 10)
+// Zerar a base (botão ao lado de Conectado): até RESET_DAILY_LIMIT vezes por dia (padrão 20)
 process.env.RESET_ENABLED ||= 'true';
 // Limites diários de compras (PurchaseQuota): local não custa nada, e o npm
-// run chaos passaria do teto. Para testar: DAILY_PURCHASE_LIMIT=150
+// run chaos passaria do teto. Para testar: DAILY_PURCHASE_LIMIT=500
 // DAILY_PURCHASE_LIMIT_PER_CLIENT=20
 process.env.DAILY_PURCHASE_LIMIT ||= '0';
 process.env.DAILY_PURCHASE_LIMIT_PER_CLIENT ||= '0';
@@ -274,6 +274,7 @@ const STATIC_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
+  '.png': 'image/png',
   '.woff2': 'font/woff2',
   '.pdf': 'application/pdf'
 };

@@ -70,7 +70,7 @@ Parameters:
   # responde 429 até as 12:00 (Brasília), quando o contador zera. 0 = sem limite
   DailyPurchaseLimit:
     Type: Number
-    Default: 150
+    Default: 500
     MinValue: 0
 
   # Compras novas por dia de um mesmo IP: sem ele, um script esgotaria o
@@ -92,7 +92,7 @@ Parameters:
   # dia vira às 12:00 de Brasília). 0 = sem limite
   DailyResetLimit:
     Type: Number
-    Default: 10
+    Default: 20
     MinValue: 0
 
   # Vezes por dia que o caos pode ser ligado (PUT /chaos, aberto a todos; cada
@@ -2210,13 +2210,17 @@ Resources:
         // inline). O HTML vem em português e o JS troca para inglês/espanhol com os atributos data-i18n.
         const GITHUB = 'https://github.com/Leandrodasilvahuber/huberclaude';
         const RELEASES = `${GITHUB}/releases`;
-        // Chave PIX para doações (CPF, e-mail, telefone ou chave aleatória). Vazia: a seção mostra "em breve"
-        const PIX_KEY = '';
+        // Chave PIX para doações (CPF): PIX_KEY é o valor copiado e PIX_LABEL o que aparece na tela.
+        // Vazia: a seção mostra "em breve"
+        const PIX_KEY = '80799892068';
+        const PIX_LABEL = '807.998.920-68';
         const INSTALL = 'git clone https://github.com/Leandrodasilvahuber/huberclaude\ncd huberclaude\nbun install && bun run build\nnpm install -g .';
 
         const mark = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='#15191e'/><g fill='#96af4c'><rect x='6' y='6' width='7' height='3'/><rect x='19' y='6' width='7' height='3'/><rect x='6' y='11' width='7' height='3'/><rect x='19' y='11' width='7' height='3'/><rect x='6' y='15' width='20' height='3'/><rect x='6' y='20' width='7' height='3'/><rect x='19' y='20' width='7' height='3'/><rect x='6' y='25' width='7' height='2'/><rect x='19' y='25' width='7' height='2'/></g></svg>`;
         const dataUri = svg => `data:image/svg+xml,${encodeURIComponent(svg)}`;
         const i = key => ` data-i18n="${key}"`;
+        // Captura do terminal numa moldura própria (a janela do desktop foi cortada das imagens)
+        const term = (img, alt, altKey, caption) => `<figure class="term"><div class="term-bar"><i></i><i></i><i></i><span>huberclaude</span></div><img src="/dashboard/img/huberclaude/${img}-term.png" alt="${alt}" data-i18n-alt="${altKey}" loading="lazy">${caption ? `<figcaption${i(caption[0])}>${caption[1]}</figcaption>` : ''}</figure>`;
         const esc = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
         const features = [
@@ -2287,11 +2291,36 @@ Resources:
                 <a class="btn btn-primary" href="#download"${i('hero.download')}>Baixar para Linux</a>
                 <a class="btn btn-ghost" href="${GITHUB}" rel="noopener"${i('hero.github')}>Ver no GitHub</a>
               </div>
-              <figure class="shot hero-shot">
-                <img src="/dashboard/img/huberclaude/inicio.png" alt="Tela inicial do HüberClaude no terminal" data-i18n-alt="shot.homeAlt" width="904" height="597">
-              </figure>
+              <div class="collage">
+                <div class="col">${term('inicio', 'Tela inicial do HüberClaude no terminal', 'shot.homeAlt')}${term('enxame', 'Menu do modo Enxame', 'step.2.alt')}</div>
+                <div class="col col-offset">${term('usage', 'Saldo do OpenRouter como marcador de combustível', 'swarm.shotAlt')}${term('model', 'Seletor de modelos do OpenRouter com preços', 'step.1.alt')}</div>
+              </div>
             </section>
 
+            <section class="section wrap" id="ideia">
+              <h2><span class="hash">#</span> <span${i('sec.idea')}>A ideia por trás</span></h2>
+              <p class="section-lead"${i('idea.lead')}>O HüberClaude nasceu para ser um CLI enxuto: ele fala só com o OpenRouter. Sem camadas para dezenas de provedores, o código do CLI fica menor, mais simples de manter e mais fácil de entender.</p>
+              <div class="idea">
+                <article class="card">
+                  <span class="card-emoji" aria-hidden="true">🧠</span>
+                  <h3${i('idea.a.title')}>OpenRouter: o cérebro</h3>
+                  <p${i('idea.a.text')}>Uma única integração dá acesso a milhares de modelos. O seu modelo principal planeja, raciocina e decide.</p>
+                </article>
+                <span class="idea-op" aria-hidden="true">+</span>
+                <article class="card">
+                  <span class="card-emoji" aria-hidden="true">🐝</span>
+                  <h3${i('idea.b.title')}>z.ai: o enxame</h3>
+                  <p${i('idea.b.text')}>Em paralelo, você cadastra uma chave de API da z.ai e ganha um enxame de agentes rápidos e baratos, que trabalham em vários modos: Ferramenta, Agente ou Ambos.</p>
+                </article>
+                <span class="idea-op" aria-hidden="true">=</span>
+                <article class="card card-result">
+                  <span class="card-emoji" aria-hidden="true">⚡</span>
+                  <h3${i('idea.c.title')}>Menos tokens, mais força</h3>
+                  <p${i('idea.c.text')}>Combinar os dois serviços economiza os tokens do modelo caro e multiplica o poder de processamento, com até 10 workers trabalhando ao mesmo tempo.</p>
+                </article>
+              </div>
+            </section>
+            
             <section class="section wrap" id="recursos">
               <h2><span class="hash">#</span> <span${i('sec.features')}>O que ele faz</span></h2>
               <div class="grid">${features.map(([emoji, title, text], n) => `
@@ -2311,7 +2340,7 @@ Resources:
                   <code class="cmd">${cmd}</code>
                   <h3${i(`step.${n}.title`)}>${title}</h3>
                   <p${i(`step.${n}.text`)}>${text}</p>
-                  <figure class="shot"><img src="/dashboard/img/huberclaude/${img}.png" alt="${alt}"${' data-i18n-alt="step.' + n + '.alt"'} loading="lazy"></figure>
+                  ${term(img, alt, `step.${n}.alt`)}
                 </article>`).join('')}
               </div>
             </section>
@@ -2326,8 +2355,9 @@ Resources:
                   </ul>
                   <p class="note"${i('swarm.note')}>Workers são modelos mais fracos: o gerente confere a saída antes de confiar nela. Nunca coloque segredos no prompt de um worker.</p>
                 </div>
-                <figure class="shot"><img src="/dashboard/img/huberclaude/usage.png" alt="Saldo do OpenRouter como marcador de combustível" data-i18n-alt="swarm.shotAlt" loading="lazy"><figcaption${i('swarm.caption')}>/usage: seu saldo como um marcador de combustível</figcaption></figure>
+                <figure class="art"><img src="/dashboard/img/huberclaude/swarm.svg" alt="Ilustração: o gerente no OpenRouter distribui prompts para 10 workers da z.ai e recebe resultados curtos" data-i18n-alt="swarm.diagramAlt" loading="lazy"></figure>
               </div>
+              <div class="duo">${term('enxame', 'Menu do modo Enxame', 'step.2.alt', ['swarm.cap.enxame', '/enxame: escolha o modo e quantos workers rodam'])}${term('usage', 'Saldo do OpenRouter como marcador de combustível', 'swarm.shotAlt', ['swarm.caption', '/usage: seu saldo como um marcador de combustível'])}</div>
             </section>
 
             <section class="section wrap" id="download">
@@ -2353,7 +2383,7 @@ Resources:
                 <h2><span${i('support.title')}>Um projeto sem fins lucrativos 💚</span></h2>
                 <p${i('support.text')}>O HüberClaude é uma iniciativa sem fins lucrativos, criada para tornar o uso de inteligência artificial mais acessível. Ele é gratuito e open source. Se ele te ajuda, considere apoiar o projeto com uma doação via PIX.</p>
                 ${PIX_KEY
-                  ? `<div class="pix"><span class="pix-label"${i('support.pixLabel')}>Chave PIX</span><code id="pixKey">${esc(PIX_KEY)}</code><button type="button" class="copy" data-copy="${esc(PIX_KEY)}"${i('copy.label')}>Copiar</button></div>`
+                  ? `<div class="pix"><span class="pix-label"${i('support.pixLabel')}>Chave PIX</span><code id="pixKey">${esc(PIX_LABEL)}</code><button type="button" class="copy" data-copy="${esc(PIX_KEY)}"${i('copy.label')}>Copiar</button></div>`
                   : `<p class="pix pix-soon"${i('support.pixSoon')}>Chave PIX em breve.</p>`}
               </div>
             </section>

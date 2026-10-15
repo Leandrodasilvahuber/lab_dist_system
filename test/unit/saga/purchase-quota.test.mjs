@@ -76,7 +76,7 @@ describe('PurchaseQuota', () => {
     assert.match(error.message, /per client/);
   });
 
-  it('variáveis de ambiente: padrões 150 e 20, 0 desliga, valor inválido volta ao padrão', () => {
+  it('variáveis de ambiente: padrões 500 e 20, 0 desliga, valor inválido volta ao padrão', () => {
     assert.strictEqual(dailyPurchaseLimit({}), DEFAULT_DAILY_PURCHASE_LIMIT);
     assert.strictEqual(dailyPurchaseLimit({ DAILY_PURCHASE_LIMIT: '0' }), 0);
     assert.strictEqual(dailyPurchaseLimit({ DAILY_PURCHASE_LIMIT: 'abc' }), DEFAULT_DAILY_PURCHASE_LIMIT);

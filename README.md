@@ -236,7 +236,7 @@ rode uma vez `npm run backfill:sagas -- --stage dev` (local:
 | GET | `/stock` | Estoque dos produtos, paginado (`?productId=&stockMin=&stockMax=&limit=&nextToken=`; `reserved: null` e `degraded: true` se as reservas não puderem ser lidas) |
 | GET | `/stock/{productId}` | Estoque de um produto (disponível e reservado em compras em andamento; com o índice de reservas fora do ar, `reserved`/`activeReservations` vêm `null` e `degraded: true`) |
 | POST | `/stock/{productId}/adjust` 🔑 | Ajusta o estoque `{ delta, name? }` (delta positivo cria o inventário se não existir; não é idempotente: depois de um 503, confira o estoque antes de repetir) |
-| **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` (`quantity` de 1 a 1000) + header `Idempotency-Key` (obrigatório, 400 sem ele) → 202; `503` + `Retry-After`: repita com a mesma chave; `429` (`code: PurchaseLimitExceeded`, `scope: total` ou `client`): passou do limite diário de compras novas (`DailyPurchaseLimit`, padrão 150, e `DailyPurchaseLimitPerClient`, padrão 20 por IP; zera às 12:00 de Brasília; desligados no local-server; para o `npm run chaos` na AWS, faça o deploy com os dois em 0) |
+| **POST** | **`/saga/execute`** | **Inicia uma compra** `{ productId, quantity }` (`quantity` de 1 a 1000) + header `Idempotency-Key` (obrigatório, 400 sem ele) → 202; `503` + `Retry-After`: repita com a mesma chave; `429` (`code: PurchaseLimitExceeded`, `scope: total` ou `client`): passou do limite diário de compras novas (`DailyPurchaseLimit`, padrão 500, e `DailyPurchaseLimitPerClient`, padrão 20 por IP; zera às 12:00 de Brasília; desligados no local-server; para o `npm run chaos` na AWS, faça o deploy com os dois em 0) |
 | GET | `/saga/{sagaId}` | Andamento de uma compra |
 | GET | `/sagas` | Lista as compras, paginado (`?status=&limit=&nextToken=`); `?recent=N` (1 a 50) devolve as N mais recentes das últimas 24 h, pelo índice por dia (tela Comprar) |
 
@@ -284,7 +284,7 @@ dentro da página. Filtro numérico inválido (`priceMin=abc`) responde `400`.
 - **Zerar base** (botão ao lado do indicador de conexão, `POST /reset`): apaga
   pedidos, pagamentos, reservas, sagas, produtos e estoque e grava de novo os
   produtos do seed (`src/common/seed-products.mjs`). Aberto a todos, no máximo
-  `DailyResetLimit` vezes por dia (padrão 10; vira às 12:00 de Brasília), com o
+  `DailyResetLimit` vezes por dia (padrão 20; vira às 12:00 de Brasília), com o
   contador na tabela de sagas, que a limpeza mantém junto com os contadores do
   limite de compras. Desligado em prod. O seed é gravado primeiro; tabela
   grande que não cabe no tempo da Lambda volta com `complete: false`, e os

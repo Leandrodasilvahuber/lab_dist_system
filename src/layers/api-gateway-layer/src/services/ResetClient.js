@@ -5,7 +5,7 @@ import { SEED_PRODUCTS } from '../../../../common/seed-products.mjs';
 
 // Vezes por dia que qualquer visitante pode zerar a base (DailyResetLimit no
 // template.yaml); o dia vira às 12:00 de Brasília. 0 = sem limite
-export const DEFAULT_DAILY_RESET_LIMIT = 10;
+export const DEFAULT_DAILY_RESET_LIMIT = 20;
 
 // Contador na tabela de sagas com o prefixo comum (daily-quota.mjs), que a
 // limpeza mantém: apagar os contadores liberaria de novo o limite diário de

@@ -146,3 +146,35 @@ h1 { margin: 0 auto 18px; max-width: 18ch; font-size: clamp(2rem, 5vw, 3.2rem); 
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
 }
+
+/* ---------- Capturas em moldura de terminal e ilustrações ---------- */
+.term { margin: 0; background: #050709; border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 60px -28px rgba(0, 0, 0, .8); }
+.term-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: var(--card-2); border-bottom: 1px solid var(--line); }
+.term-bar i { width: 9px; height: 9px; border-radius: 50%; background: #3a424d; }
+.term-bar i:first-child { background: #e0705f; }
+.term-bar i:nth-child(2) { background: #e3b341; }
+.term-bar i:nth-child(3) { background: var(--green); }
+.term-bar span { margin-left: 8px; color: var(--muted); font: 500 .74rem var(--mono); }
+.term img { display: block; width: 100%; border: 0; border-radius: 0; box-shadow: none; }
+.term figcaption { padding: 8px 12px 10px; border-top: 1px solid var(--line); background: var(--card); color: var(--muted); font: 500 .8rem var(--mono); text-align: left; }
+
+.collage { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 18px; margin: 48px auto 0; max-width: 980px; text-align: left; }
+.collage .col { display: grid; gap: 18px; align-content: start; }
+.collage .col-offset { margin-top: 36px; }
+.art { margin: 0; }
+.art img { display: block; width: 100%; border-radius: 18px; }
+.duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 28px; align-items: start; }
+
+@media (max-width: 800px) {
+    .collage, .duo { grid-template-columns: minmax(0, 1fr); }
+    .collage .col-offset { margin-top: 0; }
+}
+
+/* ---------- A ideia: OpenRouter + z.ai ---------- */
+.idea { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.idea-op { align-self: center; color: var(--green); font: 700 2rem var(--mono); }
+.card-result { background: linear-gradient(180deg, rgba(150, 175, 76, .14), rgba(150, 175, 76, .05)); border-color: var(--green-deep); }
+@media (max-width: 900px) {
+    .idea { grid-template-columns: minmax(0, 1fr); }
+    .idea-op { justify-self: center; line-height: 1; }
+}
