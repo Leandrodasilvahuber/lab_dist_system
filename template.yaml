@@ -2009,7 +2009,7 @@ Resources:
 
         const labs = [
           { emoji: '🛒', title: 'Sistemas Distribuídos', text: 'E-commerce serverless com saga no Step Functions, idempotência ponta a ponta, caos e SLOs. Rodando ao vivo.', href: '/laboratory' },
-          { emoji: '🦎', title: 'HüberClaude', text: 'CLI de agente de código open-source dedicado ao OpenRouter, com modo Enxame: workers GLM baratos fazem o trabalho braçal pra economizar tokens.', href: '/huberclaude', tag: 'OPEN SOURCE', cta: 'Conhecer o projeto' },
+          { emoji: '🦎', title: 'HüberClaude', text: 'CLI de agente de código open-source dedicado ao OpenRouter: uma chave dá acesso a milhares de modelos com preços à vista.', href: '/huberclaude', tag: 'OPEN SOURCE', cta: 'Conhecer o projeto' },
           { emoji: '🧠', title: 'Fine-tuning', text: 'Ensinando modelos a falar a língua do domínio. Os GPUs ainda estão esquentando.' },
           { emoji: '📚', title: 'RAG', text: 'Busca vetorial + LLM respondendo com as fontes certas, sem alucinar (muito).' }
         ];
@@ -2050,7 +2050,7 @@ Resources:
                 <div class="lab-top"><span class="lab-emoji" aria-hidden="true">${emoji}</span>${href
                   ? `<span class="tag tag-live"${i(`lab.${n}.tag`)}>${tag}</span>`
                   : `<span class="tag tag-soon"${i('lab.soon')}>🚧 em breve</span>`}</div>
-                <h3${i(`lab.${n}.title`)}>Laboratório de ${title}</h3>
+                <h3${i(`lab.${n}.title`)}>${title === 'HüberClaude' ? title : `Laboratório de ${title}`}</h3>
                 <p${i(`lab.${n}.text`)}>${text}</p>
                 <span class="lab-cta">${href ? `<span${i(`lab.${n}.cta`)}>${cta}</span> <span aria-hidden="true">→</span>` : `<span${i('lab.locked')}>Porta trancada 🔒</span>`}</span>`;
           return href
@@ -2226,7 +2226,6 @@ Resources:
         const features = [
           ['🔑', 'Só OpenRouter, sem configurar provedor', 'Rode /login, cole sua chave e pronto. Sem perfis de provedor, URLs base para ajustar ou comportamentos específicos para aprender.'],
           ['🧠', 'Todos os modelos, uma chave', 'Claude, GPT, Gemini, DeepSeek, Qwen, GLM, Kimi e o resto do catálogo, escolhidos no /model com os preços à vista.'],
-          ['🐝', 'Modo Enxame', 'Até 10 workers baratos da z.ai fazem o trabalho braçal. Seu modelo principal só planeja e decide.'],
           ['⛽', 'Gasto à vista', 'O /usage mostra seu saldo no OpenRouter como um marcador de combustível, na escala da sua última recarga.'],
           ['🛠️', 'Um agente completo', 'Bash, leitura e edição de arquivos, grep, subagentes, tarefas, MCP, skills, hooks e busca na web.'],
           ['🐧', 'Feito para o terminal Linux', 'Streaming, comandos de barra, sessões em segundo plano e um visual verde com o mascote H em blocos.']
@@ -2234,20 +2233,13 @@ Resources:
 
         const steps = [
           ['/login', 'Cole sua chave', 'Crie uma chave no OpenRouter e cole no /login. Ela fica salva só para o seu usuário.', 'login', 'Tela de configuração da chave do OpenRouter'],
-          ['/model', 'Escolha o modelo', 'Navegue pelo catálogo, filtre por nome e compare contexto e preço por 1M de tokens.', 'model', 'Seletor de modelos do OpenRouter com preços'],
-          ['/enxame', 'Ligue o enxame (opcional)', 'Cadastre uma chave da z.ai, escolha o modo e quantos workers rodam ao mesmo tempo.', 'enxame', 'Menu do modo Enxame']
-        ];
-
-        const modes = [
-          ['Ferramenta', 'O mais barato: o gerente dispara vários prompts sem estado em paralelo e lê só respostas curtas. Ideal para resumir, extrair, classificar e traduzir.'],
-          ['Agente', 'Subagentes na z.ai com ferramentas: leem e buscam arquivos, rodam um comando ou fazem uma edição pequena.'],
-          ['Ambos', 'As duas opções ficam disponíveis e o gerente escolhe a cada tarefa. É o padrão.']
+          ['/model', 'Escolha o modelo', 'Navegue pelo catálogo, filtre por nome e compare contexto e preço por 1M de tokens.', 'model', 'Seletor de modelos do OpenRouter com preços']
         ];
 
         // href: pacote já publicado em /dashboard/downloads; sem href, o card fica "em breve"
         const packages = [
-          ['.deb', 'Debian · Ubuntu · Mint', '/dashboard/downloads/huberclaude_0.31.0_amd64.deb'],
-          ['.rpm', 'Fedora · openSUSE · RHEL', '/dashboard/downloads/huberclaude-0.31.0-1.x86_64.rpm'],
+          ['.deb', 'Debian · Ubuntu · Mint'],
+          ['.rpm', 'Fedora · openSUSE · RHEL'],
           ['AppImage', 'Qualquer distro, sem instalar'],
           ['.tar.gz', 'Binário portátil']
         ];
@@ -2258,7 +2250,7 @@ Resources:
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>HüberClaude · Agente de código para Linux</title>
-          <meta name="description" content="HüberClaude: CLI de agente de código open source para Linux, dedicado ao OpenRouter. Uma chave, milhares de modelos e o modo Enxame para gastar menos tokens." data-i18n-content="meta.desc">
+          <meta name="description" content="HüberClaude: CLI de agente de código open source para Linux, dedicado ao OpenRouter. Uma chave, milhares de modelos." data-i18n-content="meta.desc">
           <meta name="theme-color" content="#15191e">
           <link rel="icon" href="${dataUri(mark)}">
           <link rel="preload" href="/dashboard/fonts/inter-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
@@ -2270,7 +2262,6 @@ Resources:
               <a class="logo" href="/huberclaude/"><img src="${dataUri(mark)}" alt="" width="28" height="28"><span>Hüber<b>Claude</b></span></a>
               <nav class="topnav-links" aria-label="Seções" data-i18n-aria-label="nav.aria">
                 <a href="#comecar"${i('nav.start')}>Como começar</a>
-                <a href="#enxame"${i('nav.swarm')}>Enxame</a>
                 <a href="#download"${i('nav.download')}>Download</a>
                 <a href="#apoie"${i('nav.support')}>Apoie</a>
                 <div class="lang" role="group" aria-label="Idioma" data-i18n-aria-label="lang.label">
@@ -2286,38 +2277,26 @@ Resources:
             <section class="hero wrap">
               <img class="wordmark" src="/dashboard/img/huberclaude/wordmark.png" alt="HüberClaude" width="1498" height="286">
               <p class="eyebrow"${i('hero.eyebrow')}>Open source · Linux · feito para o OpenRouter</p>
-              <h1${i('hero.title')}>Duas contas, OpenRouter e z.ai, para gastar menos tokens e ter muito mais poder computacional.</h1>
-              <p class="lead"${i('hero.lead')}>O HüberClaude é um CLI de agente de código no seu terminal. A ideia central não é usar uma chave só: é combinar uma conta OpenRouter (o cérebro, com milhares de modelos) com uma conta z.ai (o enxame de workers baratos que faz o trabalho braçal).</p>
+              <h1${i('hero.title')}>Um CLI de agente de código para Linux com acesso a milhares de modelos via OpenRouter.</h1>
+              <p class="lead"${i('hero.lead')}>Cole sua chave do OpenRouter e comece a usar o HüberClaude. O CLI roda no seu terminal, faz streaming, suporta subagentes, busca na web e integra com serviços existentes.</p>
               <div class="actions">
                 <a class="btn btn-primary" href="#download"${i('hero.download')}>Baixar para Linux</a>
                 <a class="btn btn-ghost" href="${GITHUB}" rel="noopener"${i('hero.github')}>Ver no GitHub</a>
               </div>
               <div class="collage">
-                <div class="col">${term('inicio', 'Tela inicial do HüberClaude no terminal', 'shot.homeAlt')}${term('enxame', 'Menu do modo Enxame', 'step.2.alt')}</div>
-                <div class="col col-offset">${term('usage', 'Saldo do OpenRouter como marcador de combustível', 'swarm.shotAlt')}${term('model', 'Seletor de modelos do OpenRouter com preços', 'step.1.alt')}</div>
+                <div class="col">${term('inicio', 'Tela inicial do HüberClaude no terminal', 'shot.homeAlt')}</div>
+                <div class="col col-offset">${term('model', 'Seletor de modelos do OpenRouter com preços', 'step.1.alt')}</div>
               </div>
             </section>
 
             <section class="section wrap" id="ideia">
               <h2><span class="hash">#</span> <span${i('sec.idea')}>A ideia por trás</span></h2>
-              <p class="section-lead"${i('idea.lead')}>A ideia central não é usar uma chave só: é usar duas contas, OpenRouter e z.ai, ao mesmo tempo. Uma conta paga o cérebro e a outra paga o braço, e assim você economiza tokens e ganha muito mais poder computacional. O CLI fala só com esses dois serviços, sem camadas para dezenas de provedores, e por isso é enxuto e fácil de manter.</p>
-              <div class="idea">
-                <article class="card">
-                  <span class="card-emoji" aria-hidden="true">🧠</span>
-                  <h3${i('idea.a.title')}>OpenRouter: o cérebro</h3>
-                  <p${i('idea.a.text')}>Uma única integração dá acesso a milhares de modelos. O seu modelo principal planeja, raciocina e decide.</p>
-                </article>
-                <span class="idea-op" aria-hidden="true">+</span>
-                <article class="card">
-                  <span class="card-emoji" aria-hidden="true">🐝</span>
-                  <h3${i('idea.b.title')}>z.ai: o enxame</h3>
-                  <p${i('idea.b.text')}>Em paralelo, você cadastra a sua segunda conta, a chave de API da z.ai, e ganha um enxame de agentes rápidos e baratos, que trabalham em vários modos: Ferramenta, Agente ou Ambos.</p>
-                </article>
-                <span class="idea-op" aria-hidden="true">=</span>
+              <p class="section-lead"${i('idea.lead')}>HüberClude é dedicado ao OpenRouter: uma única chave abre a porta a milhares de modelos. Sem contas paralelas, sem workers externos — fale direto com os modelos que você escolhe, pelo preço que você vê.</p>
+              <div class="idea idea-single">
                 <article class="card card-result">
                   <span class="card-emoji" aria-hidden="true">⚡</span>
-                  <h3${i('idea.c.title')}>Menos tokens, mais força</h3>
-                  <p${i('idea.c.text')}>Combinar as duas contas economiza os tokens do modelo caro e multiplica o poder de processamento, com até 10 workers trabalhando ao mesmo tempo.</p>
+                  <h3${i('idea.a.title')}>OpenRouter: milhares de modelos, uma chave</h3>
+                  <p${i('idea.a.text')}>Uma única integração dá acesso a milhares de modelos. O seu modelo principal planeja, raciocina e decide — tudo pelo preço transparente do OpenRouter.</p>
                 </article>
               </div>
             </section>
@@ -2346,24 +2325,9 @@ Resources:
               </div>
             </section>
 
-            <section class="section wrap" id="enxame">
-              <h2><span class="hash">#</span> <span${i('sec.swarm')}>Enxame: gaste menos tokens</span></h2>
-              <div class="split">
-                <div>
-                  <p class="section-lead"${i('swarm.lead')}>O modelo caro do OpenRouter é o gerente; os workers da z.ai são o enxame. O gerente fica com o planejamento e as decisões finais e distribui o trabalho barato e bem delimitado para modelos GLM flash, lendo de volta só resultados curtos.</p>
-                  <ul class="modes">${modes.map(([name, text], n) => `
-                    <li><strong${i(`mode.${n}.name`)}>${name}</strong><span${i(`mode.${n}.text`)}>${text}</span></li>`).join('')}
-                  </ul>
-                  <p class="note"${i('swarm.note')}>Workers são modelos mais fracos: o gerente confere a saída antes de confiar nela. Nunca coloque segredos no prompt de um worker.</p>
-                </div>
-                <figure class="art"><img src="/dashboard/img/huberclaude/swarm.svg" alt="Ilustração: o gerente no OpenRouter distribui prompts para 10 workers da z.ai e recebe resultados curtos" data-i18n-alt="swarm.diagramAlt" loading="lazy"></figure>
-              </div>
-              <div class="duo">${term('enxame', 'Menu do modo Enxame', 'step.2.alt', ['swarm.cap.enxame', '/enxame: escolha o modo e quantos workers rodam'])}${term('usage', 'Saldo do OpenRouter como marcador de combustível', 'swarm.shotAlt', ['swarm.caption', '/usage: seu saldo como um marcador de combustível'])}</div>
-            </section>
-
             <section class="section wrap" id="download">
               <h2><span class="hash">#</span> <span${i('sec.download')}>Download para Linux</span></h2>
-              <p class="section-lead"${i('download.lead')}>Já dá para baixar o .deb e o .rpm (v0.31.0). Os demais pacotes estão a caminho; enquanto isso, dá para compilar direto do código-fonte.</p>
+              <p class="section-lead"${i('download.lead')}>Todos os pacotes estão em breve (v0.31.0). Enquanto isso, dá para compilar direto do código-fonte.</p>
               <div class="packages">${packages.map(([name, where, href], n) => href ? `
                 <a class="pkg" href="${href}" download>
                   <strong>${name}</strong>
@@ -2396,7 +2360,7 @@ Resources:
           </main>
 
           <footer class="wrap footer">
-            <span${i('footer.fork')}>Fork do OpenClaude · Licença MIT · Sem vínculo com Anthropic, OpenRouter ou Z.ai</span>
+            <span${i('footer.fork')}>Fork do OpenClaude · Licença MIT · Sem vínculo com Anthropic ou OpenRouter</span>
             <a href="/"${i('footer.back')}>← leandro.huber</a>
           </footer>
           <script type="module" src="/dashboard/js/huberclaude.js"></script>
