@@ -10,7 +10,7 @@ document.querySelectorAll('[data-copy]').forEach(button => {
             await navigator.clipboard.writeText(button.dataset.copy);
         } catch {
             // Sem permissão ou sem HTTPS: seleciona o texto para o usuário copiar na mão
-            const target = button.closest('.pix, .install')?.querySelector('code');
+            const target = button.closest('.pix, .install, .pkg-apt')?.querySelector('code');
             if (target) window.getSelection().selectAllChildren(target);
             return;
         }

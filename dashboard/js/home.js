@@ -1,6 +1,5 @@
-// Tema e idioma da página inicial. O tema em si (padrão claro) é aplicado antes do
-// primeiro paint por js/theme-init.js; a escolha usa a mesma chave 'theme' do
-// dashboard, então vale para as duas páginas. O idioma vem de js/i18n.js, com as
+// Tema e idioma da página inicial. A página sempre abre no escuro (js/theme-init.js,
+// antes do primeiro paint); o botão troca o tema só durante a visita. O idioma vem de js/i18n.js, com as
 // traduções em js/home-i18n.js; o botão de CV (data-href-pt/en/es) aponta para o
 // PDF do idioma escolhido.
 import { createI18n } from './i18n.js';
@@ -19,7 +18,6 @@ function renderTheme() {
 btn.addEventListener('click', () => {
     const theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
     root.dataset.theme = theme;
-    try { localStorage.setItem('theme', JSON.stringify(theme)); } catch { /* sem storage: vale só nesta visita */ }
     renderTheme();
 });
 

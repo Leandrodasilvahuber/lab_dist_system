@@ -7,7 +7,6 @@ import { currentView, initRouter, refreshCurrent, show, syncAdminViews } from '.
 import { loadAuthConfig, login, revoke } from './core/cognito.js';
 import { getCredential, isAdmin, setCredential } from './core/session.js';
 import { api, checkAdminKey } from './core/api.js';
-import { storage } from './core/storage.js';
 import { icon } from './components/icons.js';
 import { showToast } from './components/toast.js';
 import { navLink } from './components/layout.js';
@@ -151,7 +150,6 @@ function renderThemeButton() {
 $('themeBtn').addEventListener('click', () => {
     const theme = isDark() ? 'light' : 'dark';
     document.documentElement.dataset.theme = theme;
-    storage.set('theme', theme);
     renderThemeButton();
 });
 

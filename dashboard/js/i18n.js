@@ -3,7 +3,8 @@
 //   data-i18n (texto), data-i18n-title / -alt / -content / -aria-label,
 //   data-src-pt|en|es (imagem por idioma) e data-href-pt|en|es (link por idioma).
 // As traduções vêm de um dicionário { en: {...}, es: {...} } (e 'pt' só com o que o
-// JS escreve depois do carregamento). A escolha fica em localStorage 'lang'.
+// JS escreve depois do carregamento). A página sempre abre em português; a
+// bandeira troca o idioma só durante a visita.
 const ATTRS = [['i18n-title', 'title'], ['i18n-alt', 'alt'], ['i18n-content', 'content'], ['i18n-aria-label', 'aria-label']];
 export const LANGS = ['pt', 'en', 'es'];
 const HTML_LANG = { pt: 'pt-BR', en: 'en', es: 'es' };
@@ -24,7 +25,7 @@ export function createI18n({ dict, onChange = () => {} }) {
         if (attr) el.setAttribute(attr, value); else el.textContent = value;
     }
 
-    function setLang(next, persist) {
+    function setLang(next) {
         lang = LANGS.includes(next) ? next : 'pt';
         document.documentElement.lang = HTML_LANG[lang];
         document.querySelectorAll('[data-i18n]').forEach(el => apply(el, el.dataset.i18n));
@@ -37,22 +38,10 @@ export function createI18n({ dict, onChange = () => {} }) {
         if (!original.has(document)) original.set(document, document.title);
         document.title = dict[lang]?.['meta.title'] ?? original.get(document);
         document.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
-        if (persist) {
-            try { localStorage.setItem('lang', lang); } catch { /* sem storage: vale só nesta visita */ }
-        }
         onChange(lang);
     }
 
-    function initialLang() {
-        try {
-            const saved = localStorage.getItem('lang');
-            if (LANGS.includes(saved)) return saved;
-        } catch { /* sem storage */ }
-        const browser = (navigator.languages?.[0] ?? navigator.language ?? 'pt').slice(0, 2).toLowerCase();
-        return LANGS.includes(browser) ? browser : 'pt';
-    }
-
-    document.querySelectorAll('[data-lang]').forEach(b => b.addEventListener('click', () => setLang(b.dataset.lang, true)));
-    setLang(initialLang(), false);
+    document.querySelectorAll('[data-lang]').forEach(b => b.addEventListener('click', () => setLang(b.dataset.lang)));
+    setLang('pt');
     return { t, setLang };
 }
