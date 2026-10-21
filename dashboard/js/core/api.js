@@ -19,15 +19,34 @@ async function send(path, options, force) {
 }
 
 // Leitura que falhou na rede (conexão HTTP/2 caída, preflight recusado) é
-// repetida uma vez; escrita não, porque pode ter chegado ao servidor
+// repetida; escrita não, porque pode ter chegado ao servidor. Depois de muito
+// tempo parada a aba volta com a conexão morta e, ao acordar do sleep, o Wi-Fi
+// ainda reconectando: uma tentativa só, 500 ms depois, falhava de novo
+const RETRY_DELAYS_MS = [500, 1500, 3000];
+
+// Sem rede (navigator.onLine false): espera o evento 'online' até o tempo da
+// tentativa, em vez de gastar a tentativa numa falha certa
+function waitForNetwork(ms) {
+    return new Promise(resolve => {
+        const done = () => {
+            clearTimeout(timer);
+            globalThis.removeEventListener?.('online', done);
+            resolve();
+        };
+        const timer = setTimeout(done, ms);
+        if (globalThis.navigator?.onLine === false) globalThis.addEventListener?.('online', done);
+    });
+}
+
 async function request(path, options, force) {
     const method = (options.method || 'GET').toUpperCase();
-    try {
-        return await send(path, options, force);
-    } catch (error) {
-        if (method !== 'GET' || !(error instanceof TypeError)) throw error;
-        await new Promise(resolve => setTimeout(resolve, 500));
-        return send(path, options, force);
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await send(path, options, force);
+        } catch (error) {
+            if (method !== 'GET' || !(error instanceof TypeError) || attempt >= RETRY_DELAYS_MS.length) throw error;
+            await waitForNetwork(RETRY_DELAYS_MS[attempt]);
+        }
     }
 }
 

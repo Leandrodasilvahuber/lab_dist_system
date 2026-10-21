@@ -302,9 +302,43 @@ initRouter();
 // O indicador do topo vale em qualquer tela; no Monitoramento o refresh já roda
 if (currentView() !== 'monitoring') runMonitors();
 if (currentView() !== 'chaos') loadChaos();
-// Aba oculta pula a rodada: várias abas esquecidas não somam consultas
+// Tela atual, indicador do topo e faixa de caos de uma vez, como um F5
+const STALE_AFTER_MS = 2 * 60 * 1000;
+function refreshAll() {
+    refreshCurrent();
+    if (currentView() !== 'monitoring') runMonitors();
+    if (currentView() !== 'chaos') loadChaos();
+}
+// Aba oculta pula a rodada: várias abas esquecidas não somam consultas.
+// Intervalo bem maior que 30 s entre duas rodadas: o computador dormiu com a
+// aba visível (sem visibilitychange) e a tela atual também é relida
+let lastTick = Date.now();
 setInterval(() => {
+    const slept = Date.now() - lastTick >= STALE_AFTER_MS;
+    lastTick = Date.now();
     if (document.hidden) return;
+    if (slept) return refreshAll();
     runMonitors();
     loadChaos();
 }, 30000);
+
+// Aba que volta de muito tempo oculta (ou do sleep, ou da rede caída) relê a
+// tela atual sozinha, como um F5: um erro deixado por uma consulta que falhou
+// enquanto ela estava parada some sem o usuário precisar recarregar
+let hiddenSince = document.hidden ? Date.now() : null;
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        hiddenSince = Date.now();
+        return;
+    }
+    const stale = hiddenSince !== null && Date.now() - hiddenSince >= STALE_AFTER_MS;
+    hiddenSince = null;
+    if (stale) refreshAll();
+});
+window.addEventListener('online', () => {
+    if (!document.hidden) refreshAll();
+});
+// Voltou pelo cache de navegação (bfcache): a página é a de antes, sem recarregar
+window.addEventListener('pageshow', event => {
+    if (event.persisted) refreshAll();
+});

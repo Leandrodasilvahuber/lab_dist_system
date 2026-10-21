@@ -109,8 +109,8 @@ describe('dashboard: leitura da aba Recursos', () => {
         healthDown = true;
         const view = await loadView();
         const done = view.refresh();
-        // GET com falha de rede é repetido uma vez depois de 500 ms (core/api.js)
-        await new Promise(resolve => setTimeout(resolve, 600));
+        // GET com falha de rede é repetido 3 vezes, após 0,5 s, 1,5 s e 3 s (core/api.js)
+        await new Promise(resolve => setTimeout(resolve, 5100));
         assert.strictEqual(pending.length, 1);
         await releaseAll();
         await releaseAll();

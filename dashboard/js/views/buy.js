@@ -210,7 +210,10 @@ async function fetchSagas({ onlyRunning = false } = {}) {
             sagaCache = new Map((await recentSagas()).map(s => [s.id, s]));
         }
     } catch (error) {
-        $('sagaList').innerHTML = errorState('Não foi possível carregar as compras', error);
+        // Com compras já na tela, mantém a lista e só avisa: a próxima
+        // atualização (ou a volta para a aba) tenta de novo
+        if (sagaCache.size) showToast(`Não foi possível atualizar as compras: ${error.message}`, 'error');
+        else $('sagaList').innerHTML = errorState('Não foi possível carregar as compras', error);
         return;
     }
 

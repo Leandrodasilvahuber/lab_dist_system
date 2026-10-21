@@ -18,7 +18,8 @@ export const stockLabel = stock => stock === undefined ? '—' : stock;
 // buy: mostra o botão Comprar (data-buy-id); remove: o botão Remover
 // (data-remove-id, aba Admin); compact: uma linha por produto
 export function productGrid({ products, error, empty, buy = false, remove = false, compact = false }) {
-    if (error) return errorState('Erro ao carregar produtos', error);
+    // Com produtos da carga anterior, a falha de agora não apaga a grade
+    if (error && !products.length) return errorState('Erro ao carregar produtos', error);
     if (!products.length) return emptyState(empty, { icon: 'package' });
     return `<div class="product-grid${compact ? ' compact' : ''}">${products.map(p => `
         <article class="product-card">

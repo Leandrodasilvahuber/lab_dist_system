@@ -17,7 +17,8 @@ export async function loadProducts() {
         products = catalog.products.map(p => ({ ...p, stock: available.get(p.id) }));
         products.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     } catch (loadError) {
-        products = [];
+        // Mantém o catálogo da carga anterior: uma falha passageira (aba que
+        // voltou de muito tempo parada) não esvazia a lista de produtos
         error = loadError;
     }
     emit('products', { products, error });
