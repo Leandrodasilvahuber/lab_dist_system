@@ -2061,7 +2061,8 @@ Resources:
           ['diary-of-a-ceo', 'The Diary Of A CEO', 'TheDiaryOfACEO', 'Steven Bartlett entrevista empreendedores, cientistas e atletas sobre negócios, saúde e sucesso.'],
           ['ti-das-antigas', 'TI das Antigas', 'tidasantigas', 'Tecnologia levada a sério por quem viu a informática nascer: do Novell ao Rust, sem frescura.'],
           ['cortes-do-mano', 'Cortes do Mano Deyvin', 'cortesdomanoofc', 'O canal oficial de cortes do Mano Deyvin, com os melhores momentos das lives.'],
-          ['akitando', 'Fabio Akita', 'Akitando', 'O Akitando: programação, carreira e ciência da computação a fundo, com o Fabio Akita.']
+          ['akitando', 'Fabio Akita', 'Akitando', 'O Akitando: programação, carreira e ciência da computação a fundo, com o Fabio Akita.'],
+          ['leandro-huber-news', 'Leandro Huber', 'leandrohubernews', 'Programação e IA na prática: tutoriais, projetos e novidades do mundo tech explicados de forma simples e direta.']
         ];
 
         const channelCard = ([slug, name, handle, text], n) => `
@@ -2320,10 +2321,7 @@ Resources:
 
         // href: pacote já publicado em /dashboard/downloads; sem href, o card fica "em breve"
         const packages = [
-          ['.deb', 'Debian · Ubuntu · Mint', '/dashboard/downloads/huberclaude_0.31.0_amd64.deb'],
-          ['.rpm', 'Fedora · openSUSE · RHEL'],
-          ['AppImage', 'Qualquer distro, sem instalar'],
-          ['.tar.gz', 'Binário portátil']
+          ['.deb', 'Debian · Ubuntu · Mint', '/dashboard/downloads/huberclaude_0.31.0_amd64.deb']
         ];
 
         const html = `<!doctype html>
