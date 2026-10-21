@@ -1,7 +1,3 @@
-import { Agent as HttpAgent } from 'node:http';
-import { Agent as HttpsAgent } from 'node:https';
-import { NodeHttpHandler } from '@smithy/node-http-handler';
-
 /**
  * Configuração comum dos clientes do AWS SDK.
  *
@@ -70,76 +66,8 @@ function defaultMaxAttempts() {
 }
 
 /**
- * Conexão keep-alive que o servidor fechou enquanto a Lambda estava congelada:
- * entre invocações o container não roda, o socket parece aberto no pool e a
- * próxima chamada falha na hora com `socket hang up` (ECONNRESET) ou EPIPE.
- * Com SDK_MAX_ATTEMPTS: 1 isso virava 503 (ex.: GET /sagas). Num socket
- * reaproveitado a requisição não chegou a ser processada (o servidor já tinha
- * fechado), então repetir uma vez num socket novo é seguro até em escrita; é a
- * receita da documentação do Node (`request.reusedSocket`). Falha em
- * milissegundos, sem pesar no orçamento de tempo das funções.
- */
-const STALE_SOCKET_CODES = new Set(['ECONNRESET', 'EPIPE']);
-
-// Marca no erro se a requisição usou um socket do pool (o NodeHttpHandler não
-// expõe a requisição do Node). O listener entra antes do do SDK, que rejeita
-// com o mesmo objeto de erro
-export function markReusedSockets(agent) {
-  if (agent.$marksReusedSockets) return agent;
-  const addRequest = agent.addRequest;
-  agent.addRequest = function (req, options) {
-    addRequest.call(this, req, options);
-    req.once('error', error => {
-      if (req.reusedSocket) error.$reusedSocket = true;
-    });
-  };
-  agent.$marksReusedSockets = true;
-  return agent;
-}
-
-export function isStaleSocketError(error) {
-  return Boolean(error?.$reusedSocket) && STALE_SOCKET_CODES.has(error.code);
-}
-
-function retryStaleSocket(handler) {
-  const handle = handler.handle.bind(handler);
-  handler.handle = async (request, options) => {
-    try {
-      return await handle(request, options);
-    } catch (error) {
-      if (!isStaleSocketError(error) || options?.abortSignal?.aborted) throw error;
-      return handle(request, options);
-    }
-  };
-  return handler;
-}
-
-// Mesmos agentes que o SDK criaria (keep-alive, 50 sockets), mas marcados
-const defaultAgentOptions = { keepAlive: true, maxSockets: 50 };
-
-/**
- * Opções do NodeHttpHandler: `handlerOptions` extras (ex.: `httpAgent` e
- * `httpsAgent` compartilhados entre clientes do mesmo serviço) mais os timeouts.
- * @param {object} [options]
- * @param {number} [options.requestTimeout]
- * @param {Record<string, any>} [options.handlerOptions]
- */
-export function requestHandlerOptions({ requestTimeout = DEFAULT_TIMEOUTS.requestTimeout, handlerOptions } = {}) {
-  const { httpAgent = new HttpAgent(defaultAgentOptions), httpsAgent = new HttpsAgent(defaultAgentOptions), ...rest } = handlerOptions || {};
-  return {
-    ...rest,
-    httpAgent: markReusedSockets(httpAgent),
-    httpsAgent: markReusedSockets(httpsAgent),
-    connectionTimeout: DEFAULT_TIMEOUTS.connectionTimeout,
-    requestTimeout,
-    // throwOnRequestTimeout: sem ele as versões recentes do SDK só registram
-    // um aviso e a chamada continua esperando
-    throwOnRequestTimeout: true
-  };
-}
-
-/**
- * `handlerOptions`: ver requestHandlerOptions.
+ * `handlerOptions`: opções extras do NodeHttpHandler (ex.: `httpAgent` e
+ * `httpsAgent` compartilhados entre clientes do mesmo serviço).
  * @param {string} endpointEnv
  * @param {object} [options]
  * @param {number} [options.requestTimeout]
@@ -151,7 +79,9 @@ export function awsClientConfig(endpointEnv, { requestTimeout = DEFAULT_TIMEOUTS
   return {
     region: process.env.AWS_REGION || 'us-east-1',
     maxAttempts,
-    requestHandler: retryStaleSocket(new NodeHttpHandler(requestHandlerOptions({ requestTimeout, handlerOptions }))),
+    // throwOnRequestTimeout: sem ele as versões recentes do SDK só registram
+    // um aviso e a chamada continua esperando
+    requestHandler: { ...handlerOptions, connectionTimeout: DEFAULT_TIMEOUTS.connectionTimeout, requestTimeout, throwOnRequestTimeout: true },
     ...(endpoint && { endpoint })
   };
 }

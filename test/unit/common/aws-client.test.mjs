@@ -1,8 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
-import http from 'node:http';
-import { DEFAULT_TIMEOUTS, QUERY_CLIENT_OPTIONS, TIMEOUT_SCALE, awsClientConfig, isLocalStack, requestHandlerOptions, timeoutScale } from '../../../src/common/aws-client.mjs';
+import { DEFAULT_TIMEOUTS, QUERY_CLIENT_OPTIONS, TIMEOUT_SCALE, awsClientConfig, isLocalStack, timeoutScale } from '../../../src/common/aws-client.mjs';
 import { MAX_SOCKETS, SCAN_TIMEOUT_MS } from '../../../src/common/database.mjs';
 import { MAX_PAGE_SIZE } from '../../../src/common/pagination.mjs';
 
@@ -57,50 +56,11 @@ describe('orçamento de tempo dos clientes da AWS (template.yaml)', () => {
 
 describe('awsClientConfig', () => {
   it('repassa as opções extras do handler sem perder os timeouts', () => {
-    const httpAgent = new http.Agent();
-    const options = requestHandlerOptions({ handlerOptions: { httpAgent, requestTimeout: 1 } });
-    assert.strictEqual(options.httpAgent, httpAgent);
-    assert.strictEqual(options.requestTimeout, DEFAULT_TIMEOUTS.requestTimeout);
-    assert.strictEqual(options.throwOnRequestTimeout, true);
-  });
-
-  // Servidor que derruba o socket sem responder nas requisições escolhidas
-  async function withServer(dropOn, fn) {
-    let count = 0;
-    const server = http.createServer((req, res) => {
-      count++;
-      req.resume();
-      if (dropOn.includes(count)) return req.socket.destroy();
-      res.end('{}');
-    });
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
-    const { requestHandler } = awsClientConfig(undefined, { handlerOptions: { httpAgent: agent } });
-    const send = () => requestHandler.handle({ protocol: 'http:', hostname: '127.0.0.1', port: server.address().port, method: 'POST', path: '/', headers: {}, body: '{}' });
-    try {
-      await fn(send, () => count);
-    } finally {
-      agent.destroy();
-      server.close();
-    }
-  }
-
-  it('repete uma vez quando o socket reaproveitado do pool já caiu', async () => {
-    await withServer([2], async (send, count) => {
-      (await send()).response.body.resume();
-      await new Promise(resolve => setImmediate(resolve));
-      const { response } = await send();
-      response.body.resume();
-      assert.strictEqual(response.statusCode, 200);
-      assert.strictEqual(count(), 3);
-    });
-  });
-
-  it('não repete quando a conexão nova cai (a requisição pode ter sido processada)', async () => {
-    await withServer([1], async (send, count) => {
-      await assert.rejects(send(), error => error.code === 'ECONNRESET');
-      assert.strictEqual(count(), 1);
-    });
+    const httpAgent = {};
+    const { requestHandler } = awsClientConfig(undefined, { handlerOptions: { httpAgent, requestTimeout: 1 } });
+    assert.strictEqual(requestHandler.httpAgent, httpAgent);
+    assert.strictEqual(requestHandler.requestTimeout, DEFAULT_TIMEOUTS.requestTimeout);
+    assert.strictEqual(requestHandler.throwOnRequestTimeout, true);
   });
 });
 
