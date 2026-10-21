@@ -640,7 +640,7 @@ Resources:
         OutExtension: ['.js=.mjs']
         Target: es2022
         EntryPoints: [src/layers/api-gateway-layer/src/routes/apiRoutes.js]
-        External: ['@aws-sdk/*']
+        External: ['@aws-sdk/*', '@smithy/*']
 
   # Product Service
   ProductFunction:
@@ -695,7 +695,7 @@ Resources:
         OutExtension: ['.js=.mjs']
         Target: es2022
         EntryPoints: [src/ecommerce/products/index.mjs]
-        External: ['@aws-sdk/*']
+        External: ['@aws-sdk/*', '@smithy/*']
 
   # Order Service
   OrderFunction:
@@ -734,7 +734,7 @@ Resources:
         OutExtension: ['.js=.mjs']
         Target: es2022
         EntryPoints: [src/ecommerce/orders/index.mjs]
-        External: ['@aws-sdk/*']
+        External: ['@aws-sdk/*', '@smithy/*']
 
   # Payment Service
   PaymentFunction:
@@ -762,7 +762,7 @@ Resources:
         OutExtension: ['.js=.mjs']
         Target: es2022
         EntryPoints: [src/ecommerce/payments/index.mjs]
-        External: ['@aws-sdk/*']
+        External: ['@aws-sdk/*', '@smithy/*']
 
   # Stock Service
   StockFunction:
@@ -829,7 +829,7 @@ Resources:
         OutExtension: ['.js=.mjs']
         Target: es2022
         EntryPoints: [src/ecommerce/stock/index.mjs]
-        External: ['@aws-sdk/*']
+        External: ['@aws-sdk/*', '@smithy/*']
 
   # Saga Orchestrator
   SagaOrchestratorFunction:
@@ -912,7 +912,7 @@ Resources:
         OutExtension: ['.js=.mjs']
         Target: es2022
         EntryPoints: [src/ecommerce/saga-orchestrator/index.mjs]
-        External: ['@aws-sdk/*']
+        External: ['@aws-sdk/*', '@smithy/*']
 
   # Saga de compra orquestrada pelo Step Functions
   # Definição gerada por scripts/generate-saga-workflow.py
@@ -1685,7 +1685,7 @@ Resources:
         OutExtension: ['.js=.mjs']
         Target: es2022
         EntryPoints: [src/layers/api-gateway-layer/src/ops/costKillSwitch.js]
-        External: ['@aws-sdk/*']
+        External: ['@aws-sdk/*', '@smithy/*']
 
   # Volume de ataque (script contra as rotas públicas): o Budget só vê o gasto
   # horas depois, e até lá os limites por rota (somados, ~150 req/s) já teriam
