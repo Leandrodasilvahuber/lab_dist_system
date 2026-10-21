@@ -315,6 +315,10 @@ Resources:
         AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
         AllowHeaders: [content-type, authorization, idempotency-key, x-idempotency-key, x-correlation-id]
         ExposeHeaders: [retry-after]
+        # O preflight conta no limite da rota (RouteSettings): sem cache, o
+        # navegador repete o OPTIONS a cada 5 s e ao abrir a página parte deles
+        # levava 429 ("Failed to fetch"). 2 h é o teto do Chrome
+        MaxAge: 7200
       Auth:
         Authorizers:
           # Rotas de admin: access token do Cognito (Authorization: Bearer),

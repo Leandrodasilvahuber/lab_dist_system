@@ -4,15 +4,31 @@ import { authHeaders, getCredential, setCredential } from './session.js';
 
 export const isAuthError = error => error.status === 401 || error.status === 403;
 
-async function request(path, options, force) {
+// Content-Type só com corpo: num GET ele obrigava o navegador a um preflight
+// OPTIONS por URL, e o preflight conta no limite da rota no HttpApi. Ao abrir
+// a página, os 429 nos preflights viravam "Failed to fetch"
+async function send(path, options, force) {
     return fetch(API_BASE + path, {
         ...options,
         headers: {
-            'Content-Type': 'application/json',
+            ...(options.body !== undefined && { 'Content-Type': 'application/json' }),
             ...(await authHeaders({ force })),
             ...(options.headers || {})
         }
     });
+}
+
+// Leitura que falhou na rede (conexão HTTP/2 caída, preflight recusado) é
+// repetida uma vez; escrita não, porque pode ter chegado ao servidor
+async function request(path, options, force) {
+    const method = (options.method || 'GET').toUpperCase();
+    try {
+        return await send(path, options, force);
+    } catch (error) {
+        if (method !== 'GET' || !(error instanceof TypeError)) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return send(path, options, force);
+    }
 }
 
 export async function api(path, options = {}) {
