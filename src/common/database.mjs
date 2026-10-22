@@ -49,6 +49,27 @@ const noRetryDocClient = createDocClient({ maxAttempts: 1 });
 export const SCAN_TIMEOUT_MS = scaled(5000);
 const scanDocClient = createDocClient({ requestTimeout: SCAN_TIMEOUT_MS, maxAttempts: 1 });
 
+// Depois de muito tempo congelado, o container volta com os sockets keep-alive
+// do pool já fechados pelo DynamoDB, e a primeira leitura falha na hora com
+// ECONNRESET/EPIPE. Onde o SDK não repete (SDK_MAX_ATTEMPTS: 1 na
+// SagaOrchestratorFunction, scanDocClient) isso virava 503 no GET /sagas. A
+// falha é imediata e o socket morto sai do pool: repetir não gasta o orçamento
+// de tempo. Só leituras: numa escrita a requisição pode ter chegado
+const STALE_SOCKET_CODES = new Set(['ECONNRESET', 'EPIPE']);
+const STALE_SOCKET_RETRIES = 2;
+export const isStaleSocketError = error =>
+  STALE_SOCKET_CODES.has(error?.code) || error?.message === 'socket hang up';
+
+async function sendRead(client, command) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await client.send(command);
+    } catch (error) {
+      if (attempt >= STALE_SOCKET_RETRIES || !isStaleSocketError(error)) throw error;
+    }
+  }
+}
+
 // Nome físico de cada tabela, configurável por variável de ambiente.
 // No deploy o template deve injetar os nomes (ex.: dev-Products).
 const tables = {
@@ -98,7 +119,7 @@ async function putItemIfNotExists(tableType, item, keyName = 'id') {
  * leitura padrão, eventualmente consistente, pode não enxergar o item ainda.
  */
 async function getItem(tableType, key, { consistentRead = false } = {}) {
-  const { Item } = await docClient.send(new GetCommand({
+  const { Item } = await sendRead(docClient, new GetCommand({
     TableName: getTable(tableType),
     Key: key,
     ...(consistentRead && { ConsistentRead: true })
@@ -116,7 +137,7 @@ async function queryItems(tableType, queryParams, { retry = true } = {}) {
 
   // Percorre todas as páginas da consulta (limite de 1MB por chamada)
   do {
-    const result = await client.send(new QueryCommand({
+    const result = await sendRead(client, new QueryCommand({
       TableName: getTable(tableType),
       ...queryParams,
       ExclusiveStartKey
@@ -168,7 +189,7 @@ async function scanItems(tableType, { indexName } = {}) {
 
   // Percorre todas as páginas do scan (limite de 1MB por chamada)
   do {
-    const result = await docClient.send(new ScanCommand({
+    const result = await sendRead(docClient, new ScanCommand({
       TableName: getTable(tableType),
       ...(indexName && { IndexName: indexName }),
       ExclusiveStartKey
@@ -189,7 +210,7 @@ async function scanItems(tableType, { indexName } = {}) {
  * @param {Record<string, any>} [page.startKey] LastEvaluatedKey da página anterior
  */
 async function scanPage(tableType, { limit, startKey } = {}) {
-  const result = await scanDocClient.send(new ScanCommand({
+  const result = await sendRead(scanDocClient, new ScanCommand({
     TableName: getTable(tableType),
     ...(limit && { Limit: limit }),
     ...(startKey && { ExclusiveStartKey: startKey })
@@ -287,4 +308,4 @@ export class Database {
 export { docClient, tables };
 export default Database;
 export { putItem, putItemIfNotExists, getItem, queryItems, updateItem, transactWrite, scanItems, scanPage, deleteItem, batchDelete };
-export { getTable };
+export { getTable, sendRead };
