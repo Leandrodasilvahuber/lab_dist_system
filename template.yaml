@@ -2607,6 +2607,29 @@ Resources:
         DNSName: !GetAtt DashboardDistribution.DomainName
         HostedZoneId: Z2FDTNDATAQYW2
 
+  # Cache do /gasolina: respeita o Cache-Control da Lambda (max-age=300) e põe
+  # a query string na chave (?formato=json e ?periodo= são respostas
+  # diferentes). A gerenciada UseOriginCacheControlHeaders-QueryStrings não
+  # serve: ela inclui o Host na chave e o repassa à origem, e a Function URL
+  # responde 403 para um Host que não é o dela
+  GasolinaCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${Environment}-ecommerce-gasolina'
+        MinTTL: 0
+        DefaultTTL: 0
+        MaxTTL: 3600
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          QueryStringsConfig:
+            QueryStringBehavior: all
+          HeadersConfig:
+            HeaderBehavior: none
+          CookiesConfig:
+            CookieBehavior: none
+
   DashboardDistribution:
     Type: AWS::CloudFront::Distribution
     # checkov:skip=CKV_AWS_68:WAF custa ~US$ 6/mês; o dashboard é estático e a API tem throttling e limites diários próprios
@@ -2699,10 +2722,9 @@ Resources:
             AllowedMethods: [GET, HEAD]
             CachedMethods: [GET, HEAD]
             Compress: true
-            # Managed-UseOriginCacheControlHeaders-QueryStrings: respeita o
-            # max-age=300 da Lambda e põe a query string na chave de cache
-            # (?formato=json e ?periodo= são respostas diferentes)
-            CachePolicyId: 4cc15a8a-d715-48a4-82b8-cc0b614638fe
+            # Política própria (GasolinaCachePolicy): query string na chave,
+            # sem o Host, que a Function URL recusa
+            CachePolicyId: !Ref GasolinaCachePolicy
             OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
             ResponseHeadersPolicyId: !Ref DashboardSecurityHeaders
           # Assets do dashboard (js, css)
