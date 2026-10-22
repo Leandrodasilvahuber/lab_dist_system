@@ -2022,10 +2022,9 @@ Resources:
         const i = key => ` data-i18n="${key}"`;
 
         const labs = [
-          { emoji: '🛒', title: 'Sistemas Distribuídos', text: 'E-commerce serverless com saga no Step Functions, idempotência ponta a ponta, caos e SLOs. Rodando ao vivo.', href: '/laboratory' },
-          { emoji: `<img src="${dataUri(hMark)}" alt="" width="48" height="48">`, title: 'HüberClaude', text: 'CLI de agente de código open-source dedicado ao OpenRouter: uma chave dá acesso a milhares de modelos com preços à vista.', href: '/huberclaude', tag: 'OPEN SOURCE', cta: 'Conhecer o projeto' },
-          { emoji: '🧠', title: 'Fine-tuning', text: 'Ensinando modelos a falar a língua do domínio. Os GPUs ainda estão esquentando.' },
-          { emoji: '📚', title: 'RAG', text: 'Busca vetorial + LLM respondendo com as fontes certas, sem alucinar (muito).' }
+          { emoji: '🛒', title: 'Sistemas Distribuídos', text: 'E-commerce serverless com saga no Step Functions, idempotência ponta a ponta, caos e SLOs. Rodando ao vivo.', href: '/laboratory', video: 'GVB8lmVz9cQ' },
+          { emoji: `<img src="${dataUri(hMark)}" alt="" width="48" height="48">`, title: 'HüberClaude', text: 'CLI de agente de código open-source dedicado ao OpenRouter: uma chave dá acesso a milhares de modelos com preços à vista.', href: '/huberclaude', tag: 'OPEN SOURCE', cta: 'Conhecer o projeto', video: 'K0LhMnLGe8w' },
+          { emoji: '⛽', title: 'Observatório de Combustíveis', text: 'Mapa do Brasil com o preço da gasolina, do etanol, do diesel e do GNV por estado, atualizado sozinho a cada 10 dias com os dados abertos da ANP: Airflow, dbt e Lambda por uns US$ 2,60 por mês.', href: '/gasolina', cta: 'Ver o mapa', video: 'OwiRWHY5lxE' }
         ];
 
         const stats = [
@@ -2068,13 +2067,15 @@ Resources:
         // Canais do YouTube que recomendo. Foto e banner ficam em /dashboard/img/channels
         // (a CSP só aceita imagens da mesma origem, nada direto do YouTube)
         const channels = [
+          ['leandro-huber-news', 'Leandro Huber', 'leandrohubernews', 'Programação e IA na prática: tutoriais, projetos e novidades do mundo tech explicados de forma simples e direta.'],
           ['estudio68', 'Estúdio 68 por Micah', 'Estudio68oficial', 'Dados e IA explicados para quem trabalha com isso no dia a dia, sem precisar de matemática.'],
           ['renato-augusto', 'Renato Augusto', 'RenatoAugustoTech', 'Tecnologia e carreira para engenheiros de software que querem se destacar.'],
           ['diary-of-a-ceo', 'The Diary Of A CEO', 'TheDiaryOfACEO', 'Steven Bartlett entrevista empreendedores, cientistas e atletas sobre negócios, saúde e sucesso.'],
           ['ti-das-antigas', 'TI das Antigas', 'tidasantigas', 'Tecnologia levada a sério por quem viu a informática nascer: do Novell ao Rust, sem frescura.'],
           ['cortes-do-mano', 'Cortes do Mano Deyvin', 'cortesdomanoofc', 'O canal oficial de cortes do Mano Deyvin, com os melhores momentos das lives.'],
           ['akitando', 'Fabio Akita', 'Akitando', 'O Akitando: programação, carreira e ciência da computação a fundo, com o Fabio Akita.'],
-          ['leandro-huber-news', 'Leandro Huber', 'leandrohubernews', 'Programação e IA na prática: tutoriais, projetos e novidades do mundo tech explicados de forma simples e direta.']
+          ['top-projects-compilation', 'ToP Projects Compilation', 'ToPProjectsCompilation', 'Chips, circuitos e placas por trás da tela: desmontam eletrônicos, montam projetos e contam a história do hardware.'],
+          ['olhar-digital', 'Olhar Digital', 'OlharDigital', 'Notícias, análises e reviews de tecnologia: IA, gadgets, big techs, games, espaço e ciência.']
         ];
 
         const channelCard = ([slug, name, handle, text], n) => `
@@ -2112,14 +2113,26 @@ Resources:
               ${body}
             </section>`;
 
-        const labCard = ({ emoji, title, text, href, tag = 'AO VIVO', cta = 'Entrar no laboratório', external }, n) => {
+        // Vídeo do canal: miniatura em /dashboard/img/videos (a CSP só aceita imagens da mesma origem)
+        const videoLink = id => `
+                <a class="lab-video" href="https://www.youtube.com/watch?v=${id}" target="_blank" rel="noopener noreferrer">
+                  <span class="lab-video-thumb"><img src="/dashboard/img/videos/${id}.webp" alt="" width="120" height="68" loading="lazy"><span class="play" aria-hidden="true"></span></span>
+                  <span><span${i('lab.video')}>Vídeo explicativo</span> <span aria-hidden="true">↗</span></span>
+                </a>`;
+
+        const labCard = ({ emoji, title, text, href, tag = 'AO VIVO', cta = 'Entrar no laboratório', external, video }, n) => {
+          const name = ['HüberClaude', 'Observatório de Combustíveis'].includes(title) ? title : `Laboratório de ${title}`;
+          // Com vídeo o card vira div: o link principal fica no título e cobre o card (.lab-link::after),
+          // e o do vídeo fica por cima dele
+          const heading = video ? `<h3><a class="lab-link" href="${href}"${i(`lab.${n}.title`)}>${name}</a></h3>` : `<h3${i(`lab.${n}.title`)}>${name}</h3>`;
           const inner = `
                 <div class="lab-top"><span class="lab-emoji" aria-hidden="true">${emoji}</span>${href
                   ? `<span class="tag tag-live"${i(`lab.${n}.tag`)}>${tag}</span>`
                   : `<span class="tag tag-soon"${i('lab.soon')}>🚧 em breve</span>`}</div>
-                <h3${i(`lab.${n}.title`)}>${title === 'HüberClaude' ? title : `Laboratório de ${title}`}</h3>
+                ${heading}
                 <p${i(`lab.${n}.text`)}>${text}</p>
                 <span class="lab-cta">${href ? `<span${i(`lab.${n}.cta`)}>${cta}</span> <span aria-hidden="true">→</span>` : `<span${i('lab.locked')}>Porta trancada 🔒</span>`}</span>`;
+          if (video) return `<div class="lab lab-live">${inner}${videoLink(video)}</div>`;
           return href
             ? `<a class="lab lab-live" href="${href}"${external ? ' target="_blank" rel="noopener noreferrer"' : ''}>${inner}</a>`
             : `<div class="lab lab-locked" aria-disabled="true" title="Em construção" data-i18n-title="lab.lockedTitle">${inner}</div>`;
@@ -2149,6 +2162,8 @@ Resources:
                 <a href="#carreira"${i('nav.career')}>Carreira</a>
                 <a href="#faq"${i('nav.faq')}>FAQ</a>
                 <a class="btn btn-sm btn-primary" href="/laboratory"${i('nav.open')}>Abrir laboratório</a>
+                <a class="btn btn-sm btn-xs btn-ghost" href="/huberclaude">HüberClaude</a>
+                <a class="btn btn-sm btn-xs btn-ghost" href="/gasolina"${i('nav.fuel')}>Ranking gasolina</a>
                 <div class="lang" role="group" aria-label="Idioma" data-i18n-aria-label="lang.label">
                   <button type="button" data-lang="pt" title="Português" aria-label="Português" aria-pressed="true"><img src="/dashboard/img/flags/br.svg" alt="" width="22" height="16"></button>
                   <button type="button" data-lang="en" title="English" aria-label="English" aria-pressed="false"><img src="/dashboard/img/flags/us.svg" alt="" width="22" height="16"></button>
@@ -2376,6 +2391,7 @@ Resources:
                 <a class="btn btn-primary" href="#download"${i('hero.download')}>Baixar para Linux</a>
                 <a class="btn btn-ghost" href="${GITHUB}" rel="noopener"${i('hero.github')}>Ver no GitHub</a>
                 <a class="btn btn-ghost btn-wa" href="${WHATSAPP}" target="_blank" rel="noopener noreferrer">${waIcon}<span${i('hero.community')}>Grupo no WhatsApp</span></a>
+                <a class="btn btn-ghost btn-yt" href="https://www.youtube.com/watch?v=K0LhMnLGe8w" target="_blank" rel="noopener noreferrer"><span class="yt-play" aria-hidden="true"></span><span${i('hero.video')}>Vídeo explicativo</span></a>
               </div>
               <div class="showcase">
                 ${term('inicio', 'Tela inicial do HüberClaude no terminal, com o modelo e o marcador de combustível', 'shot.homeAlt')}

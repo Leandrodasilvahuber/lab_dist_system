@@ -1129,3 +1129,7 @@ a.btn { text-decoration: none; }
     .trail-stop b, .trail-goal b { display: none; }
     .trail-lane { height: 108px; }
 }
+
+/* Botão de play do YouTube (vídeo explicativo no canal) */
+.yt-play { position: relative; flex: none; width: 22px; height: 15px; border-radius: 4px; background: #ff0033; }
+.yt-play::after { content: ''; position: absolute; top: 50%; left: 52%; border-style: solid; border-width: 4px 0 4px 7px; border-color: transparent transparent transparent #fff; transform: translate(-50%, -50%); }
