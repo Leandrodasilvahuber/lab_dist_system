@@ -124,6 +124,14 @@ Parameters:
     Default: 4500
     MinValue: 0
 
+  # Observatório de Combustíveis (/gasolina): a Lambda é de outro repositório
+  # (Leandrodasilvahuber/observatorio-combustiveis, Terraform), que publica o
+  # domínio da Function URL neste parâmetro SSM. Lido a cada deploy; aquele
+  # projeto precisa ter feito o deploy antes
+  GasolinaOrigemDominio:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /observatorio/dev/api-origem
+
 Conditions:
   # Em prod as tabelas não podem ser apagadas (nem por sam delete); em dev/test
   # a stack continua descartável
@@ -2632,6 +2640,14 @@ Resources:
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
               OriginSSLProtocols: [TLSv1.2]
+          # Observatório de Combustíveis: Function URL com AWS_IAM; as permissões
+          # para esta distribuição ficam no Terraform daquele projeto
+          - Id: gasolina-lambda
+            DomainName: !Ref GasolinaOrigemDominio
+            OriginAccessControlId: !GetAtt HelloOriginAccessControl.Id
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
         # Raiz e qualquer outro caminho: a Lambda hello world (sem cache)
         DefaultCacheBehavior:
           TargetOriginId: hello-lambda
@@ -2675,6 +2691,20 @@ Resources:
             FunctionAssociations:
               - EventType: viewer-request
                 FunctionARN: !GetAtt HuberclaudeRewriteFunction.FunctionMetadata.FunctionARN
+          # Observatório de Combustíveis (mapa, JSON, CSS e JS). Sem rewrite: a
+          # Lambda recebe /gasolina... e trata o prefixo
+          - PathPattern: /gasolina*
+            TargetOriginId: gasolina-lambda
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            # Managed-UseOriginCacheControlHeaders-QueryStrings: respeita o
+            # max-age=300 da Lambda e põe a query string na chave de cache
+            # (?formato=json e ?periodo= são respostas diferentes)
+            CachePolicyId: 4cc15a8a-d715-48a4-82b8-cc0b614638fe
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            ResponseHeadersPolicyId: !Ref DashboardSecurityHeaders
           # Assets do dashboard (js, css)
           - PathPattern: /dashboard/*
             TargetOriginId: dashboard-s3
