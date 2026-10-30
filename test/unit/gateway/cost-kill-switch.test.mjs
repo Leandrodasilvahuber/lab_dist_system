@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import { readFile } from 'node:fs/promises';
 import { createHandler } from '../../../src/layers/api-gateway-layer/src/ops/costKillSwitch.js';
 
 process.env.LOG_LEVEL = 'silent';
@@ -130,6 +131,26 @@ describe('CostKillSwitch', () => {
     const { apigw, ssm } = fakes(initialStage());
     const event = { Records: [{ Sns: { Message: JSON.stringify({ AlarmName: 'dev-ecommerce-api-flood', NewStateValue: 'ALARM' }) } }] };
     assert.deepStrictEqual(await createHandler({ ...config, floodAlarmName: '', apigw, ssm })(event), { blocked: false, ignored: true });
+  });
+
+  // O backup vai num parâmetro String do SSM (tier padrão: até 4 KB). Com as
+  // rotas reais do template, uma rota nova com limite próprio que estourasse
+  // o tamanho faria o PutParameter falhar e o interruptor não bloquearia nada
+  it('backup com todas as RouteSettings do template.yaml cabe num parâmetro padrão do SSM', async () => {
+    const template = await readFile(new URL('../../../template.yaml', import.meta.url), 'utf8');
+    const section = template.match(/\n {6}RouteSettings:\n([\s\S]*?)\n {6}\S/)[1];
+    const routes = [...section.matchAll(/'([A-Z]+ [^']+)':\n\s+ThrottlingBurstLimit: (\d+)\n\s+ThrottlingRateLimit: (\d+)/g)];
+    assert.ok(routes.length > 20, `RouteSettings não encontradas no template (${routes.length})`);
+    const stage = {
+      StageName: 'dev',
+      DefaultRouteSettings: { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 10 },
+      RouteSettings: Object.fromEntries(routes.map(([, route, burst, rate]) =>
+        [route, { ThrottlingBurstLimit: Number(burst), ThrottlingRateLimit: Number(rate) }]))
+    };
+    const { apigw, ssm, params } = fakes(stage);
+    await createHandler({ ...config, apigw, ssm })(snsEvent);
+    const size = Buffer.byteLength(params[config.backupParam]);
+    assert.ok(size <= 4096, `backup com ${size} bytes passa do limite de 4096 do SSM padrão`);
   });
 
   it('sem configuração falha em vez de bloquear às cegas', async () => {

@@ -212,14 +212,16 @@ function readBody(req) {
 }
 
 // Evento no formato payload 2.0 do HttpApi
-function buildEvent({ method, url, headers = {}, body = null }) {
+// `sourceIp`: como o requestContext.http.sourceIp do HttpApi. Sem ele, todos
+// os clientes dividiriam o mesmo contador do limite diário por cliente (PurchaseQuota)
+function buildEvent({ method, url, headers = {}, body = null, sourceIp }) {
   return {
     version: '2.0',
     rawPath: url.pathname,
     rawQueryString: url.search.slice(1),
     queryStringParameters: Object.fromEntries(url.searchParams),
     headers,
-    requestContext: { stage: '$default', http: { method, path: url.pathname } },
+    requestContext: { stage: '$default', http: { method, path: url.pathname, sourceIp } },
     body,
     isBase64Encoded: false
   };
@@ -356,7 +358,7 @@ const server = http.createServer(async (req, res) => {
   const pagePath = url.pathname === '/' ? '/' : url.pathname.startsWith('/huberclaude') ? '/huberclaude' : null;
   if ((req.method === 'GET' || req.method === 'HEAD') && pagePath) {
     try {
-      const result = await helloPage(buildEvent({ method: req.method, url, headers: req.headers }),
+      const result = await helloPage(buildEvent({ method: req.method, url, headers: req.headers, sourceIp: req.socket.remoteAddress }),
         pagePath === '/' ? LOCAL_HELLO_FUNCTION : LOCAL_HUBERCLAUDE_FUNCTION);
       // Na AWS o CloudFront guarda a página por 5 min (Cache-Control da Lambda); local não há CDN
       // e o navegador não deve mostrar uma cópia velha depois de um novo localstack:deploy
@@ -403,7 +405,7 @@ const server = http.createServer(async (req, res) => {
 
   const started = Date.now();
   try {
-    const event = buildEvent({ method: req.method, url, headers: req.headers, body: await readBody(req) });
+    const event = buildEvent({ method: req.method, url, headers: req.headers, body: await readBody(req), sourceIp: req.socket.remoteAddress });
     const result = await handlers[routeFor(url.pathname)](event);
     send(res, result.statusCode, result.headers || {}, result.body);
     if (process.env.LOG_LEVEL !== 'silent') {

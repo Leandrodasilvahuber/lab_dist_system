@@ -8,6 +8,11 @@ import { awsClientConfig } from './aws-client.mjs';
  * A maioria dos eventos é informativa (auditoria, e-mail, analytics): o fluxo
  * da compra é controlado pela saga no Step Functions, então uma falha ao
  * publicar é registrada mas não interrompe a operação de negócio.
+ * A garantia desses eventos é "no máximo uma vez": o evento sai depois da
+ * escrita, e na repetição do passo pela saga (reserva ou pagamento que já
+ * existia) não é publicado de novo. Um consumidor que passe a depender de um
+ * deles (StockReserved, PaymentProcessed...) precisa de um outbox (ex.:
+ * DynamoDB Streams da tabela para o EventBridge), não de `required`.
  *
  * Eventos dos quais outro serviço depende (ex.: ProductCreated, que cria o
  * inventário no Stock) usam `{ required: true }`: a falha é relançada para

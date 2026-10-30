@@ -139,7 +139,7 @@ function render(state) {
             <td class="mono">${escapeHtml(f.action || '*')}</td>
             <td>${escapeHtml(CHAOS_FAULT_TYPES[f.type] || f.type)}</td>
             <td class="num">${Math.round(f.probability * 100)}%</td>
-            <td class="num">${f.latencyMs ? `${f.latencyMs} ms` : '—'}</td>
+            <td class="num">${f.latencyMs ? `${Number(f.latencyMs)} ms` : '—'}</td>
             <td><button type="button" class="btn btn-ghost btn-sm" data-remove="${index}" title="Remover">${icon('trash', { size: 14 })}</button></td>
         </tr>`));
 }

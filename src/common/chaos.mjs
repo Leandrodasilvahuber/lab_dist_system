@@ -34,9 +34,11 @@ const EMPTY = Object.freeze({ faults: [] });
 /**
  * Falha em evento de produto (ProductCreated/ProductDeleted, action `products/...`).
  * Gerá-la exige login de admin: só PUT /chaos/product-events a aceita.
+ * Confere a ação já aparada, como validateChaosConfig a grava: sem o trim,
+ * " products/ProductCreated" passaria aqui e seria gravada sem o espaço.
  */
 export function touchesProductEvents(config) {
-    return Array.isArray(config?.faults) && config.faults.some(f => typeof f?.action === 'string' && f.action.startsWith('products/'));
+    return Array.isArray(config?.faults) && config.faults.some(f => typeof f?.action === 'string' && f.action.trim().startsWith('products/'));
 }
 
 /**

@@ -305,6 +305,17 @@ describe('GET/PUT/DELETE /chaos', () => {
     assert.strictEqual(JSON.parse(ssm.value).faults[0].action, 'products/ProductCreated');
   });
 
+  it('espaço antes da ação não fura a exigência de admin (a ação é gravada aparada)', async () => {
+    const ssm = fakeSsm(undefined);
+    const handler = handlerWith(ssm);
+    const expiresAt = new Date(NOW + 10 * 60000).toISOString();
+    for (const action of [' products/ProductCreated', '\tproducts/ProductDeleted ']) {
+      const denied = await handler(http('PUT', { expiresAt, faults: [{ service: 'stock', action, type: 'crash' }] }));
+      assert.strictEqual(denied.statusCode, 403, JSON.stringify(action));
+    }
+    assert.strictEqual(ssm.value, undefined, 'nada gravado');
+  });
+
   it('PUT valida e grava; GET devolve a config em vigor; DELETE grava a config vazia', async () => {
     const ssm = fakeSsm(undefined);
     const handler = handlerWith(ssm);

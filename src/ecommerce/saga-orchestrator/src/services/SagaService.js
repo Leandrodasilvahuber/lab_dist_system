@@ -527,7 +527,10 @@ export class SagaService {
   /**
    * Lista as sagas, uma página por vez (`limit`, `startKey`). O Scan não tem
    * ordem: a página vem ordenada (mais recentes primeiro), mas a ordem global
-   * fica a cargo de quem junta as páginas.
+   * fica a cargo de quem junta as páginas. O filtro de status (e a remoção
+   * dos contadores da cota) vale depois do Scan: uma página pode vir com
+   * menos que `limit` sagas, até vazia, e ainda ter nextToken. Quem lista
+   * segue o nextToken até ele faltar, não até uma página vazia.
    * @param {Record<string, any>} [filters]
    * @param {object} [page]
    * @param {number} [page.limit]

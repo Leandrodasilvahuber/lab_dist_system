@@ -26,8 +26,9 @@ export const ADMIN_ROUTES = [
   ['GET', /^\/metrics\/cost$/],
   ['POST', /^\/metrics\/cost\/refresh$/],
   // Métricas lidas com GetMetricData, cobrado por métrica pedida (a aba
-  // Métricas pede ~100 por leitura) e fora do free tier: abertas, um script
-  // girando os períodos gastaria dólares por dia mesmo com o cache, que é por container
+  // Métricas pede ~100 por leitura) e fora do free tier: ficam só para admin
+  // porque, se fossem abertas, um script girando os períodos gastaria dólares
+  // por dia mesmo com o cache, que é por container
   ['GET', /^\/metrics\/errors$/],
   ['GET', /^\/metrics\/memory$/],
   // Logs e rastreio: as linhas internas das Lambdas (erros, ids, dados das

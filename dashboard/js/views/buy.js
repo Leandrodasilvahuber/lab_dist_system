@@ -18,6 +18,10 @@ import { showNoticeModal } from '../components/notice-modal.js';
 let pendingPurchase = null;
 let pollTimer = null;
 let lastStatuses = {};
+// Compras iniciadas nesta aba: só elas geram o aviso de concluída/desfeita.
+// A lista mostra as compras de todos os visitantes, e o aviso de uma compra
+// alheia ("Compra desfeita: Payment declined") pareceria ser da pessoa
+const ownSagas = new Set();
 // Sagas exibidas, por id. O polling atualiza só as que estão em andamento
 let sagaCache = new Map();
 // Saga do diagrama embaixo do formulário: a compra recém-feita (ao vivo, pelo
@@ -145,6 +149,7 @@ async function startPurchase(event) {
         pendingPurchase = null;
         started = true;
         selectedId = result.sagaId;
+        ownSagas.add(result.sagaId);
         showToast('Compra iniciada!', 'info');
         $('buyQuantity').value = 1;
         await fetchSagas();
@@ -264,15 +269,18 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
-// true se alguma compra acompanhada terminou nesta consulta
+// true se alguma compra acompanhada terminou nesta consulta (de qualquer
+// visitante: o estoque mudou); o aviso só sai para as compras desta aba
 function notifyFinished(sagas) {
     let finished = false;
     for (const s of sagas) {
         const before = lastStatuses[s.id];
         if (before && !TERMINAL.includes(before) && TERMINAL.includes(s.status)) {
             finished = true;
-            if (s.status === 'COMPLETED') showToast('Compra concluída!', 'success');
-            else showToast(`Compra desfeita: ${s.error?.message || s.status}`, 'error');
+            if (ownSagas.has(s.id)) {
+                if (s.status === 'COMPLETED') showToast('Compra concluída!', 'success');
+                else showToast(`Compra desfeita: ${s.error?.message || s.status}`, 'error');
+            }
         }
         lastStatuses[s.id] = s.status;
     }
