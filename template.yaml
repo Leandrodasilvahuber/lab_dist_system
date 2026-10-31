@@ -2624,10 +2624,12 @@ Resources:
         HostedZoneId: Z2FDTNDATAQYW2
 
   # Cache do /gasolina: respeita o Cache-Control da Lambda (max-age=300) e põe
-  # a query string na chave (?formato=json e ?periodo= são respostas
-  # diferentes). A gerenciada UseOriginCacheControlHeaders-QueryStrings não
-  # serve: ela inclui o Host na chave e o repassa à origem, e a Function URL
-  # responde 403 para um Host que não é o dela
+  # na chave só as query strings que a Lambda usa (?formato=json e ?periodo=
+  # são respostas diferentes; ?v= é o hash dos estáticos). Com todas na chave,
+  # um ?x=<aleatório> furaria o cache a cada pedido. A gerenciada
+  # UseOriginCacheControlHeaders-QueryStrings não serve: ela inclui o Host na
+  # chave e o repassa à origem, e a Function URL responde 403 para um Host que
+  # não é o dela
   GasolinaCachePolicy:
     Type: AWS::CloudFront::CachePolicy
     Properties:
@@ -2640,7 +2642,8 @@ Resources:
           EnableAcceptEncodingGzip: true
           EnableAcceptEncodingBrotli: true
           QueryStringsConfig:
-            QueryStringBehavior: all
+            QueryStringBehavior: whitelist
+            QueryStrings: [formato, periodo, v]
           HeadersConfig:
             HeaderBehavior: none
           CookiesConfig:
