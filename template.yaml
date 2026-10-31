@@ -2173,6 +2173,7 @@ Resources:
                 <a class="btn btn-sm btn-primary" href="/laboratory"${i('nav.open')}>Abrir laboratório</a>
                 <a class="btn btn-sm btn-xs btn-ghost" href="/huberclaude">HüberClaude</a>
                 <a class="btn btn-sm btn-xs btn-ghost" href="/gasolina"${i('nav.fuel')}>Ranking gasolina</a>
+                <a class="btn btn-sm btn-xs btn-ghost" href="/teacher">Maya</a>
                 <div class="lang" role="group" aria-label="Idioma" data-i18n-aria-label="lang.label">
                   <button type="button" data-lang="pt" title="Português" aria-label="Português" aria-pressed="true"><img src="/dashboard/img/flags/br.svg" alt="" width="22" height="16"></button>
                   <button type="button" data-lang="en" title="English" aria-label="English" aria-pressed="false"><img src="/dashboard/img/flags/us.svg" alt="" width="22" height="16"></button>
