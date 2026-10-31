@@ -97,7 +97,8 @@ h1 { margin: 0 auto 18px; max-width: 18ch; font-size: clamp(2rem, 5vw, 3.2rem); 
 .card:hover { border-color: var(--green-deep); transform: translateY(-2px); }
 .card-emoji { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 12px; background: var(--card-2); border-radius: 12px; font-size: 1.3rem; }
 .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
-.card p { margin: 0; color: var(--muted); font-size: .95rem; }
+/* anywhere: nomes longos sem espaço (OPENCLAUDE_DISABLE_CLAUDECODEBROWSER=1) quebram em vez de vazar do card */
+.card p { margin: 0; color: var(--muted); font-size: .95rem; overflow-wrap: anywhere; }
 
 .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
 .step-head { display: flex; align-items: center; gap: 10px; }
