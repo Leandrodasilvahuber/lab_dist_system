@@ -2024,7 +2024,8 @@ Resources:
         const labs = [
           { emoji: '🛒', title: 'Sistemas Distribuídos', text: 'E-commerce serverless com saga no Step Functions, idempotência ponta a ponta, caos e SLOs. Rodando ao vivo.', href: '/laboratory', video: 'GVB8lmVz9cQ' },
           { emoji: `<img src="${dataUri(hMark)}" alt="" width="48" height="48">`, title: 'HüberClaude', text: 'CLI de agente de código open-source dedicado ao OpenRouter: uma chave dá acesso a milhares de modelos com preços à vista.', href: '/huberclaude', tag: 'OPEN SOURCE', cta: 'Conhecer o projeto', video: 'K0LhMnLGe8w' },
-          { emoji: '⛽', title: 'Observatório de Combustíveis', text: 'Mapa do Brasil com o preço da gasolina, do etanol, do diesel e do GNV por estado, atualizado sozinho a cada 10 dias com os dados abertos da ANP: Airflow, dbt e Lambda por uns US$ 2,60 por mês.', href: '/gasolina', cta: 'Ver o mapa', video: 'OwiRWHY5lxE' }
+          { emoji: '⛽', title: 'Observatório de Combustíveis', text: 'Mapa do Brasil com o preço da gasolina, do etanol, do diesel e do GNV por estado, atualizado sozinho a cada 10 dias com os dados abertos da ANP: Airflow, dbt e Lambda por uns US$ 2,60 por mês.', href: '/gasolina', cta: 'Ver o mapa', video: 'OwiRWHY5lxE' },
+          { emoji: '👩‍🏫', title: 'Maya · Tutor de Inglês', text: 'Converse em inglês com a Maya, uma IA que puxa assunto, conduz a conversa e corrige seus erros com explicação em português. Go com o React embutido num binário só, em contêiner na EC2.', href: '/teacher', cta: 'Conversar com a Maya', video: 'yp_9oFjFKHo' }
         ];
 
         const stats = [
@@ -2121,7 +2122,7 @@ Resources:
                 </a>`;
 
         const labCard = ({ emoji, title, text, href, tag = 'AO VIVO', cta = 'Entrar no laboratório', external, video }, n) => {
-          const name = ['HüberClaude', 'Observatório de Combustíveis'].includes(title) ? title : `Laboratório de ${title}`;
+          const name = ['HüberClaude', 'Observatório de Combustíveis', 'Maya · Tutor de Inglês'].includes(title) ? title : `Laboratório de ${title}`;
           // Com vídeo o card vira div: o link principal fica no título e cobre o card (.lab-link::after),
           // e o do vídeo fica por cima dele
           const heading = video ? `<h3><a class="lab-link" href="${href}"${i(`lab.${n}.title`)}>${name}</a></h3>` : `<h3${i(`lab.${n}.title`)}>${name}</h3>`;
