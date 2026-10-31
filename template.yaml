@@ -132,6 +132,14 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<String>
     Default: /observatorio/dev/api-origem
 
+  # Maya · Tutor de Inglês (/teacher): roda numa EC2 de outro repositório
+  # (Leandrodasilvahuber/teacher), sem Elastic IP. O deploy/aws-setup.sh daquele
+  # projeto grava neste parâmetro SSM o DNS público atual da EC2 e reaplica o
+  # stack quando o IP muda
+  TeacherOrigemDominio:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /huber-teacher/origem-dominio
+
 Conditions:
   # Em prod as tabelas não podem ser apagadas (nem por sam delete); em dev/test
   # a stack continua descartável
@@ -2206,7 +2214,7 @@ Resources:
             <ul class="stats" aria-label="Métricas de produção" data-i18n-aria-label="stats.aria">${stats.map(([value, label], n) => `
               <li class="stat"><strong>${value}</strong><span${i(`stat.${n}`)}>${label}</span></li>`).join('')}
             </ul>
-        ${section('destaques', `<span class="hash">#</span> <span${i('sec.highlights')}>Projetos que viraram notícia</span>`, `<div class="highlights">${highlights.map(highlightCard).join('')}</div>`)}
+        ${section('destaques', `<span class="hash">#</span> <span${i('sec.highlights')}>Projetos que participei que viraram notícia</span>`, `<div class="highlights">${highlights.map(highlightCard).join('')}</div>`)}
         ${section('labs', `<span class="hash">#</span> <span${i('sec.labs')}>Laboratórios</span>`, `<div class="labs">${labs.map(labCard).join('')}</div>`)}
         ${section('canais', `<span class="hash">#</span> <span${i('sec.channels')}>Canais sugeridos</span> <span class="muted"${i('sec.channelsNote')}>(o que eu assisto no café)</span>`, `<div class="channels">${channels.map(channelCard).join('')}</div>`)}
         ${section('stack', '<code>$ npm ls --depth=0</code>', `<ul class="chips">${stack.map(item => `<li>${item}</li>`).join('')}</ul>`)}
@@ -2669,6 +2677,22 @@ Resources:
           CookiesConfig:
             CookieBehavior: none
 
+  # /teacher: repassa tudo do visitante (Host, Origin, cookies, query string) e o
+  # CloudFront-Forwarded-Proto, com que o app marca o cookie de sessão como Secure
+  TeacherOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub '${Environment}-ecommerce-teacher'
+        Comment: 'teacher: tudo do visitante + CloudFront-Forwarded-Proto'
+        HeadersConfig:
+          HeaderBehavior: allViewerAndWhitelistCloudFront
+          Headers: [CloudFront-Forwarded-Proto]
+        CookiesConfig:
+          CookieBehavior: all
+        QueryStringsConfig:
+          QueryStringBehavior: all
+
   DashboardDistribution:
     Type: AWS::CloudFront::Distribution
     # checkov:skip=CKV_AWS_68:WAF custa ~US$ 6/mês; o dashboard é estático e a API tem throttling e limites diários próprios
@@ -2710,6 +2734,13 @@ Resources:
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
               OriginSSLProtocols: [TLSv1.2]
+          # Tutor de inglês: HTTP na porta 80 da EC2 (o TLS termina no CloudFront)
+          - Id: huber-teacher-ec2
+            DomainName: !Ref TeacherOrigemDominio
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+              OriginSSLProtocols: [TLSv1.2]
+              OriginReadTimeout: 60
         # Raiz e qualquer outro caminho: a Lambda hello world (sem cache)
         DefaultCacheBehavior:
           TargetOriginId: hello-lambda
@@ -2777,6 +2808,17 @@ Resources:
             # (scripts/deploy.sh), então um deploy novo aparece sem invalidação
             CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
             ResponseHeadersPolicyId: !Ref DashboardSecurityHeaders
+          # Tutor de inglês (app Go com o React embutido, sessão por cookie). Sem
+          # cache (Managed-CachingDisabled) e sem a política de cabeçalhos do site,
+          # como a rota era antes de vir para o template
+          - PathPattern: /teacher*
+            TargetOriginId: huber-teacher-ec2
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: !Ref TeacherOriginRequestPolicy
         ViewerCertificate: !If
           - HasDomainAlias
           - AcmCertificateArn: !If [CreatesSiteCertificate, !Ref SiteCertificate, !Ref CertificateArn]
