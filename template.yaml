@@ -2333,6 +2333,13 @@ Resources:
           ['🐧', 'Feito para o terminal Linux', 'Streaming, comandos de barra, sessões em segundo plano e um visual verde com o mascote H em blocos.']
         ];
 
+        // Novidades recentes: /skills, /agents e o Firefox via claudecodebrowser
+        const news = [
+          ['🧩', '/skills em diagrama', 'As skills aparecem em árvore por origem (projeto, usuário, plugins e embutidas). Enter abre no editor, c cria uma nova, d remove com confirmação e r recarrega.'],
+          ['🤖', '/agents em diagrama', 'Os agentes ganham a mesma árvore, com modelo e ferramentas de cada um. Crie, edite e remova os seus, e use a para escolher o agente da sessão. Os embutidos são somente leitura.'],
+          ['🦊', 'Integração com o Firefox', 'Com o ClaudeCodeBrowser instalado, o HüberClaude registra sozinho o MCP claudecodebrowser e o agente passa a navegar, clicar e ler páginas no Firefox. Respeita sua configuração de MCP e desliga com OPENCLAUDE_DISABLE_CLAUDECODEBROWSER=1.']
+        ];
+
         const steps = [
           ['/login', 'Cole sua chave', 'Crie uma chave no OpenRouter e cole no /login. Ela fica salva só para o seu usuário.', 'login', 'Tela de configuração da chave do OpenRouter'],
           ['/model', 'Escolha o modelo', 'Comece pelos modelos recomendados, filtre por nome ou faixa (free, claude, high) e compare o preço por 1M de tokens.', 'model', 'Seletor com os modelos recomendados por faixa e preço'],
@@ -2418,6 +2425,18 @@ Resources:
                   <span class="card-emoji" aria-hidden="true">${emoji}</span>
                   <h3${i(`feat.${n}.title`)}>${title}</h3>
                   <p${i(`feat.${n}.text`)}>${text}</p>
+                </article>`).join('')}
+              </div>
+            </section>
+
+            <section class="section wrap" id="novidades">
+              <h2><span class="hash">#</span> <span${i('sec.news')}>Novidades</span></h2>
+              <p class="section-lead"${i('news.lead')}>Gerencie skills e agentes sem sair do terminal e deixe o agente usar o seu Firefox.</p>
+              <div class="grid">${news.map(([emoji, title, text], n) => `
+                <article class="card">
+                  <span class="card-emoji" aria-hidden="true">${emoji}</span>
+                  <h3${i(`news.${n}.title`)}>${title}</h3>
+                  <p${i(`news.${n}.text`)}>${text}</p>
                 </article>`).join('')}
               </div>
             </section>
