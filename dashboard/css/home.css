@@ -276,7 +276,7 @@ code { font-family: var(--mono); }
 /* ---------- Métricas ---------- */
 .stats {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     margin: 0 0 88px;
     padding: 0;
     list-style: none;
@@ -408,27 +408,6 @@ code { font-family: var(--mono); }
 }
 .chips li:hover { border-color: rgba(96, 165, 250, 0.5); background: rgba(96, 165, 250, 0.08); color: var(--text); }
 
-/* ---------- Carreira ---------- */
-.timeline { position: relative; margin: 0; padding: 0; list-style: none; }
-.timeline::before { content: ''; position: absolute; top: 8px; bottom: 8px; left: 5px; width: 2px; background: linear-gradient(var(--pink), var(--line) 40%); }
-.timeline li { position: relative; padding: 0 0 28px 36px; }
-.timeline li:last-child { padding-bottom: 0; }
-.timeline li::before {
-    content: '';
-    position: absolute;
-    top: 6px;
-    left: 0;
-    width: 12px;
-    height: 12px;
-    border: 2px solid var(--pink);
-    border-radius: 50%;
-    background: var(--bg);
-}
-.timeline li:first-child::before { background: var(--pink); box-shadow: 0 0 0 4px rgba(244, 114, 182, 0.18); }
-.timeline .when { display: inline-block; padding: 1px 8px; border-radius: 6px; background: rgba(219, 39, 119, 0.08); color: var(--pink); font-family: var(--mono); font-size: 0.8rem; }
-.timeline strong { display: block; margin: 2px 0 4px; font-size: 1.05rem; }
-.timeline p { max-width: 680px; margin: 0; color: var(--muted); line-height: 1.6; }
-
 /* ---------- FAQ ---------- */
 .faq { display: flex; flex-direction: column; gap: 10px; }
 .faq details { border: 1px solid var(--line); border-radius: 12px; background: var(--card); transition: border-color 0.15s, background 0.15s; }
@@ -485,11 +464,6 @@ code { font-family: var(--mono); }
     .hero { grid-template-columns: minmax(0, 1fr); gap: 36px; padding: 48px 0 40px; }
     .terminal { transform: none; }
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .stat + .stat { border-left: 0; }
-    .stat { border-top: 1px solid var(--line); }
-    .stat:nth-child(-n + 2) { border-top: 0; }
-    .stat:nth-child(even) { border-left: 1px solid var(--line); }
-    .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 
 @media (max-width: 680px) {
@@ -618,9 +592,6 @@ code { font-family: var(--mono); }
 .hl-agro .lab-cta { color: var(--green-text); }
 .hl:hover .lab-cta span:last-child { transform: translate(2px, -2px); }
 
-.tl-link { display: inline-block; margin-top: 6px; color: var(--pink); font-size: 0.88rem; font-weight: 600; text-decoration: none; }
-.tl-link:hover { text-decoration: underline; }
-
 @media (max-width: 760px) {
     .highlights { grid-template-columns: minmax(0, 1fr); }
 }
@@ -666,4 +637,111 @@ code { font-family: var(--mono); }
 }
 @media (max-width: 600px) {
     .channels { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- Acabamento visual ---------- */
+/* Métricas em cards separados, com brilho no hover */
+.stats { gap: 14px; border: 0; border-radius: 0; background: none; overflow: visible; }
+.stat {
+    position: relative;
+    padding: 22px 22px 20px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--stats-bg);
+    backdrop-filter: blur(8px);
+    overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.stat + .stat { border-left: 1px solid var(--line); }
+.stat::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 22px;
+    right: 22px;
+    height: 2px;
+    border-radius: 0 0 2px 2px;
+    background: linear-gradient(90deg, var(--green), var(--blue));
+    opacity: 0.7;
+}
+.stat:hover { transform: translateY(-3px); border-color: var(--line-strong); box-shadow: 0 20px 40px -26px rgba(74, 222, 128, 0.55); }
+.stat strong { font-size: 2.1rem; }
+
+/* Nome com um toque de verde e azul no fim do gradiente */
+.hero h1 {
+    background: linear-gradient(100deg, var(--h1-from) 35%, var(--green-text) 75%, var(--blue));
+    -webkit-background-clip: text;
+    background-clip: text;
+    padding-bottom: 0.06em;
+}
+.avatar {
+    border: 0;
+    padding: 3px;
+    background: linear-gradient(135deg, var(--green), var(--blue));
+}
+
+/* Título das seções com uma linha que some à direita */
+.section-title::after {
+    content: '';
+    flex: 1 1 60px;
+    align-self: center;
+    min-width: 40px;
+    height: 1px;
+    margin-left: 6px;
+    background: linear-gradient(90deg, var(--line-strong), transparent);
+}
+
+/* Brilho suave que respira no fundo */
+body.home::after {
+    content: '';
+    position: fixed;
+    top: -20vh;
+    left: 50%;
+    z-index: -2;
+    width: 70vw;
+    height: 60vh;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(74, 222, 128, 0.10), rgba(96, 165, 250, 0.06) 60%, transparent);
+    filter: blur(40px);
+    transform: translateX(-50%);
+    animation: aurora 14s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+@keyframes aurora {
+    from { transform: translateX(-60%) scale(1); }
+    to { transform: translateX(-35%) scale(1.15); }
+}
+
+/* Entrada do hero e das métricas */
+.hero-text > *, .hero-art, .stats {
+    animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.hero-text > :nth-child(2) { animation-delay: 0.06s; }
+.hero-text > :nth-child(3) { animation-delay: 0.12s; }
+.hero-text > :nth-child(4) { animation-delay: 0.18s; }
+.hero-text > :nth-child(5) { animation-delay: 0.24s; }
+.hero-text > :nth-child(6) { animation-delay: 0.3s; }
+.hero-art { animation-delay: 0.2s; }
+.stats { animation-delay: 0.35s; }
+@keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: none; }
+}
+
+/* Chips da stack em fonte mono, combinando com o título */
+.chips li { font-family: var(--mono); font-size: 0.82rem; }
+
+/* Cards com a mesma sombra macia */
+.lab, .hl, .channel, .faq details { box-shadow: 0 1px 0 var(--ov), 0 12px 32px -24px rgba(16, 24, 40, 0.35); }
+.lab-live { box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.08), 0 20px 40px -24px rgba(74, 222, 128, 0.5); }
+
+.cta { position: relative; overflow: hidden; padding: 40px; }
+.cta h2 { font-size: 1.75rem; }
+
+@media (max-width: 600px) {
+    .stats { gap: 10px; }
+    .stat { padding: 18px 16px 16px; }
+    .stat strong { font-size: 1.7rem; }
+    .cta { padding: 24px; }
+    body.home::after { width: 120vw; }
 }

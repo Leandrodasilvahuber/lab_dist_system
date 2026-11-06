@@ -2011,7 +2011,7 @@ Resources:
           <rect x='.5' y='.5' width='419' height='199' rx='14' fill='${C.card}' stroke='${C.line}'/>
           <path d='M.5 36.5h419' stroke='${C.line}'/>
           <circle cx='22' cy='18' r='5.5' fill='#f87171'/><circle cx='40' cy='18' r='5.5' fill='${C.yellow}'/><circle cx='58' cy='18' r='5.5' fill='${C.green}'/>
-          <text x='210' y='22' fill='${C.muted}' font-size='11' text-anchor='middle'>leandro@floripa: ~</text>
+          <text x='210' y='22' fill='${C.muted}' font-size='11' text-anchor='middle'>leandro@salvador: ~</text>
           <text x='20' y='68' fill='${C.text}' class='l'><tspan fill='${C.green}'>$</tspan> npx leandro --whoami</text>
           <text x='20' y='94' fill='${C.muted}' class='l l2'>${l1}</text>
           <text x='20' y='116' fill='${C.muted}' class='l l3'>${l2}</text>
@@ -2039,7 +2039,6 @@ Resources:
         const stats = [
           ['15+', 'anos em produção'],
           ['500 mil', 'hectares de soja monitorados'],
-          ['100%', 'das comarcas de MG via Kafka'],
           ['-90%', 'rollbacks depois do CI/CD'],
           ['∞', 'xícaras de café']
         ];
@@ -2101,19 +2100,10 @@ Resources:
 
         const stack = ['Node.js 22', 'TypeScript', 'AWS Lambda', 'Step Functions', 'DynamoDB', 'Kafka', 'RabbitMQ', 'EventBridge', 'SQS', 'PostgreSQL', 'Redis', 'MongoDB', 'Docker', 'LocalStack', 'AWS SAM', 'GitHub Actions', 'React', 'Vue.js', 'MCP', 'GitHub Copilot'];
 
-        const career = [
-          ['2023 → hoje', 'Hammer Consult', 'Kafka processando eventos de todas as comarcas de Minas, MCPs que automatizam processos e o time voando com Copilot.'],
-          ['2021 → 2023', 'Digifarmz (agtech)', 'Microsserviços para monitorar soja do tamanho de meio milhão de campos de futebol (mais ou menos).'],
-          ['2017 → 2021', 'Datacempro', 'Módulos críticos de ERP em Java, JavaScript e PHP.'],
-          ['2015 → 2017', 'F1 Soluções', 'APIs em Node.js e CakePHP e MySQL afinado na unha.'],
-          ['2007 → 2015', 'O começo', 'Spotcom, N2, Sygecom: onde aprendi que todo sistema é distribuído quando o servidor cai.']
-        ];
-
         const faq = [
           ['Ele sabe sair do Vim?', 'Sabe. Mas prefere não arriscar em produção.'],
           ['Por que tanto Saga pattern?', 'Porque compra que dá pela metade tem que se desfazer sozinha. E porque o nome é épico.'],
-          ['O laboratório é de verdade?', 'É! Tem engenharia de caos embutida: dá pra quebrar a compra de propósito e ver a compensação acontecer.'],
-          ['Tá disponível?', 'Disponibilidade imediata, PJ ou CLT. Os contatos estão logo ali embaixo 👇']
+          ['O laboratório é de verdade?', 'É! Tem engenharia de caos embutida: dá pra quebrar a compra de propósito e ver a compensação acontecer.']
         ];
 
         const section = (id, title, body) => `
@@ -2168,7 +2158,6 @@ Resources:
                 <a href="#destaques"${i('nav.highlights')}>Destaques</a>
                 <a href="#labs"${i('nav.labs')}>Laboratórios</a>
                 <a href="#canais"${i('nav.channels')}>Canais</a>
-                <a href="#carreira"${i('nav.career')}>Carreira</a>
                 <a href="#faq"${i('nav.faq')}>FAQ</a>
                 <a class="btn btn-sm btn-primary" href="/laboratory"${i('nav.open')}>Abrir laboratório</a>
                 <a class="btn btn-sm btn-xs btn-ghost" href="/huberclaude">HüberClaude</a>
@@ -2191,18 +2180,17 @@ Resources:
                   <img class="avatar" src="/dashboard/img/leandro.webp" alt="Foto do Leandro Huber" data-i18n-alt="hero.avatarAlt" width="88" height="88">
                   <div>
                     <p class="hello"${i('hero.hello')}>Hello World 👋, eu sou o</p>
-                    <span class="status"><span class="status-dot"></span><span${i('hero.status')}>Disponível para novos projetos</span></span>
                   </div>
                 </div>
                 <h1>Leandro Huber</h1>
                 <p class="role"><span${i('hero.role')}>Engenheiro de Software Sênior</span> <span>·</span> Node.js <span>·</span> TypeScript <span>·</span> AWS <span>·</span> <span${i('hero.roleTail')}>Sistemas Distribuídos</span></p>
-                <p class="lead"${i('hero.lead')}>Há mais de 15 anos transformando café em APIs e eventos em sistemas que não vendem o mesmo estoque duas vezes. Moro em Florianópolis, onde os sistemas são distribuídos e as praias também. 🏝️</p>
+                <p class="lead"${i('hero.lead')}>Há mais de 15 anos transformando café em APIs e eventos em sistemas que não vendem o mesmo estoque duas vezes. Moro em Salvador, onde os sistemas são distribuídos e as praias também. 🏝️</p>
                 <div class="actions">
                   <a class="btn btn-primary" href="/laboratory"${i('hero.cta')}>Abrir o laboratório 🧪</a>
                   <a class="btn btn-ghost" href="/dashboard/cv/Leandro_Huber_CV_Sistemas_Distribuidos_PT.pdf" download data-href-pt="/dashboard/cv/Leandro_Huber_CV_Sistemas_Distribuidos_PT.pdf" data-href-en="/dashboard/cv/Leandro_Huber_CV_Distributed_Systems_EN.pdf" data-href-es="/dashboard/cv/Leandro_Huber_CV_Sistemas_Distribuidos_ES.pdf"${i('hero.cv')}>📄 Baixar CV</a>
                 </div>
                 <p class="socials">
-                  <a href="https://www.linkedin.com/in/leandrohuber" rel="noopener">LinkedIn <span aria-hidden="true">↗</span></a>
+                  <a href="https://www.linkedin.com/in/leandrohuberdev/" rel="noopener">LinkedIn <span aria-hidden="true">↗</span></a>
                   <a href="https://github.com/Leandrodasilvahuber" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
                   <a href="mailto:emaildohuber@gmail.com">E-mail <span aria-hidden="true">↗</span></a>
                 </p>
@@ -2219,13 +2207,6 @@ Resources:
         ${section('labs', `<span class="hash">#</span> <span${i('sec.labs')}>Laboratórios</span>`, `<div class="labs">${labs.map(labCard).join('')}</div>`)}
         ${section('canais', `<span class="hash">#</span> <span${i('sec.channels')}>Canais sugeridos</span> <span class="muted"${i('sec.channelsNote')}>(o que eu assisto no café)</span>`, `<div class="channels">${channels.map(channelCard).join('')}</div>`)}
         ${section('stack', '<code>$ npm ls --depth=0</code>', `<ul class="chips">${stack.map(item => `<li>${item}</li>`).join('')}</ul>`)}
-        ${section('carreira', `<code>$ <span${i('sec.career')}>git log --oneline carreira</span></code>`, `<ol class="timeline">${career.map(([when, where, what], n) => `
-              <li>
-                <span class="when">${when}</span>
-                <strong${n === 4 ? i('career.beginning') : ''}>${where}</strong>
-                <p${i(`career.${n}`)}>${what}</p>${n === 4 ? `
-                <a class="tl-link" href="https://spotcom.com.br/" target="_blank" rel="noopener noreferrer">spotcom.com.br <span aria-hidden="true">↗</span></a>` : ''}
-              </li>`).join('')}</ol>`)}
         ${section('faq', `<span class="hash">#</span> <span${i('sec.faq')}>Perguntas frequentes</span> <span class="muted"${i('sec.faqNote')}>(e algumas nem tanto)</span>`, `<div class="faq">${faq.map(([q, a], n) => `
               <details>
                 <summary${i(`faq.${n}.q`)}>${q}</summary>
@@ -2242,7 +2223,7 @@ Resources:
           </main>
 
           <footer class="wrap footer">
-            <span${i('footer.place')}>Florianópolis (SC)</span>
+            <span${i('footer.place')}>Salvador (BA)</span>
             <span${i('footer.served')}>Servido por uma AWS Lambda atrás do CloudFront ⚡</span>
           </footer>
           <script type="module" src="/dashboard/js/home.js"></script>
