@@ -2038,8 +2038,8 @@ Resources:
 
         const stats = [
           ['15+', 'anos em produção'],
-          ['500 mil', 'hectares de soja monitorados'],
-          ['-90%', 'rollbacks depois do CI/CD'],
+          ['800 mil', 'hectares de soja monitorados'],
+          ['-30%', 'rollbacks depois do CI/CD'],
           ['∞', 'xícaras de café']
         ];
 
@@ -2100,12 +2100,6 @@ Resources:
 
         const stack = ['Node.js 22', 'TypeScript', 'AWS Lambda', 'Step Functions', 'DynamoDB', 'Kafka', 'RabbitMQ', 'EventBridge', 'SQS', 'PostgreSQL', 'Redis', 'MongoDB', 'Docker', 'LocalStack', 'AWS SAM', 'GitHub Actions', 'React', 'Vue.js', 'MCP', 'GitHub Copilot'];
 
-        const faq = [
-          ['Ele sabe sair do Vim?', 'Sabe. Mas prefere não arriscar em produção.'],
-          ['Por que tanto Saga pattern?', 'Porque compra que dá pela metade tem que se desfazer sozinha. E porque o nome é épico.'],
-          ['O laboratório é de verdade?', 'É! Tem engenharia de caos embutida: dá pra quebrar a compra de propósito e ver a compensação acontecer.']
-        ];
-
         const section = (id, title, body) => `
             <section class="section" id="${id}">
               <h2 class="section-title">${title}</h2>
@@ -2158,7 +2152,6 @@ Resources:
                 <a href="#destaques"${i('nav.highlights')}>Destaques</a>
                 <a href="#labs"${i('nav.labs')}>Laboratórios</a>
                 <a href="#canais"${i('nav.channels')}>Canais</a>
-                <a href="#faq"${i('nav.faq')}>FAQ</a>
                 <a class="btn btn-sm btn-primary" href="/laboratory"${i('nav.open')}>Abrir laboratório</a>
                 <a class="btn btn-sm btn-xs btn-ghost" href="/huberclaude">HüberClaude</a>
                 <a class="btn btn-sm btn-xs btn-ghost" href="/gasolina"${i('nav.fuel')}>Ranking gasolina</a>
@@ -2207,11 +2200,6 @@ Resources:
         ${section('labs', `<span class="hash">#</span> <span${i('sec.labs')}>Laboratórios</span>`, `<div class="labs">${labs.map(labCard).join('')}</div>`)}
         ${section('canais', `<span class="hash">#</span> <span${i('sec.channels')}>Canais sugeridos</span> <span class="muted"${i('sec.channelsNote')}>(o que eu assisto no café)</span>`, `<div class="channels">${channels.map(channelCard).join('')}</div>`)}
         ${section('stack', '<code>$ npm ls --depth=0</code>', `<ul class="chips">${stack.map(item => `<li>${item}</li>`).join('')}</ul>`)}
-        ${section('faq', `<span class="hash">#</span> <span${i('sec.faq')}>Perguntas frequentes</span> <span class="muted"${i('sec.faqNote')}>(e algumas nem tanto)</span>`, `<div class="faq">${faq.map(([q, a], n) => `
-              <details>
-                <summary${i(`faq.${n}.q`)}>${q}</summary>
-                <p${i(`faq.${n}.a`)}>${a}</p>
-              </details>`).join('')}</div>`)}
 
             <section class="cta">
               <div>

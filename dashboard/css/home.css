@@ -745,3 +745,421 @@ body.home::after {
     .cta { padding: 24px; }
     body.home::after { width: 120vw; }
 }
+
+/* =====================================================================
+ * Visual cartoon: contorno grosso, sombra chapada deslocada, cantos bem
+ * redondos e um pouco de "molejo" nos hovers. As cores continuam vindo
+ * dos tokens de cada tema; aqui só entram o traço (--ink) e as sombras.
+ * ===================================================================== */
+:root {
+    --ink: #161a23;
+    --ink-soft: rgba(22, 26, 35, 0.14);
+    --bw: 2.5px;
+    --pop: 5px;
+    --dots: rgba(22, 26, 35, 0.07);
+    --paper: #fffdf7;
+    --bubble: #ffffff;
+    --sh-green: #22c55e;
+    --sh-blue: #2563eb;
+    --sh-pink: #db2777;
+    --sh-yellow: #eab308;
+    --bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --shadow: var(--ink);
+}
+:root[data-theme="dark"] {
+    --ink: #000000;
+    --ink-soft: rgba(0, 0, 0, 0.5);
+    --dots: rgba(255, 255, 255, 0.055);
+    --paper: #12151c;
+    --bubble: #1a1f2a;
+    --sh-green: #4ade80;
+    --sh-blue: #60a5fa;
+    --sh-pink: #f472b6;
+    --sh-yellow: #facc15;
+    --shadow: #2e3648;
+}
+
+/* Fundo de gibi: pontinhos (retícula) no lugar da grade */
+body.home::before {
+    background-image: radial-gradient(var(--dots) 1.4px, transparent 1.6px);
+    background-size: 22px 22px;
+    mask-image: none;
+}
+/* Bolhas de cor flutuando atrás de tudo */
+body.home::after {
+    top: 8vh;
+    width: 46vw;
+    height: 46vw;
+    max-width: 620px;
+    max-height: 620px;
+    border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%;
+    background: radial-gradient(closest-side, rgba(74, 222, 128, 0.16), rgba(96, 165, 250, 0.10) 60%, transparent);
+    filter: blur(20px);
+    animation: blob 18s ease-in-out infinite alternate;
+}
+@keyframes blob {
+    0% { transform: translateX(-10%) rotate(0deg); border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%; }
+    50% { transform: translateX(-60%) rotate(40deg); border-radius: 60% 40% 35% 65% / 55% 60% 40% 45%; }
+    100% { transform: translateX(-30%) rotate(-20deg); border-radius: 38% 62% 52% 48% / 62% 38% 62% 38%; }
+}
+
+/* ---------- Navegação: uma pílula flutuante ---------- */
+.topnav { top: 12px; margin: 12px 0 0; border: 0; background: none; backdrop-filter: none; }
+.topnav-inner {
+    height: 62px;
+    padding: 0 10px 0 14px;
+    border: var(--bw) solid var(--ink);
+    border-radius: 20px;
+    background: var(--nav-bg);
+    backdrop-filter: saturate(1.4) blur(14px);
+    box-shadow: 4px 4px 0 var(--shadow);
+}
+.logo-mark {
+    width: 36px;
+    height: 36px;
+    border: var(--bw) solid var(--ink);
+    border-radius: 12px;
+    background: var(--green);
+    color: #052e14;
+    font-size: 13px;
+    font-weight: 800;
+    box-shadow: 3px 3px 0 var(--shadow);
+    transform: rotate(-6deg);
+    transition: transform 0.35s var(--bounce);
+}
+.logo:hover .logo-mark { transform: rotate(8deg) scale(1.1); }
+.logo { font-weight: 700; }
+.topnav-links a:not(.btn) { padding: 6px 9px; border-radius: 12px; font-weight: 600; }
+.topnav-links { gap: 2px; }
+.topnav-links .btn-xs { margin-left: 4px; }
+.lang { gap: 3px; }
+.theme-btn, .lang button { width: 34px; height: 34px; }
+.topnav-links a:not(.btn):hover { background: none; color: var(--text); box-shadow: inset 0 -3px 0 var(--green); border-radius: 4px; }
+
+.theme-btn, .lang button {
+    border: 2px solid var(--ink);
+    border-radius: 12px;
+    background: var(--card);
+    box-shadow: 2px 2px 0 var(--shadow);
+    transition: transform 0.2s var(--bounce), box-shadow 0.2s;
+}
+.theme-btn:hover, .lang button:hover { transform: translate(-1px, -1px) rotate(-6deg); box-shadow: 3px 3px 0 var(--shadow); background: var(--card); }
+.lang button[aria-pressed="true"] { border-color: var(--ink); background: var(--green); box-shadow: 2px 2px 0 var(--shadow); }
+
+/* ---------- Botões: chapados, com sombra dura que "afunda" no clique ---------- */
+.btn {
+    border: var(--bw) solid var(--ink);
+    border-radius: 14px;
+    font-weight: 800;
+    box-shadow: var(--pop) var(--pop) 0 var(--shadow);
+    transition: transform 0.2s var(--bounce), box-shadow 0.2s var(--bounce), background 0.15s;
+}
+.btn:hover { transform: translate(-2px, -2px); box-shadow: calc(var(--pop) + 2px) calc(var(--pop) + 2px) 0 var(--shadow); }
+.btn:active { transform: translate(var(--pop), var(--pop)); box-shadow: 0 0 0 var(--shadow); }
+.btn-primary, .btn-primary:hover { background: var(--green); color: #052e14; }
+.btn-primary:hover { box-shadow: calc(var(--pop) + 2px) calc(var(--pop) + 2px) 0 var(--shadow); }
+.btn-ghost, .btn-ghost:hover { border-color: var(--ink); background: var(--card); }
+.btn-sm { border-width: 2px; border-radius: 12px; box-shadow: 3px 3px 0 var(--shadow); }
+.btn-sm:hover { box-shadow: 4px 4px 0 var(--shadow); }
+.btn-sm:active { transform: translate(3px, 3px); box-shadow: none; }
+
+/* ---------- Hero ---------- */
+.hero { padding-top: 72px; }
+
+.hello {
+    position: relative;
+    display: inline-block;
+    margin: 0;
+    padding: 8px 14px;
+    border: var(--bw) solid var(--ink);
+    border-radius: 16px 16px 16px 4px;
+    background: var(--bubble);
+    color: var(--text);
+    font-weight: 700;
+    box-shadow: 3px 3px 0 var(--shadow);
+    transform: rotate(-2deg);
+    animation: wave-in 0.8s var(--bounce) both 0.15s;
+}
+/* Rabinho do balão apontando para a foto */
+.hello::before {
+    content: '';
+    position: absolute;
+    left: -11px;
+    bottom: 6px;
+    width: 14px;
+    height: 14px;
+    border-left: var(--bw) solid var(--ink);
+    border-bottom: var(--bw) solid var(--ink);
+    background: var(--bubble);
+    transform: skewY(-40deg) rotate(10deg);
+    border-radius: 0 0 0 4px;
+}
+@keyframes wave-in {
+    from { opacity: 0; transform: rotate(-12deg) scale(0.6); }
+    to { opacity: 1; transform: rotate(-2deg) scale(1); }
+}
+
+.avatar {
+    padding: 0;
+    border: 3px solid var(--ink);
+    background: var(--green);
+    box-shadow: 5px 5px 0 var(--sh-blue), 5px 5px 0 var(--bw) var(--ink);
+    transition: transform 0.35s var(--bounce);
+}
+.hero-id:hover .avatar { transform: rotate(-8deg) scale(1.06); }
+
+.hero h1 {
+    background: none;
+    color: var(--text);
+    -webkit-text-fill-color: currentColor;
+    font-weight: 900;
+    letter-spacing: -0.035em;
+    text-shadow: 3px 3px 0 var(--sh-green), 6px 6px 0 var(--sh-blue);
+    padding-bottom: 0.1em;
+}
+
+.role { font-weight: 700; }
+
+.socials a {
+    padding: 4px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    background: var(--card);
+    color: var(--text);
+    box-shadow: 2px 2px 0 var(--shadow);
+    transition: transform 0.2s var(--bounce), box-shadow 0.2s, background 0.15s;
+}
+.socials a:hover { color: #052e14; background: var(--green); transform: translate(-1px, -2px) rotate(-3deg); box-shadow: 3px 4px 0 var(--shadow); }
+.socials { gap: 10px; margin-top: 22px; }
+
+.hero-art::before { background: radial-gradient(closest-side, rgba(96, 165, 250, 0.3), transparent); }
+/* Estrelinhas de desenho animado em volta do terminal */
+.hero-art::after {
+    content: '✦';
+    position: absolute;
+    top: -26px;
+    right: -6px;
+    color: var(--sh-yellow);
+    font-size: 2.4rem;
+    line-height: 1;
+    -webkit-text-stroke: 2px var(--ink);
+    text-shadow: -230px 250px 0 var(--sh-pink), -330px 30px 0 var(--sh-green);
+    animation: twinkle 2.4s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes twinkle {
+    0%, 100% { transform: rotate(0deg) scale(1); }
+    50% { transform: rotate(20deg) scale(1.15); }
+}
+.terminal {
+    border: 3px solid var(--ink);
+    border-radius: 18px;
+    box-shadow: 8px 8px 0 var(--sh-green), 8px 8px 0 3px var(--ink);
+    transform: rotate(2deg);
+    transition: transform 0.45s var(--bounce), box-shadow 0.3s;
+}
+.hero-art:hover .terminal { transform: rotate(-1deg) scale(1.02); box-shadow: 12px 12px 0 var(--sh-blue), 12px 12px 0 3px var(--ink); }
+
+/* ---------- Métricas: adesivos coloridos levemente tortos ---------- */
+.stat {
+    border: var(--bw) solid var(--ink);
+    border-radius: 20px;
+    background: var(--card);
+    backdrop-filter: none;
+    box-shadow: var(--pop) var(--pop) 0 var(--shadow);
+    transition: transform 0.3s var(--bounce), box-shadow 0.3s var(--bounce);
+}
+.stat + .stat { border-left: var(--bw) solid var(--ink); }
+.stat::before { display: none; }
+.stat strong { background: none; -webkit-text-fill-color: currentColor; font-weight: 900; }
+.stat:nth-child(4n+1) { --c: var(--sh-green); transform: rotate(-1.5deg); }
+.stat:nth-child(4n+2) { --c: var(--sh-blue); transform: rotate(1deg); }
+.stat:nth-child(4n+3) { --c: var(--sh-pink); transform: rotate(-0.8deg); }
+.stat:nth-child(4n+4) { --c: var(--sh-yellow); transform: rotate(1.4deg); }
+.stat strong { color: var(--c); text-shadow: 2px 2px 0 var(--shadow); }
+.stat { box-shadow: var(--pop) var(--pop) 0 var(--c), var(--pop) var(--pop) 0 var(--bw) var(--ink); }
+.stat:hover { transform: rotate(0) translateY(-6px) scale(1.03); border-color: var(--ink); box-shadow: 8px 10px 0 var(--c), 8px 10px 0 var(--bw) var(--ink); }
+.stat span { color: var(--text); font-weight: 600; opacity: 0.8; }
+
+/* ---------- Títulos das seções ---------- */
+.section-title { align-items: center; font-weight: 900; }
+.section-title .hash {
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border: var(--bw) solid var(--ink);
+    border-radius: 12px;
+    background: var(--sh-yellow);
+    color: var(--ink);
+    font-weight: 900;
+    box-shadow: 3px 3px 0 var(--shadow);
+    transform: rotate(-8deg);
+}
+:root[data-theme="dark"] .section-title .hash { color: #000; }
+.section:nth-of-type(3n+1) .hash { background: var(--sh-green); }
+.section:nth-of-type(3n+2) .hash { background: var(--sh-pink); }
+.section:nth-of-type(3n) .hash { background: var(--sh-blue); }
+.section-title > code {
+    padding: 6px 14px;
+    border: var(--bw) solid var(--ink);
+    border-radius: 12px;
+    background: #161a23;
+    color: #4ade80;
+    box-shadow: 4px 4px 0 var(--sh-green), 4px 4px 0 var(--bw) var(--ink);
+}
+/* Rabisco ondulado no lugar da linha reta */
+.section-title::after {
+    height: 12px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12' viewBox='0 0 24 12'%3E%3Cpath d='M0 6 Q6 0 12 6 T24 6' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E") repeat-x left center / 24px 12px;
+    mask-image: linear-gradient(90deg, #000 40%, transparent);
+    opacity: 0.8;
+}
+
+/* ---------- Cards (labs, destaques, canais, FAQ) ---------- */
+.lab, .hl, .channel {
+    border: var(--bw) solid var(--ink);
+    border-radius: 24px;
+    box-shadow: 6px 6px 0 var(--shadow);
+    transition: transform 0.35s var(--bounce), box-shadow 0.35s var(--bounce), background 0.2s;
+}
+.lab:hover, .hl:hover, .channel:hover { transform: translate(-3px, -4px) rotate(-0.6deg); }
+.labs > :nth-child(even):hover, .highlights > :nth-child(even):hover, .channels > :nth-child(even):hover { transform: translate(-3px, -4px) rotate(0.6deg); }
+
+.lab-live { border-color: var(--ink); background: linear-gradient(180deg, rgba(74, 222, 128, 0.12), transparent 60%), var(--card); box-shadow: 6px 6px 0 var(--sh-green), 6px 6px 0 var(--bw) var(--ink); }
+.lab-live:hover { border-color: var(--ink); box-shadow: 10px 10px 0 var(--sh-green), 10px 10px 0 var(--bw) var(--ink); }
+.lab-locked { border-style: dashed; box-shadow: 6px 6px 0 var(--ink-soft); }
+.lab-locked:hover { border-color: var(--ink); transform: none; }
+.lab h3, .hl h3, .channel h3 { font-weight: 800; }
+.lab-emoji { border: var(--bw) solid var(--ink); border-radius: 16px; background: var(--bubble); box-shadow: 3px 3px 0 var(--shadow); transform: rotate(-5deg); transition: transform 0.35s var(--bounce); }
+.lab:hover .lab-emoji { transform: rotate(6deg) scale(1.12); }
+.lab-emoji:has(img) { border: var(--bw) solid var(--ink); box-shadow: 3px 3px 0 var(--shadow); }
+.lab-cta { font-weight: 800; }
+.lab-video { border-top: 2px dashed var(--line-strong); }
+.lab-video-thumb { border: 2px solid var(--ink); border-radius: 10px; box-shadow: 2px 2px 0 var(--shadow); }
+
+.tag { border: 2px solid var(--ink); font-weight: 800; transform: rotate(3deg); box-shadow: 2px 2px 0 var(--shadow); }
+.tag-live { background: var(--green); color: #052e14; }
+.tag-soon { border: 2px dashed var(--line-strong); box-shadow: none; }
+
+.hl-shark { box-shadow: 6px 6px 0 var(--sh-blue), 6px 6px 0 var(--bw) var(--ink); }
+.hl-agro { box-shadow: 6px 6px 0 var(--sh-green), 6px 6px 0 var(--bw) var(--ink); }
+.hl-shark:hover { border-color: var(--ink); box-shadow: 10px 10px 0 var(--sh-blue), 10px 10px 0 var(--bw) var(--ink); }
+.hl-agro:hover { border-color: var(--ink); box-shadow: 10px 10px 0 var(--sh-green), 10px 10px 0 var(--bw) var(--ink); }
+.hl-banner { border-bottom: var(--bw) solid var(--ink); height: 140px; overflow: hidden; }
+/* Bolinhas de gibi por cima do banner */
+.hl-banner::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.18) 2px, transparent 2.5px);
+    background-size: 14px 14px;
+}
+.hl-play { border: 3px solid var(--ink); border-radius: 16px; box-shadow: 4px 4px 0 var(--shadow); }
+.hl:hover .hl-play { transform: scale(1.15) rotate(-6deg); }
+.hl-leaf { font-size: 3.4rem; filter: drop-shadow(3px 3px 0 var(--shadow)); transition: transform 0.4s var(--bounce); }
+.hl:hover .hl-leaf { transform: rotate(-14deg) scale(1.15); }
+.hl-badge { border: 2px solid var(--ink); background: var(--sh-yellow); color: #161a23; box-shadow: 2px 2px 0 var(--shadow); transform: rotate(-2deg); }
+.hl-facts li { border: 2px solid var(--ink); border-radius: 14px; background: var(--bubble); box-shadow: 3px 3px 0 var(--ink-soft); }
+.hl-facts strong { font-weight: 900; }
+
+.channel:hover { border-color: var(--ink); box-shadow: 10px 10px 0 #ef4444, 10px 10px 0 var(--bw) var(--ink); }
+.channel-banner { border-bottom: var(--bw) solid var(--ink); }
+.channel-avatar { border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--shadow); transition: transform 0.35s var(--bounce); }
+.channel:hover .channel-avatar { transform: rotate(-10deg) scale(1.08); }
+.channel-cta { font-weight: 800; }
+
+/* ---------- Stack: adesivos de cores alternadas ---------- */
+.chips { gap: 10px; }
+.chips li {
+    border: 2px solid var(--ink);
+    background: var(--card);
+    color: var(--text);
+    font-weight: 700;
+    box-shadow: 3px 3px 0 var(--c, var(--sh-green));
+    transition: transform 0.25s var(--bounce), box-shadow 0.25s;
+}
+.chips li:nth-child(4n+1) { --c: var(--sh-green); transform: rotate(-1.5deg); }
+.chips li:nth-child(4n+2) { --c: var(--sh-blue); transform: rotate(1deg); }
+.chips li:nth-child(4n+3) { --c: var(--sh-pink); transform: rotate(-0.5deg); }
+.chips li:nth-child(4n+4) { --c: var(--sh-yellow); transform: rotate(1.5deg); }
+.chips li:hover { border-color: var(--ink); background: var(--c); color: #161a23; transform: translateY(-4px) rotate(-4deg) scale(1.06); box-shadow: 3px 5px 0 var(--shadow); }
+
+/* ---------- FAQ ---------- */
+.faq { gap: 14px; }
+.faq details { border: var(--bw) solid var(--ink); border-radius: 18px; box-shadow: 4px 4px 0 var(--shadow); transition: transform 0.25s var(--bounce), box-shadow 0.25s, background 0.15s; }
+.faq details:hover { border-color: var(--ink); transform: translate(-1px, -2px); box-shadow: 5px 6px 0 var(--shadow); }
+.faq details[open] { border-color: var(--ink); box-shadow: 5px 6px 0 var(--sh-green), 5px 6px 0 var(--bw) var(--ink); }
+.faq summary { font-weight: 700; }
+.faq summary::after {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 2px solid var(--ink);
+    border-radius: 50%;
+    background: var(--green);
+    color: #052e14;
+    font-weight: 900;
+    line-height: 1;
+    box-shadow: 2px 2px 0 var(--shadow);
+    transition: transform 0.3s var(--bounce);
+}
+
+/* ---------- Chamada final: um quadro de gibi ---------- */
+.cta {
+    border: 3px solid var(--ink);
+    border-radius: 28px;
+    background:
+        radial-gradient(rgba(74, 222, 128, 0.22) 1.6px, transparent 2px) 0 0 / 16px 16px,
+        radial-gradient(600px 220px at 100% 0%, rgba(96, 165, 250, 0.18), transparent 70%),
+        var(--card);
+    box-shadow: 8px 8px 0 var(--sh-pink), 8px 8px 0 3px var(--ink);
+}
+.cta h2 { font-weight: 900; text-shadow: 3px 3px 0 var(--sh-yellow); }
+.cta::after {
+    content: 'POW!';
+    position: absolute;
+    top: 12px;
+    right: 18px;
+    padding: 2px 10px;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    background: var(--sh-yellow);
+    color: #161a23;
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    box-shadow: 2px 2px 0 var(--shadow);
+    transform: rotate(8deg);
+    animation: twinkle 3s ease-in-out infinite;
+}
+
+.footer { border-top: 2px dashed var(--line-strong); font-weight: 600; }
+
+/* Entrada com quique */
+.hero-text > *, .hero-art, .stats { animation-name: pop-in; animation-timing-function: var(--bounce); }
+.hero-text > .hero-id .hello { animation-name: wave-in; }
+@keyframes pop-in {
+    from { opacity: 0; transform: translateY(24px) scale(0.94); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 860px) {
+    .terminal { transform: rotate(1deg); }
+    .hero-art::after { text-shadow: none; }
+}
+@media (max-width: 600px) {
+    .topnav { top: 8px; margin-top: 8px; }
+    .topnav-inner { height: 56px; border-radius: 16px; }
+    .hero h1 { text-shadow: 2px 2px 0 var(--sh-green), 4px 4px 0 var(--sh-blue); }
+    .stat { transform: none !important; }
+    .cta::after { display: none; }
+}
+
+/* O menu com contorno e sombra ocupa mais: a pílula ganha mais largura e,
+   em telas médias, os links de seção saem para os botões caberem */
+.topnav .wrap { max-width: 1240px; }
+@media (max-width: 1240px) {
+    .topnav-links a:not(.btn) { display: none; }
+}
